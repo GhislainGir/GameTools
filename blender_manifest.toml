@@ -2,10 +2,10 @@ schema_version = "1.0.0"
 
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
-id = "blender_data_baker"
-version = "1.0.0"
-name = "DataBaker"
-tagline = "Game-dev tools"
+id = "blender_game_tools"
+version = "0.1.0"
+name = "Game Tools"
+tagline = "Game Tools"
 maintainer = "Ghislain GIRARDOT <ghislaingir@outlook.com>"
 # Supported types: "add-on", "theme"
 type = "add-on"
@@ -15,7 +15,7 @@ type = "add-on"
 
 # Optional list defined by Blender and server, see:
 # https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
-tags = ["Bake", "UV"]
+tags = ["Bake", "UV", "Mesh", "Pipeline"]
 
 blender_version_min = "4.2.0"
 # # Optional: Blender version that the extension does not support, earlier versions are supported.
