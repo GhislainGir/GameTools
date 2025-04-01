@@ -56,7 +56,6 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
         ("AB_PACKED", "AB Packed", "Pack two components (e.g., X/Y) into a single float with minimal precision loss. 32-bit UVs required! See @doc for more info"),
         ("XYZ_PACKED", "XYZ Packed", "Pack all three components into a single float with severe precision loss. 32-bit UVs required! See @doc for more info"),
         ("POSITION_PACKED", "Packed with Position", "Pack axis data into the fractional part of position data. Axis is remapped and position XYZ components are rounded to integers which could be an issue depending on the scale (safe-ish with centimeters). See @doc for more info"),
-        #("OCTAHEDRAL", "Octahedral", "Use octahedral encoding for efficient vector storage (ideal for unit vectors)") @TODO
     ]
 
     # transform
