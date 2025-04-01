@@ -58,8 +58,11 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.frame_range_custom_start',
         'settings.frame_range_custom_end',
         'settings.frame_range_custom_step',
+        'settings.frame_range_custom_step_mode',
         'settings.frame_padding_mode',
         'settings.frame_padding',
+        'settings.frame_ref_mode',
+        'settings.frame_ref_custom',
         'settings.offset_tex',
         'settings.offset_tex_remap',
         'settings.offset_tex_file_name',
@@ -96,13 +99,7 @@ class VATBAKER_PT_VertexAnimation(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        if context.view_layer.objects.active:
-            for obj in context.selected_objects:
-                if (obj.type == "MESH"):
-                    return True
-
-        return False
+        return context.view_layer.objects.active and context.view_layer.objects.active.type == "MESH"
 
     def draw_header_preset(self, _context):
         VATBAKER_PT_VertexAnimation_Preset.draw_panel_header(self.layout)
@@ -151,12 +148,17 @@ class VATBAKER_PT_FramePanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "frame_range_custom_step", text="Step:")
 
+            if settings.frame_range_custom_step > 1:
+                row = layout.row()
+                row.prop(settings, "frame_range_custom_step_mode")
+
             row = layout.row()
             row.prop(settings, "frame_padding")
 
             row = layout.row()
             row.prop(settings, "frame_padding_mode")
             row.enabled = settings.frame_padding > 0
+ 
         elif (settings.frame_range_mode == "SCENE"):
             row = layout.row()
             row.label(text="Frame Range:")
@@ -177,6 +179,122 @@ class VATBAKER_PT_FramePanel(bpy.types.Panel):
 
             row = layout.row()
             row.prop(settings, "frame_range_custom_step", text="Step:")
+
+        row = layout.row()
+        row.prop(settings, "frame_ref_mode", text="Ref")
+        if settings.frame_ref_mode == "CUSTOM":
+            row = layout.row()
+            row.prop(settings, "frame_ref_custom", text="Frame")
+
+class VATBAKER_PT_FrameAdvPanel(bpy.types.Panel):
+    bl_idname = "VATBAKER_PT_frameadvpanel"
+    bl_parent_id = "VATBAKER_PT_framepanel"
+    bl_label = "Advanced"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 0
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_mode == "NLA"
+    
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.VATBakerSettings
+
+        row = layout.row()
+        row.label(text="NLA clips to exclude:")
+
+        row = layout.row()
+        row.template_list("VATBAKER_UL_NLAExclusionList", "", settings, "frame_range_nla_exclusion", settings, "frame_range_nla_exclusion_selected_index", rows=4) # @TODO implement skip list
+
+        col = row.column(align=True)
+        col.operator("frame_range_nla_exclusion.new_item", text="", icon="ADD")
+        col.operator("frame_range_nla_exclusion.delete_item", text="", icon="REMOVE")
+
+        col.separator()
+
+        col.operator("frame_range_nla_exclusion.move_item", text="", icon="TRIA_UP").direction = "UP"
+        col.operator("frame_range_nla_exclusion.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
+
+        row = layout.row()
+        row.prop(settings, "frame_range_nla_exclusion_selected")
+
+class VATBAKER_UL_NLAExclusionList(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.prop(item, "name", text="", emboss=False, icon_value=icon)
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon="ANIM_DATA")
+
+class VATBAKER_OT_NewItem(bpy.types.Operator):
+    """Add a new item to the list."""
+    bl_idname = "frame_range_nla_exclusion.new_item"
+    bl_label = "Add a new item"
+    
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_nla_exclusion_selected not in [nla.name for nla in context.scene.VATBakerSettings.frame_range_nla_exclusion]
+    
+    def execute(self, context):
+        context.scene.VATBakerSettings.frame_range_nla_exclusion.add()
+        last_index = len(context.scene.VATBakerSettings.frame_range_nla_exclusion) - 1
+        if last_index >= 0:
+            context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = last_index
+            context.scene.VATBakerSettings.frame_range_nla_exclusion[last_index].name = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected
+
+        return{'FINISHED'}
+
+class VATBAKER_OT_DeleteItem(bpy.types.Operator):
+    """Delete the selected item from the list."""
+    bl_idname = "frame_range_nla_exclusion.delete_item"
+    bl_label = "Deletes an item"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_nla_exclusion
+
+    def execute(self, context):
+        my_list = context.scene.VATBakerSettings.frame_range_nla_exclusion
+        index = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index
+        my_list.remove(index)
+        context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = min(max(0, index - 1), len(my_list) - 1)
+        return{'FINISHED'}
+
+class LIST_OT_MoveItem(bpy.types.Operator):
+    """Move an item in the list."""
+    bl_idname = "frame_range_nla_exclusion.move_item"
+    bl_label = "Move an item in the list"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_nla_exclusion
+
+    def move_index(self):
+        """ Move index of an item render queue while clamping it. """
+        index = bpy.context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index
+        list_length = len(bpy.context.scene.VATBakerSettings.frame_range_nla_exclusion) - 1 # (index starts at 0)
+        new_index = index + (-1 if self.direction == 'UP' else 1)
+        bpy.context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = max(0, min(new_index, list_length))
+
+    def execute(self, context):
+        my_list = context.scene.VATBakerSettings.frame_range_nla_exclusion
+        index = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index
+        neighbor = index + (-1 if self.direction == 'UP' else 1)
+        my_list.move(neighbor, index)
+        self.move_index()
+
+        return{'FINISHED'}
 
 ##############
 ### MESHES ###
@@ -208,8 +326,12 @@ class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(settings, "mesh_name")
 
-        row = layout.row()
-        row.prop(settings, "mesh_target_prop")
+        if settings.bake_mode == "ANIMATION":
+            row = layout.row()
+            row.prop(settings, "mesh_target_prop")
+
+            row = layout.row()
+            row.prop(settings, "mesh_target_mode")
 
 class VATBAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_meshuvpanel"

@@ -35,13 +35,13 @@ class VATBAKER_OT_Bake(Operator):
         settings = context.scene.VATBakerSettings
 
         Object = context.active_object
-        if Object and Object.type == 'MESH' and Object.mode == 'OBJECT':
+        if Object:
             if settings.bake_mode == "ANIMATION":
                 return True
-            else: # settings.bake_mode == "Mesh Sequence"
+            elif Object.type == "MESH":
                 return len(context.selected_objects) > 1
-        else:
-            return False
+        
+        return False
 
     def execute(self, context):
         success, verbose, msg = bake(context)

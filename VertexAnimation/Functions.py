@@ -72,6 +72,7 @@ def reset_bake_report():
     report.num_frames = 0
     report.num_frames_padded = 0
     report.frame_step = 0
+    report.frame_step_mode = "GLOBAL"
     report.frame_height = 0.0
     report.frame_rate = 0
     
@@ -235,7 +236,7 @@ def get_bake_apply_padding(context, objs_to_bake):
 
     settings = context.scene.VATBakerSettings
 
-    return (settings.bake_mode == 'ANIMATION') and (settings.frame_range_mode == "NLA") and get_objs_nla_allow_padding(objs_to_bake) and (settings.frame_padding > 0) #and (settings.tex_packing_mode == "SKIP")
+    return (settings.bake_mode == 'ANIMATION') and (settings.frame_range_mode == "NLA") and get_objs_nla_allow_padding(objs_to_bake) and (settings.frame_padding > 0) #and (settings.tex_packing_mode == "STACK")
 
 ############
 ### BAKE ###
@@ -425,6 +426,9 @@ def get_bake_frames(context, objs_to_bake):
 
     if settings.bake_mode == 'ANIMATION':
         nla_strips = get_bake_nla_strips(objs_to_bake)
+        nla_strips = [nla_strip for nla_strip in nla_strips if nla_strip[0].name not in [nla_strip_excluded.name for nla_strip_excluded in settings.frame_range_nla_exclusion]] # exclude user-specified black-listed strips
+        print(nla_strips)
+
 
         if settings.frame_range_mode == "NLA":
             if nla_strips:
@@ -441,6 +445,7 @@ def get_bake_frames(context, objs_to_bake):
                 frames_to_bake.sort()
 
             add_bake_report("frame_step", settings.frame_range_custom_step)
+            add_bake_report("frame_step_mode", settings.frame_range_custom_step_mode)
 
         elif (settings.frame_range_mode == "CUSTOM"):
             frames_to_bake = list(range(settings.frame_range_custom_start, settings.frame_range_custom_end + 1, settings.frame_range_custom_step))
@@ -930,7 +935,7 @@ def generate_mesh_geonodes(context, obj_to_export, num_vertices, tex_width, bake
 
     settings = context.scene.VATBakerSettings
 
-    use_row = (num_vertices == tex_width) or (settings.tex_packing_mode == 'SKIP')
+    use_row = (num_vertices == tex_width) or (settings.tex_packing_mode == 'STACK')
     if use_row:
         generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, image_nor)
     else:
@@ -3214,13 +3219,18 @@ def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake
 
     buffer_object_offset = 0
     frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
+    
+    bake_ref_frame = bake_start_frame
+    if settings.frame_ref_mode == "END":
+        bake_ref_frame = bake_end_frame
+    elif settings.frame_ref_mode == "CUSTOM":
+        bake_ref_frame = settings.frame_ref_custom
 
     for obj_index, obj_to_bake in enumerate(objs_to_bake): # @NOTE performance
         ############
         # REF POSE #
-        print(obj_to_bake)
 
-        context.scene.frame_set(bake_start_frame) # go to ref frame
+        context.scene.frame_set(bake_ref_frame)
         #context.view_layer.update()
 
         ref_eval_obj = obj_to_bake.evaluated_get(dgraph)
@@ -3310,7 +3320,7 @@ def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake
             if eval_mesh_vertex_count != ref_eval_mesh_vertex_count:
                 return (False, "Vertex count mismatch in frame " + str(frame_to_bake) + " for object " + obj_to_bake.name + ". It likely has a modifier that changes its topology during animation (i.e. a split edge modifier that suddenly splits an edge due to an increase angle).", [], [], None)
 
-            buffer_frame_offset = ((tex_width * bake_frame_height) if settings.tex_packing_mode == 'SKIP' else num_vertices) * frame_index * 4
+            buffer_frame_offset = ((tex_width * bake_frame_height) if settings.tex_packing_mode == 'STACK' else num_vertices) * frame_index * 4
             if mappings:
                 for mapping_index, mapping in enumerate(mappings):
                     buffer_vertex_index = buffer_object_offset + buffer_frame_offset + (mapping_index * 4)
@@ -3331,7 +3341,7 @@ def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake
                         offset = posed_tri_pos - tri_pos # delta with base position
                     else: # settings.offset_tex_mode == "POSITION"
                         offset = posed_tri_pos
-                    
+
                     x, y, z = offset * signed_scale
                     vertices_offsets[buffer_vertex_index + 0] = x
                     vertices_offsets[buffer_vertex_index + 1] = y
@@ -3351,7 +3361,7 @@ def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake
                     vertices_normals[buffer_vertex_index + 1] = y
                     vertices_normals[buffer_vertex_index + 2] = z
                     vertices_normals[buffer_vertex_index + 3] = 1.0
-            else:
+            else: # no mappings
                 # for each vertex
                 for VertexIndex, Vertex in enumerate(eval_posed_mesh.vertices):
                     buffer_vertex_index = buffer_object_offset + buffer_frame_offset + (VertexIndex * 4)
@@ -3454,7 +3464,7 @@ def get_sequence_vertices_buffers(context, objs_to_bake, bake_frames_info, bake_
         if eval_mesh_vertex_count != ref_eval_mesh_vertex_count:
             return (False, "Vertex count mismatch in frame " + str(frame_to_bake) + " for object " + objs_to_bake[0].name + ". It likely has a modifier that changes its topology during animation (i.e. a split edge modifier that suddenly splits an edge due to an increase angle).", [], [], None)
 
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.tex_packing_mode == 'SKIP' else num_vertices) * frame_index * 4
+        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.tex_packing_mode == 'STACK' else num_vertices) * frame_index * 4
         for vertex_index, vertex in enumerate(eval_mesh.vertices):
             buffer_vertex_index = buffer_frame_offset + (vertex_index * 4)
 
@@ -3680,7 +3690,7 @@ def get_best_texture_resolution(context, num_frames, num_vertices):
 
     # how many lines of pixels per frame?
     bake_frame_height_float = num_vertices / float(tex_width)
-    bake_frame_height = math.ceil(bake_frame_height_float) if settings.tex_packing_mode == 'SKIP' else bake_frame_height_float # else 'CONTINUOUS'
+    bake_frame_height = math.ceil(bake_frame_height_float) if settings.tex_packing_mode == 'STACK' else bake_frame_height_float # else 'CONTINUOUS'
     add_bake_report("frame_height", bake_frame_height)
 
     # fallback to using maximum allowed width if data can no longer fit into the texture based on that width
@@ -3702,7 +3712,7 @@ def get_best_texture_resolution(context, num_frames, num_vertices):
         while (tex_height < (num_frames * bake_frame_height)):
             tex_height *= 2
     else:
-        tex_height = num_frames * bake_frame_height if settings.tex_packing_mode == 'SKIP' else math.ceil(num_frames * bake_frame_height) # else 'CONTINUOUS'
+        tex_height = num_frames * bake_frame_height if settings.tex_packing_mode == 'STACK' else math.ceil(num_frames * bake_frame_height) # else 'CONTINUOUS'
 
     add_bake_report("tex_height", tex_height)
 
@@ -3888,7 +3898,6 @@ def check_path(path, override_file):
         if settings and (not settings.isspace()) and (not settings.startswith("#")):
             break
     f.close()
-    # print(settings)
     settings = ast.literal_eval(settings)
 
     # Set the flag to use the settings

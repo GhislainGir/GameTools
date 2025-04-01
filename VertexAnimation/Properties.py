@@ -19,6 +19,10 @@ from bpy.types import PropertyGroup
 #############################################################################################
 ###################################### PROPERTY GROUPS ######################################
 #############################################################################################
+class VATBAKER_PG_SettingsNLAProperty(PropertyGroup):
+    """ """
+    name: StringProperty(name="Name", default="")
+
 class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     """ """
 
@@ -65,10 +69,18 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
             ("SCENE", "Scene", "Use the scene's frame range (start and end frames are inclusive)"),
             ("CUSTOM", "Custom", "Use a custom frame range (start and end frames are inclusive)"),
         ]
-    frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived")
-    frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)")
+    frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived") # @TODO preset, report & XML
+    frame_range_nla_exclusion: CollectionProperty(type=VATBAKER_PG_SettingsNLAProperty) # @TODO preset, report & XML
+    frame_range_nla_exclusion_selected_index: IntProperty(name="Selected", min=0, default=0, description="") # @TODO preset, report & XML
+    frame_range_nla_exclusion_selected: StringProperty(name="Name", default="Clip", description="") # @TODO preset, report & XML
+    frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)") # @TODO useful?
     frame_range_custom_end: IntProperty(name="End", min=2, default=25, description="End frame (inclusive)")
-    frame_range_custom_step: IntProperty(name="Step", min=1, default=1, description="Number of frames to skip for each frame. In NLA mode, this applies per animation to ensure the first frame of each animation clip is included. It may cause issues when baking multiple objects with different NLA strips")
+    frame_range_custom_step: IntProperty(name="Step", min=1, default=1, description="Bake every nth frame")
+    frame_range_custom_step_modes = [
+        ("GLOBAL", "Global", "Bake every nth frame, starting from the Start Frame"),
+        ("NLACLIP", "NLA Clip", "Bake every nth frame, starting from each NLA clip's Start Frame. This ensures the first frame of each animation clip is included, which *may* cause issues when baking multiple objects with different NLA strips")
+    ]
+    frame_range_custom_step_mode: EnumProperty(name="Mode", items=frame_range_custom_step_modes, default="NLACLIP", description="Select how the frame step is applied")
     frame_padding_modes = [
         ('PREFIX', 'Prefix', 'Add the last frame before the first frame'),
         ('SUFFIX', 'Suffix', 'Add the first frame after the last frame'),
@@ -76,6 +88,13 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     ]
     frame_padding_mode: EnumProperty(name="Mode", items=frame_padding_modes, default=1, description="Select how padding is applied to frame data")
     frame_padding: IntProperty(name="Padding", min=0, default=0, description="Padding used to prevent blending between the end frame of one animation and the start frame of another. One frame of padding is typically enough. Note that this may cause issues if baking multiple objects with different NLA tracks")
+    frame_ref_modes = [
+        ("START", "Start", "Use the start frame as the reference frame"),
+        ("END", "End", "Use the end frame as the reference frame"),
+        ("CUSTOM", "Custom", "Use a custom frame as the reference frame"),
+    ]
+    frame_ref_mode: EnumProperty(name="Mode", items=frame_ref_modes, default="START", description="Select how the reference frame is computed") # @TODO add to report/XML
+    frame_ref_custom: IntProperty(name="Reference", default=1, description="Frame to use as the reference 'pose,' from which mappings and offsets are computed. Specifying a frame outside the animation range is allowed to specify a T-pose frame that should otherwise be excluded from the bake.") # @TODO add to report/XML
 
     offset_tex_modes = [
         ('OFFSET', 'Offset', 'Store the vertices offset from the base pose in the VAT texture (recommended)'),
@@ -91,26 +110,26 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     normal_tex_remap: BoolProperty(name="Remap", default=True, description="Enable to remap the normals within a [0:1] range. This requires a constant bias to remap the normals in your shader or game engine. It is likely safe to do so, as normal VAT may be stored in an 8-bit RGBA texture without noticeable precision loss")
     normal_tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>_Normal", description="Name for the vertex normal texture file (without the .exr extension)")
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion")
-    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name", subtype='FILE_PATH')
+    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH')
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
     export_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of vertices or frames")
     export_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of vertices or frame")
 
-    tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported. May lead to overflow issues when vertices exceed the image width, resulting in multiple rows per frame. Extra space handling can be controlled with the 'Stack Mode' option.")
-    tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases. Extra space handling can be controlled with the 'Stack Mode' option.")
+    tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported. May lead to overflow issues when vertices exceed the image width, resulting in multiple rows per frame. Extra space handling can be controlled with the 'Stack Mode' option")
+    tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases. Extra space handling can be controlled with the 'Stack Mode' option")
     tex_packing_modes = [
         ('CONTINUOUS', 'Continuous (Experimental)', "Store subsequent frame data directly after the previous frame in the texture, ensuring tight packing but requiring a more complex playback algorithm (frame data may start at arbitrary locations and span multiple lines)"),
-        ('SKIP', 'Skip', 'Skip remaining pixels and place the next frame on the next line, simplifying playback but reducing packing efficiency and limiting texture space for vertex data')
+        ('STACK', 'Stack', 'Skip remaining pixels and place the next frame on the next line (stack), simplifying playback but reducing packing efficiency and limiting texture space for vertex data')
     ]
 
-    tex_packing_mode: EnumProperty(name="Stack Mode", items=tex_packing_modes, default=1, description="Control how frames are arranged in the texture when there’s extra space (underflow) or not enough space (overflow). \n\nUnderflow occurs when the number of vertices per frame is less than the image width, causing gaps at the end of the line ('Power of Two' might cause this). \n\nOverflow happens when there are too many vertices for a single line, and the data is spread across multiple lines, possibly leaving gaps. \n\nThis setting determines how to handle these empty spaces")
+    tex_packing_mode: EnumProperty(name="Mode", items=tex_packing_modes, default=1, description="Control how frames are arranged in the texture when there’s extra space (underflow) or not enough space (overflow). \n\nUnderflow occurs when the number of vertices per frame is less than the image width, causing gaps at the end of the line ('Power of Two' might cause this). \n\nOverflow happens when there are too many vertices for a single line, and the data is spread across multiple lines, possibly leaving gaps. \n\nThis setting determines how to handle these empty spaces")
     
     # Underflow - CONTINUOUS
     # f5 f5 f5 00
     # f3 f4 f4 f4
     # f2 f2 f3 f3
     # f1 f1 f1 f2
-    # Underflow - SKIP
+    # Underflow - STACK
     # f4 f4 f4 00
     # f3 f3 f3 00
     # f2 f2 f2 00
@@ -120,7 +139,7 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     # f2 f2 f3 f3
     # f1 f2 f2 f2
     # f1 f1 f1 f1
-    # Overflow - SKIP
+    # Overflow - STACK
     # f2 00 00 00
     # f2 f2 f2 f2
     # f1 00 00 00
@@ -173,6 +192,7 @@ class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
     num_frames: IntProperty(name="Count", default=0, description="")
     num_frames_padded: IntProperty(name="Padded", default=0, description="")
     frame_step: IntProperty(name="Frame Step", default=0, description="")
+    frame_step_mode: StringProperty(name="Step Mode", default="", description="")
     frame_width: FloatProperty(name="Frame Width", default=0.0, description="")
     frame_height: FloatProperty(name="Frame Height", default=0.0, description="")
     frame_rate: FloatProperty(name="FPS", default=24.0, description="")
