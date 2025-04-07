@@ -15,6 +15,7 @@ import bpy
 
 from bpy.types import Operator
 from bpy.props import StringProperty
+from bl_operators.presets import AddPresetBase
 
 from . import Functions
 from .Functions import bake, reset_bake_report, export_bake_report
@@ -52,6 +53,125 @@ class VATBAKER_OT_Bake(Operator):
             self.report({verbose}, msg)
             return {'CANCELLED'}
 
+##############
+### Preset ###
+class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
+    bl_idname = 'databaker_vatpanel.addpreset'
+    bl_label = 'Add preset'
+    preset_menu = 'VATBAKER_MT_VertexAnimation_Presets'
+
+    preset_defines = [ 'settings = bpy.context.scene.VATBakerSettings' ]
+
+    preset_values = [
+        'settings.bake_mode',
+        'settings.scale',
+        'settings.invert_x',
+        'settings.invert_y',
+        'settings.invert_z',
+        'settings.uvmap_name',
+        'settings.invert_v',
+        'settings.mesh_name',
+        'settings.mesh_target_prop',
+        'settings.export_mesh',
+        'settings.export_mesh_file_name',
+        'settings.export_mesh_file_path',
+        'settings.export_mesh_file_override',
+        'settings.require_triangulation',
+        'settings.previz_result',
+        'settings.export_xml',
+        'settings.export_xml_mode',
+        'settings.export_xml_file_name',
+        'settings.export_xml_file_path',
+        'settings.export_xml_override',
+        'settings.frame_range_mode',
+        'settings.frame_range_nla_exclusion',
+        'settings.frame_range_nla_exclusion_selected_index',
+        'settings.frame_range_nla_exclusion_selected',
+        'settings.frame_range_custom_start',
+        'settings.frame_range_custom_end',
+        'settings.frame_range_custom_step',
+        'settings.frame_range_custom_step_mode',
+        'settings.frame_padding_mode',
+        'settings.frame_padding',
+        'settings.frame_ref_mode',
+        'settings.frame_ref_custom',
+        'settings.offset_tex',
+        'settings.offset_tex_remap',
+        'settings.offset_tex_file_name',
+        'settings.normal_tex',
+        'settings.normal_tex_remap',
+        'settings.normal_tex_file_name',
+        'settings.export_tex',
+        'settings.export_tex_file_path',
+        'settings.export_tex_override',
+        'settings.export_tex_max_width',
+        'settings.export_tex_max_height',
+        'settings.tex_force_power_of_two',
+        'settings.tex_force_power_of_two_square',
+        'settings.tex_packing_mode'
+    ]
+
+    preset_subdir = 'operator/databaker_vat'
+
+#####################
+### NLA Exclusion ###
+class VATBAKER_OT_NLAExclusion_NewItem(Operator):
+    """Add a new item to the list."""
+    bl_idname = "frame_range_nla_exclusion.new_item"
+    bl_label = "Add a new item"
+    
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_nla_exclusion_selected != "" and context.scene.VATBakerSettings.frame_range_nla_exclusion_selected not in [nla.name for nla in context.scene.VATBakerSettings.frame_range_nla_exclusion]
+    
+    def execute(self, context):
+        context.scene.VATBakerSettings.frame_range_nla_exclusion.add()
+        last_index = len(context.scene.VATBakerSettings.frame_range_nla_exclusion) - 1
+        if last_index >= 0:
+            context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = last_index
+            context.scene.VATBakerSettings.frame_range_nla_exclusion[last_index].name = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected
+
+        return{'FINISHED'}
+
+class VATBAKER_OT_NLAExclusion_DeleteItem(Operator):
+    """Delete the selected item from the list."""
+    bl_idname = "frame_range_nla_exclusion.delete_item"
+    bl_label = "Deletes an item"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_nla_exclusion
+
+    def execute(self, context):
+        settings = context.scene.VATBakerSettings
+        settings.frame_range_nla_exclusion.remove(settings.frame_range_nla_exclusion_selected_index)
+        settings.frame_range_nla_exclusion_selected_index = min(max(0, settings.frame_range_nla_exclusion_selected_index), len(settings.frame_range_nla_exclusion) - 1)
+        return{'FINISHED'}
+
+class VATBAKER_OT_NLAExclusion_MoveItem(Operator):
+    """Move an item in the list."""
+    bl_idname = "frame_range_nla_exclusion.move_item"
+    bl_label = "Move an item in the list"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.VATBakerSettings.frame_range_nla_exclusion
+    
+    def execute(self, context):
+        settings = context.scene.VATBakerSettings
+        index_offset = -1 if self.direction == 'UP' else 1
+        settings.frame_range_nla_exclusion.move(settings.frame_range_nla_exclusion_selected_index + index_offset, settings.frame_range_nla_exclusion_selected_index)
+        settings.frame_range_nla_exclusion_selected_index = max(0, min(settings.frame_range_nla_exclusion_selected_index + index_offset, len(settings.frame_range_nla_exclusion) - 1))
+
+        return{'FINISHED'}
+
+##############
+### Report ###
 class VATBAKER_OT_ExportReport(Operator):
     """ """
     bl_idname = "gametools.vatbaker_export_report"

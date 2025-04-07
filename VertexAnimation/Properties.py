@@ -69,11 +69,11 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
             ("SCENE", "Scene", "Use the scene's frame range (start and end frames are inclusive)"),
             ("CUSTOM", "Custom", "Use a custom frame range (start and end frames are inclusive)"),
         ]
-    frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived") # @TODO preset, report & XML
-    frame_range_nla_exclusion: CollectionProperty(type=VATBAKER_PG_SettingsNLAProperty) # @TODO preset, report & XML
-    frame_range_nla_exclusion_selected_index: IntProperty(name="Selected", min=0, default=0, description="") # @TODO preset, report & XML
-    frame_range_nla_exclusion_selected: StringProperty(name="Name", default="Clip", description="") # @TODO preset, report & XML
-    frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)") # @TODO useful?
+    frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived")
+    frame_range_nla_exclusion: CollectionProperty(type=VATBAKER_PG_SettingsNLAProperty)
+    frame_range_nla_exclusion_selected_index: IntProperty(name="Selected", min=0, default=0, description="")
+    frame_range_nla_exclusion_selected: StringProperty(name="Name", default="Clip", description="")
+    frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)")
     frame_range_custom_end: IntProperty(name="End", min=2, default=25, description="End frame (inclusive)")
     frame_range_custom_step: IntProperty(name="Step", min=1, default=1, description="Bake every nth frame")
     frame_range_custom_step_modes = [
@@ -93,8 +93,8 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
         ("END", "End", "Use the end frame as the reference frame"),
         ("CUSTOM", "Custom", "Use a custom frame as the reference frame"),
     ]
-    frame_ref_mode: EnumProperty(name="Mode", items=frame_ref_modes, default="START", description="Select how the reference frame is computed") # @TODO add to report/XML
-    frame_ref_custom: IntProperty(name="Reference", default=1, description="Frame to use as the reference 'pose,' from which mappings and offsets are computed. Specifying a frame outside the animation range is allowed to specify a T-pose frame that should otherwise be excluded from the bake.") # @TODO add to report/XML
+    frame_ref_mode: EnumProperty(name="Mode", items=frame_ref_modes, default="START", description="Select how the reference frame is computed")
+    frame_ref_custom: IntProperty(name="Reference", default=1, description="Frame to use as the reference 'pose,' from which mappings and offsets are computed. Specifying a frame outside the animation range is allowed to specify a T-pose frame that should otherwise be excluded from the bake.")
 
     offset_tex_modes = [
         ('OFFSET', 'Offset', 'Store the vertices offset from the base pose in the VAT texture (recommended)'),
@@ -184,6 +184,8 @@ class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
         ('PREFIX_SUFFIX', 'Prefix & Suffix', 'Last frame was added before first frame AND first frame was added after last frame')
     ]
     padding_mode: EnumProperty(name="Sampling", items=padding_modes, default=0, description="")
+    ref_mode: StringProperty(name="Frame Ref Mode", default="", description="")
+    ref: IntProperty(name="Frame Ref", default=1, description="")
     anims: CollectionProperty(type=VATBAKER_PG_ReportAnimPropertyGroup)
     selected_anim: IntProperty(name="Selected Anim", default=0, description="")
 

@@ -14,7 +14,6 @@
 import bpy
 import os
 
-from bl_operators.presets import AddPresetBase
 from bl_ui.utils import PresetPanel
 
 ####################################################################################
@@ -25,61 +24,6 @@ class VATBAKER_MT_VertexAnimation_Presets(bpy.types.Menu):
     preset_subdir = 'operator/databaker_vat'
     preset_operator = 'script.execute_preset'
     draw = bpy.types.Menu.draw_preset
-
-class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'databaker_vatpanel.addpreset'
-    bl_label = 'Add preset'
-    preset_menu = 'VATBAKER_MT_VertexAnimation_Presets'
-
-    preset_defines = [ 'settings = bpy.context.scene.VATBakerSettings' ]
-
-    preset_values = [
-        'settings.bake_mode',
-        'settings.scale',
-        'settings.invert_x',
-        'settings.invert_y',
-        'settings.invert_z',
-        'settings.uvmap_name',
-        'settings.invert_v',
-        'settings.mesh_name',
-        'settings.mesh_target_prop',
-        'settings.export_mesh',
-        'settings.export_mesh_file_name',
-        'settings.export_mesh_file_path',
-        'settings.export_mesh_file_override',
-        'settings.require_triangulation',
-        'settings.previz_result',
-        'settings.export_xml',
-        'settings.export_xml_mode',
-        'settings.export_xml_file_name',
-        'settings.export_xml_file_path',
-        'settings.export_xml_override',
-        'settings.frame_range_mode',
-        'settings.frame_range_custom_start',
-        'settings.frame_range_custom_end',
-        'settings.frame_range_custom_step',
-        'settings.frame_range_custom_step_mode',
-        'settings.frame_padding_mode',
-        'settings.frame_padding',
-        'settings.frame_ref_mode',
-        'settings.frame_ref_custom',
-        'settings.offset_tex',
-        'settings.offset_tex_remap',
-        'settings.offset_tex_file_name',
-        'settings.normal_tex',
-        'settings.normal_tex_remap',
-        'settings.normal_tex_file_name',
-        'settings.export_tex',
-        'settings.export_tex_file_path',
-        'settings.export_tex_override',
-        'settings.export_tex_max_width',
-        'settings.export_tex_max_height',
-        'settings.tex_force_power_of_two',
-        'settings.tex_force_power_of_two_square',
-        'settings.tex_packing_mode'
-    ]
-
-    preset_subdir = 'operator/databaker_vat'
 
 class VATBAKER_PT_VertexAnimation_Preset(PresetPanel, bpy.types.Panel):
     bl_label = 'VAT Baker Presets'
@@ -210,7 +154,7 @@ class VATBAKER_PT_FrameAdvPanel(bpy.types.Panel):
         row.label(text="NLA clips to exclude:")
 
         row = layout.row()
-        row.template_list("VATBAKER_UL_NLAExclusionList", "", settings, "frame_range_nla_exclusion", settings, "frame_range_nla_exclusion_selected_index", rows=4) # @TODO implement skip list
+        row.template_list("VATBAKER_UL_NLAExclusionList", "", settings, "frame_range_nla_exclusion", settings, "frame_range_nla_exclusion_selected_index", rows=4)
 
         col = row.column(align=True)
         col.operator("frame_range_nla_exclusion.new_item", text="", icon="ADD")
@@ -231,70 +175,6 @@ class VATBAKER_UL_NLAExclusionList(bpy.types.UIList):
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
             layout.label(text="", icon="ANIM_DATA")
-
-class VATBAKER_OT_NewItem(bpy.types.Operator):
-    """Add a new item to the list."""
-    bl_idname = "frame_range_nla_exclusion.new_item"
-    bl_label = "Add a new item"
-    
-    @classmethod
-    def poll(cls, context):
-        return context.scene.VATBakerSettings.frame_range_nla_exclusion_selected not in [nla.name for nla in context.scene.VATBakerSettings.frame_range_nla_exclusion]
-    
-    def execute(self, context):
-        context.scene.VATBakerSettings.frame_range_nla_exclusion.add()
-        last_index = len(context.scene.VATBakerSettings.frame_range_nla_exclusion) - 1
-        if last_index >= 0:
-            context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = last_index
-            context.scene.VATBakerSettings.frame_range_nla_exclusion[last_index].name = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected
-
-        return{'FINISHED'}
-
-class VATBAKER_OT_DeleteItem(bpy.types.Operator):
-    """Delete the selected item from the list."""
-    bl_idname = "frame_range_nla_exclusion.delete_item"
-    bl_label = "Deletes an item"
-
-    @classmethod
-    def poll(cls, context):
-        return context.scene.VATBakerSettings.frame_range_nla_exclusion
-
-    def execute(self, context):
-        my_list = context.scene.VATBakerSettings.frame_range_nla_exclusion
-        index = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index
-        my_list.remove(index)
-        context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = min(max(0, index - 1), len(my_list) - 1)
-        return{'FINISHED'}
-
-class LIST_OT_MoveItem(bpy.types.Operator):
-    """Move an item in the list."""
-    bl_idname = "frame_range_nla_exclusion.move_item"
-    bl_label = "Move an item in the list"
-
-    direction: bpy.props.EnumProperty(items=(
-        ('UP', 'Up', ""),
-        ('DOWN', 'Down', ""),
-        ))
-
-    @classmethod
-    def poll(cls, context):
-        return context.scene.VATBakerSettings.frame_range_nla_exclusion
-
-    def move_index(self):
-        """ Move index of an item render queue while clamping it. """
-        index = bpy.context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index
-        list_length = len(bpy.context.scene.VATBakerSettings.frame_range_nla_exclusion) - 1 # (index starts at 0)
-        new_index = index + (-1 if self.direction == 'UP' else 1)
-        bpy.context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = max(0, min(new_index, list_length))
-
-    def execute(self, context):
-        my_list = context.scene.VATBakerSettings.frame_range_nla_exclusion
-        index = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index
-        neighbor = index + (-1 if self.direction == 'UP' else 1)
-        my_list.move(neighbor, index)
-        self.move_index()
-
-        return{'FINISHED'}
 
 ##############
 ### MESHES ###

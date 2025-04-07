@@ -28,7 +28,7 @@ import time
 
 ##############
 ### REPORT ###
-def new_bake_report(context):
+def new_bake_report(context: bpy.types.Context):
     """ """
     settings = context.scene.VATBakerSettings
 
@@ -64,6 +64,8 @@ def reset_bake_report():
     report.padded = False
     report.padding = 0
     report.padding_mode = "SUFFIX"
+    report.ref_mode = ""
+    report.ref_custom = 0
     report.anims.clear()
     report.selected_anim = 0
     
@@ -105,11 +107,11 @@ def reset_bake_report():
     report.xml = False
     report.xml_path = ""
 
-def add_bake_report(prop_name, prop_value):
+def add_bake_report(prop_name: str, prop_value: float|int|str):
     """ """
     setattr(bpy.context.scene.VATBakerReport, prop_name, prop_value)
 
-def add_bake_report_anim(objs, name, frame_start, frame_end, frame_start_time, frame_end_time):
+def add_bake_report_anim(objs: list, name: str, frame_start: int, frame_end: int, frame_start_time: float, frame_end_time: float):
     """ """
     settings = bpy.context.scene.VATBakerSettings
     report = bpy.context.scene.VATBakerReport
@@ -127,13 +129,13 @@ def add_bake_report_anim(objs, name, frame_start, frame_end, frame_start_time, f
     report_anim.end_frame = frame_end
     report_anim.end_time = frame_end_time
 
-def export_bake_report(context):
+def export_bake_report(context: bpy.types.Context) -> tuple[bool, str, str]:
     """ """
     return(export_xml(context))
 
 ###########
 ### NLA ###
-def get_obj_nla_tracks(obj):
+def get_obj_nla_tracks(obj: bpy.types.Object) -> bpy.types.NlaTrack:
     """ """
     if not obj:
         return None
@@ -150,7 +152,7 @@ def get_obj_nla_tracks(obj):
 
     return None
 
-def get_obj_nla_start_end_frames(obj):
+def get_obj_nla_start_end_frames(obj: bpy.types.Object) -> list:
     """
     Return the list of the object's NLA strips start/end frames, or the armature's NLA strips it may be parented to
     
@@ -170,7 +172,7 @@ def get_obj_nla_start_end_frames(obj):
 
     return nla_frames
 
-def get_objs_nla_allow_padding(objs):
+def get_objs_nla_allow_padding(objs: list) -> bool:
     """
     This function iterates objects and compares the NLA strips of two objects at a time and returns false as soon as a name, start or end frame isn't similar. This is used to disable the padding feature because it would otherwise lead to unexpected results if selected objects don't all share the same NLA anim strips: padded/duplicated frames for a specific NLA strip by an object may correspond to frames in the middle of a NLA clip used by another object.
     
@@ -200,7 +202,7 @@ def get_objs_nla_allow_padding(objs):
 
     return True
 
-def get_bake_nla_strips(objs):
+def get_bake_nla_strips(objs: list) -> list:
     """ """
     nla_strips = []
     for obj in objs: # build list
@@ -231,7 +233,7 @@ def get_bake_nla_strips(objs):
 
     return unique_nla_strips
 
-def get_bake_apply_padding(context, objs_to_bake):
+def get_bake_apply_padding(context: bpy.types.Context, objs_to_bake: list) -> bool:
     """ """
 
     settings = context.scene.VATBakerSettings
@@ -240,7 +242,7 @@ def get_bake_apply_padding(context, objs_to_bake):
 
 ############
 ### BAKE ###
-def get_bake_selection(context):
+def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy.types.Object]:
     """
     Modify & ensure the active & selected objects can lead to a valid bake and return the list of objects to include in the bake.
 
@@ -406,7 +408,7 @@ def get_bake_selection(context):
 
     return (True, "", objs_to_bake, active_obj)
 
-def get_bake_frames(context, objs_to_bake):
+def get_bake_frames(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, tuple[list, int, int]]:
     """
     Return the list of frames to bake and the resulting frame time.
 
@@ -530,7 +532,7 @@ def get_bake_frames(context, objs_to_bake):
 
     return (True, "", (frames_to_bake, start_frame, end_frame))
 
-def get_bake_vertices(context, objs_to_bake):
+def get_bake_vertices(context: bpy.types.Context, objs_to_bake: list) -> int:
     """
     Return the amount of vertices to bake in total, for one frame. This depends on the amount of selected object and their modifier(s)
 
@@ -567,7 +569,7 @@ def get_bake_vertices(context, objs_to_bake):
 
     return num_vertices
 
-def get_bake_name(context, active_object):
+def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -> str:
     """
     Return the name to give to the mesh & images to generate.
 
@@ -584,7 +586,7 @@ def get_bake_name(context, active_object):
     name = replace_tags(name, tags)
     return name
 
-def bake(context):
+def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     """
     Main bake function.
 
@@ -748,7 +750,7 @@ def bake(context):
 
 ##############
 ### MESHES ###
-def generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_frame_ref):
+def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref) -> tuple[bool, str, bpy.types.Object, int]:
     """
     Generate the mesh object to export
 
@@ -842,7 +844,7 @@ def generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_
 
     return (True, "", context.view_layer.objects.active, eval_mesh_uvmap_index)
 
-def generate_mesh_uvs(context, mesh, tex_width, tex_height, vertex_index_offset):
+def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset) -> tuple[bool, str, int]:
     """
     Configure the mesh UVs so that one vertex is located on one unique texel in the VAT texture(s)
 
@@ -890,7 +892,7 @@ def generate_mesh_uvs(context, mesh, tex_width, tex_height, vertex_index_offset)
 
     return (True, "", uvmap_index)
 
-def export_mesh(context, bake_name, obj_to_export):
+def export_mesh(context: bpy.types.Context, bake_name: str, obj_to_export: bpy.types.Object):
     """
     Export the given object to FBX
 
@@ -917,7 +919,7 @@ def export_mesh(context, bake_name, obj_to_export):
 
 #################
 ### GEO NODES ###
-def generate_mesh_geonodes(context, obj_to_export, num_vertices, tex_width, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, image_nor):
+def generate_mesh_geonodes(context: bpy.types.Context, obj_to_export: bpy.types.Object, num_vertices: int, tex_width: int, bake_frames_info: tuple[list, int, int], bake_frame_height: int, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image) -> tuple[bool, str]:
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exist from a previous call and is thus assigned to the modifier or is generated to previsualize the baked VAT texture(s)
 
@@ -928,7 +930,7 @@ def generate_mesh_geonodes(context, obj_to_export, num_vertices, tex_width, bake
     :param Frames: Frames to bake
     :param bake_frame_height: Amount of lines of pixels per frame
     :param img_offset: VAT texture that stores vertex offset data
-    :param image_nor: VAT texture that stores vertex normal data
+    :param img_nor: VAT texture that stores vertex normal data
     :return: success, message
     :rtype: tuple
     """
@@ -937,13 +939,13 @@ def generate_mesh_geonodes(context, obj_to_export, num_vertices, tex_width, bake
 
     use_row = (num_vertices == tex_width) or (settings.tex_packing_mode == 'STACK')
     if use_row:
-        generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, image_nor)
+        generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, img_nor)
     else:
-        generate_mesh_geonodes_partialrow(context, obj_to_export, bake_frames_info, num_vertices / tex_width, vertices_bounds, img_offset, image_nor)
+        generate_mesh_geonodes_partialrow(context, obj_to_export, bake_frames_info, num_vertices / tex_width, vertices_bounds, img_offset, img_nor)
 
     return (True, "")
 
-def generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, image_nor):
+def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int], bake_frame_height: int, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exists from a previous call and is thus assigned to the modifier or is generated to previsualize the baked VAT texture(s) using a simple V offset to playback the animation
 
@@ -953,7 +955,7 @@ def generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_fr
     :param bake_frame_height: Amount of lines of pixels per frame
     :param vertices_bounds: Animation bounds to derive maximum offset
     :param img_offset: VAT texture that stores vertex offset data
-    :param image_nor: VAT texture that stores vertex normal data
+    :param img_nor: VAT texture that stores vertex normal data
     """
 
     settings = context.scene.VATBakerSettings
@@ -984,10 +986,10 @@ def generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_fr
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemap"].identifier] = max_offset if settings.offset_tex_remap else mathutils.Vector((1.0, 1.0, 1.0))
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemapped"].identifier] = settings.offset_tex_remap
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetMode"].identifier] = settings.offset_tex_mode == "OFFSET"
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalTex"].identifier] = image_nor
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalTex"].identifier] = img_nor
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalScale"].identifier] = 1
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalRemapped"].identifier] = settings.normal_tex_remap
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if image_nor else False
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if img_nor else False
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameHeight"].identifier] = bake_frame_height
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameOffset"].identifier] = bake_start_frame
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData.VAT"
@@ -996,16 +998,16 @@ def generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_fr
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.invert_y
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.invert_z
 
-def generate_mesh_geonodes_partialrow(context, obj_to_export, bake_frames_info, FrameStep, vertices_bounds, img_offset, image_nor):
+def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int], frame_step, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exist from a previous call and is thus assigned to the modifier or is generated to previsualize the baked VAT texture(s) using a complex U&V offset to playback the animation
 
     :param context: Blender current execution context
     :param Object: Object to edit
     :param Frames: Frames to bake
-    :param FrameStep: Amount of V axis to offset per frame
+    :param frame_step: Amount of V axis to offset per frame
     :param img_offset: VAT texture that stores vertex offset data
-    :param image_nor: VAT texture that stores vertex normal data
+    :param img_nor: VAT texture that stores vertex normal data
     """
 
     settings = context.scene.VATBakerSettings
@@ -1037,12 +1039,12 @@ def generate_mesh_geonodes_partialrow(context, obj_to_export, bake_frames_info, 
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemap"].identifier] = max_offset if settings.offset_tex_remap else mathutils.Vector((1.0, 1.0, 1.0))
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemapped"].identifier] = settings.offset_tex_remap
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetMode"].identifier] = settings.offset_tex_mode == "OFFSET"
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalTex"].identifier] = image_nor
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalTex"].identifier] = img_nor
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalScale"].identifier] = 1
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalRemapped"].identifier] = settings.normal_tex_remap
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if image_nor else False
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if img_nor else False
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["Frames"].identifier] = len(frames_to_bake)
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameStep"].identifier] = FrameStep
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameStep"].identifier] = frame_step
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameOffset"].identifier] = bake_start_frame
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData.VAT"
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.invert_v
@@ -3189,7 +3191,7 @@ def build_mesh_geonodes_partialrow_group():
 
 ###############
 ### BUFFERS ###
-def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake_frame_height, tex_width, tex_height, num_vertices):
+def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: list, bake_frames_info: tuple[list, int, int], bake_frame_height: int, tex_width: int, tex_height: int, num_vertices: int) -> tuple[bool, str, list, list, tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]]:
     """
     Iterate objects and frames to build a buffer of vertices offsets & normals and keep track of extended bounds. This method expects objects to be animated using various methods (keyframes, armatures etc) and frames will actually be 'played' and objects will be evaluated each frame.
 
@@ -3225,6 +3227,9 @@ def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake
         bake_ref_frame = bake_end_frame
     elif settings.frame_ref_mode == "CUSTOM":
         bake_ref_frame = settings.frame_ref_custom
+
+    add_bake_report("ref_mode", settings.frame_ref_mode)
+    add_bake_report("ref", bake_ref_frame)
 
     for obj_index, obj_to_bake in enumerate(objs_to_bake): # @NOTE performance
         ############
@@ -3403,7 +3408,7 @@ def get_animation_vertices_buffers(context, objs_to_bake, bake_frames_info, bake
 
     return (True, "", vertices_offsets, vertices_normals, (ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset))
 
-def get_sequence_vertices_buffers(context, objs_to_bake, bake_frames_info, bake_frame_height, tex_width, tex_height, num_vertices):
+def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list, bake_frames_info: tuple[list, int, int], bake_frame_height: int, tex_width: int, tex_height: int, num_vertices: int) -> tuple[bool, str, list, list, tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]]:
     """
     Iterate objects and frames to build a buffer of vertices offsets & normals and keep track of extended bounds. This method expects a list of mesh to act as a 'mesh sequence', frames are irrelevant except to get the frame count
 
@@ -3504,7 +3509,7 @@ def get_sequence_vertices_buffers(context, objs_to_bake, bake_frames_info, bake_
 
     return (True, "", vertices_offsets, vertices_normals, (ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset))
 
-def get_inverted_buffers(vertices_offsets, vertices_normals, tex_width, tex_height):
+def get_inverted_buffers(vertices_offsets: list, vertices_normals: list, tex_width: int, tex_height: int) -> tuple[list, list]:
     """ 
     Re-order vert buffers so that pixel buffer is flipped in V (aka invert image). Append line of pixels after line in reverse order.
 
@@ -3527,7 +3532,7 @@ def get_inverted_buffers(vertices_offsets, vertices_normals, tex_width, tex_heig
 
     return (vertices_offsets_inv, vertices_normals_inv)
 
-def get_remapped_vertices_offset_buffer(vertices_offsets, vertices_bounds):
+def get_remapped_vertices_offset_buffer(vertices_offsets: list, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]) -> tuple[list, mathutils.Vector]:
     """ """
     ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset = vertices_bounds
 
@@ -3544,7 +3549,7 @@ def get_remapped_vertices_offset_buffer(vertices_offsets, vertices_bounds):
 
     return vertices_offsets, max_offset
 
-def get_remapped_vertices_normal_buffer(vertices_normals):
+def get_remapped_vertices_normal_buffer(vertices_normals: list) -> list:
     """ """
 
     for vertex_index in range(len(vertices_normals) // 4):
@@ -3558,7 +3563,7 @@ def get_remapped_vertices_normal_buffer(vertices_normals):
 
 ##############
 ### BOUNDS ###
-def display_bounds(name, vertices_bounds):
+def display_bounds(name: str, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]) -> tuple[bool, str]:
     ''' Create a wireframe mesh to display the given bounds '''
 
     if name is None:
@@ -3614,7 +3619,7 @@ def display_bounds(name, vertices_bounds):
 
 ################
 ### TEXTURES ###
-def generate_texture(name, filename, buffer, tex_width, tex_height):
+def generate_texture(name: str, filename: str, buffer: list, tex_width: int, tex_height: int) -> tuple[bool, str, bpy.types.Image]:
     """ Creates vertex offsets image & optionally exports it to disk """
 
     buffer_size = tex_width * tex_height * 4 # RGBA
@@ -3642,7 +3647,7 @@ def generate_texture(name, filename, buffer, tex_width, tex_height):
 
     return (True, "", image)
 
-def export_texture(context, image, path, name, obj_name, override_file):
+def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str, name: str, obj_name: str, override_file: bool) -> tuple[bool, str, str]:
     """ """
 
     tags = {"ObjectName": obj_name}
@@ -3671,7 +3676,7 @@ def export_texture(context, image, path, name, obj_name, override_file):
     else:
         return (False, msg, tex_path)
 
-def get_best_texture_resolution(context, num_frames, num_vertices):
+def get_best_texture_resolution(context: bpy.types.Context, num_frames, num_vertices):
     """ Returns the best texture resolution for a given amount of frames & vertices to bake """
 
     settings = context.scene.VATBakerSettings
@@ -3745,7 +3750,7 @@ def get_best_texture_resolution(context, num_frames, num_vertices):
 
 ###########
 ### XML ###
-def export_xml(context):
+def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     """ """
 
     settings = context.scene.VATBakerSettings
@@ -3775,7 +3780,8 @@ def export_xml(context):
                              padding=str(report.padding),
                              rate=str(report.frame_rate),
                              width=str(report.frame_width),
-                             height=str(report.frame_height))
+                             height=str(report.frame_height),
+                             ref=str(report.ref))
 
     # uv info
     uv_el = ET.SubElement(root, "UV",
@@ -3850,7 +3856,7 @@ def export_xml(context):
 
 #########################
 ### PATHS & FILENAMES ###
-def get_path(path, file_name, file_ext, tags, override_file):
+def get_path(path: str, file_name: str, file_ext: str, tags: list, override_file: bool) -> tuple[bool, str, str]:
     """ Compiles file path/name/extension into a path and performs a couples of safety checks """
     
     file_exts = [".png", ".exr", ".fbx"]
@@ -3863,7 +3869,7 @@ def get_path(path, file_name, file_ext, tags, override_file):
     
     return (success, msg, export_path)
 
-def replace_tags(name, tags):
+def replace_tags(name: str, tags: list) -> str:
     # check tags
     for tag_key, tag_value in tags.items():
         tag = "<"+tag_key+">"
@@ -3872,7 +3878,7 @@ def replace_tags(name, tags):
 
     return name
 
-def check_path(path, override_file):
+def check_path(path: str, override_file: str) -> tuple[bool, str]:
     """ """
     dir = os.path.dirname(path)
     if not os.path.isdir(dir):
@@ -3885,22 +3891,3 @@ def check_path(path, override_file):
         return (False, f"File already exists: {path}")
 
     return (True, "")
-    """ """
-    # make sure the operator knows about the global variables
-    global settings, useSet
-    # Read the preset data into the global settings
-    try:
-        f = open(os.path.join(get_preset_paths()[0], filename), 'r')
-    except (FileNotFoundError, IOError):
-        f = open(os.path.join(get_preset_paths()[1], filename), 'r')
-    # Find the first non-comment, non-blank line, this must contain preset text (all on one line).
-    for settings in f:
-        if settings and (not settings.isspace()) and (not settings.startswith("#")):
-            break
-    f.close()
-    settings = ast.literal_eval(settings)
-
-    # Set the flag to use the settings
-    useSet = True
-
-    return (True, "INFO", "Preset imported")
