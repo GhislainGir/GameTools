@@ -19,320 +19,195 @@ from bpy.types import PropertyGroup
 #############################################################################################
 ###################################### PROPERTY GROUPS ######################################
 #############################################################################################
-class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):  
-    """Settings for DataBaker."""
+def data_layer_ptr_id_updated(self, context):
+    """
+    we use an UIList to target a layer but a UIList requires an integer index for the 'active selection'. User might re-order, add or remove
+    layers though so we instead prefer to target a layer using its ID. This function converts the integer to the corresponding ID. This is
+    automatically called when the data_layer's ptr_id property is updated in any way
+    """
+    settings = context.scene.DataBakerSettings
+    if self.ptr_index < len(settings.data_layers):
+        data_layer = settings.data_layers[self.ptr_index]
+        # only pick target if not self
+        if data_layer.ID != self.ID:
+            self.ptr_ID = data_layer.ID
+            return
+        else:
+            # else, attempt to find target
+            for data_layer_index, data_layer in enumerate(settings.data_layers):
+                # target found!
+                if data_layer.ID == self.ptr_ID:
+                    # re-assign ptr_index to the previous target based on ID
+                    self.ptr_index = data_layer_index
+                    return
 
-    modes = [
-        ("UV", "UV Map", "Bake data into a UV map"),
-        ("VCOL", "Vertex Color", "Bake data into vertex colors")
+    # else, invalidate
+    self.ptr_ID = ""
+    self.ptr_index = -1
+
+class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
+    """ """
+
+    ID: StringProperty(name="ID", default="", description="")
+    ptr_ID: StringProperty(name="Ptr", default="", description="")
+    ptr_index: IntProperty(name="Ptr", default=-1, description="", update=data_layer_ptr_id_updated)
+
+    datas = [
+        ("POSITION", "Position", ""),
+        ("AXIS", "Axis", ""),
+        ("SHAPEKEY", "Shape key", ""),
+        ("MASK", "Mask", ""),
+        ("RANDOM", "Random", ""),
+        ("PARENT_POS", "Parent Position", ""),
+        ("PARENT_AXIS", "Parent Axis", ""),
+        ("VALUE", "Value", ""),
+        ("CUSTOM_PROP", "Custom Property", ""),
     ]
+    data: EnumProperty(name="Data", items=datas, default="POSITION", description="Value to bake")
 
-    axis_xyz = [
+    component_x_y_z = [
         ("X", "X", "X-axis"),
         ("Y", "Y", "Y-axis"),
         ("Z", "Z", "Z-axis")
     ]
+    component: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Component to bake")
 
-    uv = [
+    storage_modes = [
+        ("UV", "UV Map", "Bake data into a UV map"),
+        ("VCOL", "Vertex Color", "Bake data into vertex colors"),
+        ("NORMAL", "Normal", "Bake data in mesh normals"),
+        ("AB", "AB", "Pack the value with another value with moderate precision loss"),
+        ("XYZ", "XYZ", "Pack the value with two other values with high precision loss"),
+        ("FRACTION", "Fraction", "Pack the value in the fractional part of another value"),
+    ]
+    storage_mode: EnumProperty(name="Mode", items=storage_modes, default="UV", description="How to bake the value")
+
+    uv_u_v = [
         ("U", "U", "U channel of UV map"),
         ("V", "V", "V channel of UV map")
     ]
+    uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index")
+    uv_channel: EnumProperty(name="Channel", items=uv_u_v, default="U", description="Target UV channel")
 
-    rgba = [
+    vcol_r_g_b_a = [
         ("R", "R", "Red channel"),
         ("G", "G", "Green channel"),
         ("B", "B", "Blue channel"),
         ("A", "A", "Alpha channel")
     ]
+    vcol_rgba: EnumProperty(name="Channel", items=vcol_r_g_b_a, default="R", description="Target RGBA channel")
 
-    pos_channels = [
-        ("INDIVIDUAL" , "Individual ", "Bake each X/Y/Z component separately into its own channel"),
-        ("AB_PACKED", "AB Packed", "Pack two components (e.g., X/Y) into a single float with moderate precision loss. Multiplier & 32-bit UVs required! See @doc for more info"),
-        ("XYZ_PACKED", "XYZ Packed", "Pack all three components into a single float with severe precision loss. Multiplier & 32-bit UVs required! See @doc for more info"),
+    normal_xyz: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Normal component to store value in")
+
+    pack_a_b = [
+        ("A", "A", "Pack the data in the 'A' component"),
+        ("B", "B", "Pack the data in the 'B' component"),
     ]
+    pack_ab: EnumProperty(name="AB Mode", items=pack_a_b, default="A", description="Method for baking data")
+    pack_x_y_z = [
+        ("X", "X", "Pack the data in the 'X' component"),
+        ("Y", "Y", "Pack the data in the 'Y' component"),
+        ("Z", "Z", "Pack the data in the 'Z' component"),
+    ]
+    pack_xyz: EnumProperty(name="XYZ Mode", items=pack_x_y_z, default="X", description="Method for baking data")
+    pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="Pack only if not (0,0,0), as it involves bit-packing and further 0-testing of the unpacked value in shaders could prove to be an unreliable operation. This is recommended, although it may lead to a false positive if the position to pack happens to be close enough to (0,0,0)")
 
+    axis_x_y_z = [
+        ("X", "X", "X-axis"),
+        ("Y", "Y", "Y-axis"),
+        ("Z", "Z", "Z-axis")
+    ]
+    axis: EnumProperty(name="Axis", items=axis_x_y_z, default="X", description="Axis to bake")
     axis_modes = [
-        ("INDIVIDUAL" , "Individual ", "Bake each X/Y/Z component separately into its own channel"),
-        ("AB_PACKED", "AB Packed", "Pack two components (e.g., X/Y) into a single float with minimal precision loss. 32-bit UVs required! See @doc for more info"),
-        ("XYZ_PACKED", "XYZ Packed", "Pack all three components into a single float with severe precision loss. 32-bit UVs required! See @doc for more info"),
-        ("POSITION_PACKED", "Packed with Position", "Pack axis data into the fractional part of position data. Axis is remapped and position XYZ components are rounded to integers which could be an issue depending on the scale (safe-ish with centimeters). See @doc for more info"),
+        ("LOCAL", "Local", ""),
+        ("WORLD", "World", ""),
+        ("OBJECT", "Object", ""),
     ]
+    axis_mode: EnumProperty(name="Axis Mode", items=axis_modes, default="WORLD", description="")
+    axis_obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
+
+    name: StringProperty(name="Name", default="", description="")
+
+    obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
+
+    shapekey_modes = [
+        ("OFFSET", "Offset", ""),
+        ("NORMAL", "Normal", "")
+    ]
+    shapekey_mode: EnumProperty(name="Type", items=shapekey_modes, default="OFFSET", description="Shape key data to bake")
+
+    mask_modes = [
+        ("SPHERE", "Sphere", ""),
+        ("LINEAR", "Linear", ""),
+    ]
+    mask_mode: EnumProperty(name="Type", items=mask_modes, default="SPHERE", description="")
+
+    normalize: BoolProperty(name="Normalize", default=True, description="Normalize value to [0:1] range based on max value")
+    clamp: BoolProperty(name="Clamp", default=False, description="Clamp value to [0:1] range")
+    falloff: FloatProperty(name="Falloff", min=0.0, default=1.0, description="Power curve. 1 - linear falloff, 2 - cubic falloff...")
+    uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="1.0 for evenly distributed values, 0.0 for full randomness")
+
+    origin_modes = [
+        ("WORLD", "World", "Compute gradient from the world origin"),
+        ("OBJECT", "Object", "Compute gradient from each object's origin"),
+        ("ORIGIN", "Origin", "Compute gradient from a specified object's origin"),
+        ("SELECTION", "Selection", "Compute gradient from the center of selected objects"),
+        ("PARENT", "Parent", "Compute gradient from each object's parent origin, if any, else from each object's own origin")
+    ]
+    origin_mode: EnumProperty(name="Origin", items=origin_modes, default="OBJECT", description="Origin")
+
+    rand_modes = [
+        ("COLLECTION", "Per Collection", "Random value per collection"),
+        ("OBJECT", "Per Object", "Random value per object"),
+        ("FACE", "Per Face (!)", "Random value per face (duplicates all vertices!)"),
+    ]
+    rand_mode: EnumProperty(name="Mode", items=rand_modes, default="OBJECT", description="Basis for the random values")
+    rand_seed: IntProperty(name="Seed", default=0, description="")
+    rand_float_modes = [
+        ("FLOAT", "Float", "Generate a single value, to be shuffled or uniformly distributed"),
+        ("FLOAT2", "Float2", "Generate a 2D unit vector"),
+        ("FLOAT3", "Float3", "Generate a 3D unit vector"),
+    ]
+    rand_float_mode: EnumProperty(name="SubMode", items=rand_float_modes, default="FLOAT", description="")
+
+    x: FloatProperty(name="X Value", default=1.0, description="")
+    y: FloatProperty(name="Y Value", default=1.0, description="")
+    z: FloatProperty(name="Z Value", default=1.0, description="")
+    index: IntProperty(name="Depth", default=1, min=1, description="Hierarchy depth to bake")
+
+def settings_data_layers_selected_index_updated(self, context):
+    """
+    we use an UIList to target a layer but a UIList requires an integer index for the 'active selection'. User might re-order, add or remove
+    layers though so we instead prefer to target a layer using its ID. This function converts the ID to the corresponding integer index. This
+    is automatically called when the settings's data_layers_selected_index property is updated in any way
+    """
+    # get data layer selected in main UI list
+    settings = context.scene.DataBakerSettings
+    if settings.data_layers_selected_index < len(settings.data_layers):
+        data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
+
+        # is the selected data layer supposed to target another layer?
+        if data_layer_selected.storage_mode == "FRACTION" or data_layer_selected.storage_mode == "AB" or data_layer_selected.storage_mode == "XYZ":
+            # attempt to find target
+            for data_layer_index, data_layer in enumerate(settings.data_layers):
+                # target found!
+                if data_layer.ID == data_layer_selected.ptr_ID:
+                    # validate target only if not pointing to self
+                    if data_layer.ID != data_layer_selected.ID:
+                        data_layer_selected.ptr_index = data_layer_index
+                        return
+
+        # else, invalidate
+        data_layer_selected.ptr_ID = ""
+        data_layer_selected.ptr_index = -1
+
+class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
+    """ """
+    data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="")
+    data_layers_selected_index: IntProperty(name="", default=0, description="", update=settings_data_layers_selected_index_updated)
 
     # transform
-    transform_obj: PointerProperty(type=bpy.types.Object, name="Object", description="Defaults to 'self'. Use this in the rare occasion that you want to bake the position/axis of a specific object into another object. Usually using 'self' is what you want (meaning, leave this empty)")
-
-    # position
-    position: BoolProperty(name="Position", default=False, description="Bake object position data? Further actions are required depending on the selected mode. See @doc for more info")
-    position_channel_mode: EnumProperty(name="Mode", items=pos_channels, default="INDIVIDUAL", description="Method for baking position data")
-
-    position_x: BoolProperty(name="X", default=True, description="Bake X component of position")
-    position_x_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake X component")
-    position_x_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for X")
-    position_x_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for X")
-    position_x_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel for X")
-
-    position_y: BoolProperty(name="Y", default=True, description="Bake Y component of position")
-    position_y_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Y component")
-    position_y_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for Y")
-    position_y_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for Y")
-    position_y_rgba: EnumProperty(name="Channel", items=rgba, default="G", description="Target RGBA channel for Y")
-
-    position_z: BoolProperty(name="Z", default=True, description="Bake Z component of position")
-    position_z_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Z component")
-    position_z_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for Z")
-    position_z_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for Z")
-    position_z_rgba: EnumProperty(name="Channel", items=rgba, default="B", description="Target RGBA channel for Z")
-
-    position_packed_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map for packed position")
-    position_packed_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for packed position")
-    position_pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="Pack only if the position is not (0,0,0), as it involves bit-packing and further 0-testing of the unpacked value in shaders could prove to be an unreliable operation. This is recommended, although it may lead to a false positive if the position to pack happens to be close enough to (0,0,0)")
-    position_ab_packed_a_comp: EnumProperty(name="A Component", items=axis_xyz, default="X", description="First component for AB packing")
-    position_ab_packed_b_comp: EnumProperty(name="B Component", items=axis_xyz, default="Y", description="Second component for AB packing")
-
-    # axis
-    axis: BoolProperty(name="Axis", default=False, description="Bake object axis data? Further actions are required depending on the selected mode. See @doc for more info")
-    axis_component: EnumProperty(name="Axis", items=axis_xyz, default="Z", description="Primary axis to bake (e.g., forward vector)")
-    axis_channel_mode: EnumProperty(name="Mode", items=axis_modes, default="INDIVIDUAL", description="Method for baking axis data")
-
-    axis_x: BoolProperty(name="X Component", default=True, description="Bake X component of axis")
-    axis_x_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake X component")
-    axis_x_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for X")
-    axis_x_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for X")
-    axis_x_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel for X")
-
-    axis_y: BoolProperty(name="Y Component", default=True, description="Bake Y component of axis")
-    axis_y_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Y component")
-    axis_y_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for Y")
-    axis_y_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for Y")
-    axis_y_rgba: EnumProperty(name="Channel", items=rgba, default="G", description="Target RGBA channel for Y")
-
-    axis_z: BoolProperty(name="Z Component", default=True, description="Bake Z component of axis")
-    axis_z_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Z component")
-    axis_z_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for Z")
-    axis_z_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for Z")
-    axis_z_rgba: EnumProperty(name="Channel", items=rgba, default="B", description="Target RGBA channel for Z")
-
-    axis_packed_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map for packed axis")
-    axis_packed_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for packed axis")
-    axis_ab_packed_a_comp: EnumProperty(name="A Component", items=axis_xyz, default="X", description="First component for AB packing")
-    axis_ab_packed_b_comp: EnumProperty(name="B Component", items=axis_xyz, default="Y", description="Second component for AB packing")
-
-    # shapekey
-    shapekey_name: StringProperty(name="Shape Key", default="Key 1", description="Name of the shape key to bake")
-    shapekey_rest_name: StringProperty(name="Rest Shape Key", default="Basis", description="Name of the rest shape key for offset/normal calculation")
-
-    # shapekey offset
-    shapekey_offset: BoolProperty(name="Shape Key Offset", default=False, description="Bake shape key offset data? Further actions are required depending on the selected mode. See @doc for more info")
-    shapekey_offset_channel_mode: EnumProperty(name="Mode", items=pos_channels, default="INDIVIDUAL", description="Method for baking offset")
-
-    shapekey_offset_x: BoolProperty(name="X", default=True, description="Bake X component of shape key offset")
-    shapekey_offset_x_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake X component")
-    shapekey_offset_x_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for X")
-    shapekey_offset_x_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for X")
-    shapekey_offset_x_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel for X")
-
-    shapekey_offset_y: BoolProperty(name="Y", default=True, description="Bake Y component of shape key offset")
-    shapekey_offset_y_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Y component")
-    shapekey_offset_y_uv_index: IntProperty(name="UV Map", min=0, max=7, default=3, description="Target UV map index for Y")
-    shapekey_offset_y_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for Y")
-    shapekey_offset_y_rgba: EnumProperty(name="Channel", items=rgba, default="G", description="Target RGBA channel for Y")
-
-    shapekey_offset_z: BoolProperty(name="Z", default=True, description="Bake Z component of shape key offset")
-    shapekey_offset_z_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Z component")
-    shapekey_offset_z_uv_index: IntProperty(name="UV Map", min=0, max=7, default=3, description="Target UV map index for Z")
-    shapekey_offset_z_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for Z")
-    shapekey_offset_z_rgba: EnumProperty(name="Channel", items=rgba, default="B", description="Target RGBA channel for Z")
-
-    shapekey_offset_packed_uv_index: IntProperty(name="UV Map", min=0, max=7, default=3, description="Target UV map for packed offset")
-    shapekey_offset_packed_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for packed offset")
-    shapekey_offset_pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="Pack only if offset is not (0,0,0), as it involves bit-packing and further 0-testing of the unpacked value in shaders could prove to be an unreliable operation. This is recommended, although it may lead to a false positive if the offset to pack happens to be close enough to (0,0,0)")
-    shapekey_offset_ab_packed_a_comp: EnumProperty(name="A Component", items=axis_xyz, default="X", description="First component for AB packing")
-    shapekey_offset_ab_packed_b_comp: EnumProperty(name="B Component", items=axis_xyz, default="Y", description="Second component for AB packing")
-
-    # shapekey normal
-    shapekey_normal: BoolProperty(name="Shape Key Normal", default=False, description="Bake shape key normal data? Further actions are required depending on the selected mode. See @doc for more info")
-    shapekey_normal_channel_mode: EnumProperty(name="Mode", items=axis_modes, default="INDIVIDUAL", description="Method for baking normals")
-
-    shapekey_normal_x: BoolProperty(name="X", default=True, description="Bake X component of shape key normal")
-    shapekey_normal_x_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake X component")
-    shapekey_normal_x_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for X")
-    shapekey_normal_x_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for X")
-    shapekey_normal_x_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel for X")
-
-    shapekey_normal_y: BoolProperty(name="Y", default=True, description="Bake Y component of shape key normal")
-    shapekey_normal_y_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Y component")
-    shapekey_normal_y_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for Y")
-    shapekey_normal_y_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for Y")
-    shapekey_normal_y_rgba: EnumProperty(name="Channel", items=rgba, default="G", description="Target RGBA channel for Y")
-
-    shapekey_normal_z: BoolProperty(name="Z", default=True, description="Bake Z component of shape key normal")
-    shapekey_normal_z_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Z component")
-    shapekey_normal_z_uv_index: IntProperty(name="UV Map", min=0, max=7, default=3, description="Target UV map index for Z")
-    shapekey_normal_z_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for Z")
-    shapekey_normal_z_rgba: EnumProperty(name="Channel", items=rgba, default="B", description="Target RGBA channel for Z")
-
-    shapekey_normal_packed_uv_index: IntProperty(name="UV Map", min=0, max=7, default=3, description="Target UV map for packed normal")
-    shapekey_normal_packed_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for packed normal")
-    shapekey_normal_ab_packed_a_comp: EnumProperty(name="A Component", items=axis_xyz, default="X", description="First component for AB packing")
-    shapekey_normal_ab_packed_b_comp: EnumProperty(name="B Component", items=axis_xyz, default="Y", description="Second component for AB packing")
-
-    # sphere mask
-    sphere_mask: BoolProperty(name="Sphere Mask", default=False, description="Bake a spherical 3D gradient")
-    sphere_mask_normalize: BoolProperty(name="Normalize", default=True, description="Normalize distance to [0:1] range based on max distance (mandatory if baked in Vertex Colors)")
-    sphere_mask_clamp: BoolProperty(name="Clamp", default=False, description="Clamp values to [0:1] range")
-    sphere_mask_origin_modes = [
-        ("ORIGIN" , "Origin", "Compute gradient from the world origin, or the specified 'Origin' object"),
-        ("SELF" , "Self", "Compute gradient from each object's origin"),
-        ("OBJECT" , "Object ", "Compute gradient from a specified object's origin"),
-        ("SELECTION" , "Selection Center", "Compute gradient from the center of selected objects"),
-        ("PARENT" , "Parent Object", "Compute gradient from each object's parent origin, if any, else from each object's own origin")
-    ]
-    sphere_mask_origin_mode: EnumProperty(name="Origin", items=sphere_mask_origin_modes, default=1, description="Select the spherical mask origin")
-    sphere_mask_origin: PointerProperty(type=bpy.types.Object, name="Object", description="Optional object used to compute the sphere mask origin/center")
-    sphere_mask_mode: EnumProperty(name="Mode", items=modes, default="UV", description="Select how the spherical gradient is baked")
-
-    sphere_mask_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UVMap index")
-    sphere_mask_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UVMap channel")
-    sphere_mask_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel")
-    sphere_mask_falloff: FloatProperty(name="Falloff", min=0.0, default=1.0, description="Power curve. 1 - linear falloff, 2 - cubic falloff...")
-
-    # linear mask
-    linear_mask: BoolProperty(name="Linear Mask", default=False, description="Bake a linear 2D gradient along an axis")
-    linear_mask_normalize: BoolProperty(name="Normalize", default=True, description="Normalize distance to [0:1] range based on max distance (mandatory if baked in Vertex Colors)")
-    linear_mask_clamp: BoolProperty(name="Clamp", default=False, description="Clamp values to [0:1] range. Normalization may not ensure this with custom bounds.")
-    linear_mask_obj_modes = [
-        ("SELECTION", "Selection Bounds", "Gradient based on selection bounds in world space"),
-        ("SELF_LOCAL", "Self (Local)", "Gradient along object's local axis"),
-        ("SELF_WORLD", "Self (World)", "Gradient along object's world axis"),
-        ("OBJECT", "Object", "Gradient based on a specified object's bounds"),
-        ("PARENT_LOCAL", "Parent (Local)", "Gradient based on parent's local axis"),
-        ("PARENT_WORLD", "Parent (World)", "Gradient based on parent's world axis")
-    ]
-    linear_mask_obj_mode: EnumProperty(name="Mode", items=linear_mask_obj_modes, default="SELF_LOCAL")
-    linear_mask_obj: PointerProperty(type=bpy.types.Object, name="Object", description="Optional mesh object that can be used to specify custom bounds for computing the linear mask. Defaults to self if none is specified")
-    linear_mask_mode: EnumProperty(name="Mode", items=modes, default="UV", description="Select how the linear gradient is baked")
-    linear_mask_axis: EnumProperty(name="Axis", items=axis_xyz, default="Z", description="Select which axis to use to bake the 2D gradient")
-
-    linear_mask_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UVMap index")
-    linear_mask_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UVMap channel")
-    linear_mask_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel")
-    linear_mask_falloff: FloatProperty(name="Falloff", min=0.0, default=1.0, description="Power curve, only available IF normalized. Clamping is suggested to ensure values don't skyrocket with high falloff exponents & custom bounds. 1 - linear falloff, 2 - cubic falloff...")
-
-    # random
-    random_per_collection: BoolProperty(name="Random Per Collection", default=False, description="Bake a random value per collection")
-    random_per_collection_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake random values")
-    random_per_collection_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index")
-    random_per_collection_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel")
-    random_per_collection_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel")
-    random_per_collection_uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="1.0 for evenly distributed values, 0.0 for full randomness")
-
-    random_per_object: BoolProperty(name="Random Per Object", default=False, description="Bake a random value per object")
-    random_per_object_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake random values")
-    random_per_object_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index")
-    random_per_object_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel")
-    random_per_object_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel")
-    random_per_object_uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="1.0 for evenly distributed values, 0.0 for full randomness")
-
-    random_per_poly: BoolProperty(name="Random Per Polygon", default=False, description="Bake a random value per polygon (duplicates vertices)")
-    random_per_poly_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake random values")
-    random_per_poly_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index")
-    random_per_poly_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel")
-    random_per_poly_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel")
-    random_per_poly_uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="1.0 for evenly distributed values, 0.0 for full randomness")
-
-    # parent
-    parent_modes = [
-        
-        ("AUTOMATIC", "Automatic", "Automatically traverse parent hierarchy and bake all levels (up to a specified depth)"),
-        ("MANUAL", "Manual", "Manually bake each hierarchy level in separate steps")
-    ]
-    parent_mode: EnumProperty(name="Mode", items=parent_modes, default="AUTOMATIC", description="Method for baking parent hierarchy")
-    parent_depth: IntProperty(name="Current Depth", default=1, min=1, description="Hierarchy depth to bake. Mustn't be greater than 'Depth'")
-    parent_max_depth: IntProperty(name="Max Depth", default=2, min=1, max=7, description="Maximum hierarchy depth to bake")
-    parent_automatic_uv_index: IntProperty(name="Starting UV Map", min=0, max=7, default=1, description="Starting UV map index")
-    parent_automatic_uv_channel: EnumProperty(name="Starting Channel", items=uv, default="U", description="Starting UV channel")
-
-    # parent position
-    parent_position: BoolProperty(name="Parent Position", default=False, description="Bake parent position data? Further actions are required depending on the selected mode. See @doc for more info")
-    parent_position_channel_mode: EnumProperty(name="Channel Mode", items=pos_channels, default="INDIVIDUAL", description="Method for baking parent position")
-
-    parent_position_x: BoolProperty(name="X", default=True, description="Bake X component of parent position")
-    parent_position_x_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake X component")
-    parent_position_x_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for X")
-    parent_position_x_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for X")
-    parent_position_x_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel for X")
-
-    parent_position_y: BoolProperty(name="Y", default=True, description="Bake Y component of parent position")
-    parent_position_y_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Y component")
-    parent_position_y_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for Y")
-    parent_position_y_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for Y")
-    parent_position_y_rgba: EnumProperty(name="Channel", items=rgba, default="G", description="Target RGBA channel for Y")
-
-    parent_position_z: BoolProperty(name="Z", default=True, description="Bake Z component of parent position")
-    parent_position_z_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Z component")
-    parent_position_z_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for Z")
-    parent_position_z_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for Z")
-    parent_position_z_rgba: EnumProperty(name="Channel", items=rgba, default="B", description="Target RGBA channel for Z")
-
-    parent_position_packed_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map for packed position")
-    parent_position_packed_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for packed position")
-    parent_position_ab_packed_a_comp: EnumProperty(name="A Component", items=axis_xyz, default="X", description="First component for AB packing")
-    parent_position_ab_packed_b_comp: EnumProperty(name="B Component", items=axis_xyz, default="Y", description="Second component for AB packing")
-
-    # parent axis
-    parent_axis: BoolProperty(name="Parent Axis", default=False, description="Bake parent axis data? Further actions are required depending on the selected mode. See @doc for more info")
-    parent_axis_component: EnumProperty(name="Axis", items=axis_xyz, default="Z", description="Primary axis of the parent to bake")
-    parent_axis_channel_mode: EnumProperty(name="Channel Mode", items=axis_modes, default="INDIVIDUAL", description="Method for baking parent axis")
-
-    parent_axis_x: BoolProperty(name="X Component", default=True, description="Bake X component of parent axis")
-    parent_axis_x_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake X component")
-    parent_axis_x_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for X")
-    parent_axis_x_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for X")
-    parent_axis_x_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel for X")
-
-    parent_axis_y: BoolProperty(name="Y Component", default=True, description="Bake Y component of parent axis")
-    parent_axis_y_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Y component")
-    parent_axis_y_uv_index: IntProperty(name="UV Map", min=0, max=7, default=1, description="Target UV map index for Y")
-    parent_axis_y_uv_channel: EnumProperty(name="Channel", items=uv, default="V", description="Target UV channel for Y")
-    parent_axis_y_rgba: EnumProperty(name="Channel", items=rgba, default="G", description="Target RGBA channel for Y")
-
-    parent_axis_z: BoolProperty(name="Z Component", default=True, description="Bake Z component of parent axis")
-    parent_axis_z_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake Z component")
-    parent_axis_z_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index for Z")
-    parent_axis_z_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for Z")
-    parent_axis_z_rgba: EnumProperty(name="Channel", items=rgba, default="B", description="Target RGBA channel for Z")
-
-    parent_axis_packed_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map for packed axis")
-    parent_axis_packed_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel for packed axis")
-    parent_axis_ab_packed_a_comp: EnumProperty(name="A Component", items=axis_xyz, default="X", description="First component for AB packing")
-    parent_axis_ab_packed_b_comp: EnumProperty(name="B Component", items=axis_xyz, default="Y", description="Second component for AB packing")
-
-    # fixed value
-    fixed_value: BoolProperty(name="Fixed Value", default=False, description="Bake a constant value")
-    fixed_value_data: FloatProperty(name="Value", default=0.0, description="Value to bake")
-    fixed_value_mode: EnumProperty(name="Mode", items=modes, default="UV", description="How to bake the fixed value")
-    fixed_value_uv_index: IntProperty(name="UV Map", min=0, max=7, default=2, description="Target UV map index")
-    fixed_value_uv_channel: EnumProperty(name="Channel", items=uv, default="U", description="Target UV channel")
-    fixed_value_rgba: EnumProperty(name="Channel", items=rgba, default="R", description="Target RGBA channel")
-
-    # direction
-    direction: BoolProperty(name="Direction", default=False, description="Bake a directional vector (normalized)")
-    direction_modes = [
-        ("3DRAND", "Random 3D", "Random 3D unit vector in [-1:1] range"),
-        ("2DRAND", "Random 2D", "Random 2D unit vector in [-1:1] range, Z=0"),
-        ("3DVECTOR", "3D Vector", "User-specified 3D direction"),
-        ("2DVECTOR", "2D Vector", "User-specified 2D direction, Z=0")
-    ]
-
-    direction_mode: EnumProperty(name="Vector Mode", items=direction_modes, default="3DRAND", description="Method for generating the direction")
-    direction_vector_x: FloatProperty(name="X", default=0.0, description="X component of the direction vector")
-    direction_vector_y: FloatProperty(name="Y", default=0.0, description="Y component of the direction vector")
-    direction_vector_z: FloatProperty(name="Z", default=1.0, description="Z component of the direction vector")
-    direction_pack_modes = [
-        ("NORMALS", "Normals", "Store in mesh normals (overrides existing normals)"),
-        ("VCOL", "Vertex Color", "Store in vertex colors, remapped to [0:1]"),
-    ]
-    direction_pack_mode: EnumProperty(name="Mode", items=direction_pack_modes, default="NORMALS", description="Select how the direction is baked")
+    world_obj: PointerProperty(type=bpy.types.Object, name="Object", description="Defaults to 'self'. Use this in the rare occasion that you want to bake the position/axis of a specific object into another object. Usually using 'self' is what you want (meaning, leave this empty)")
 
     # mesh
     duplicate_mesh: BoolProperty(name="Duplicate Mesh", default=True, description="Duplicate mesh before baking to preserve original. Disable at your own risk")
@@ -408,225 +283,7 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
 
-    transform_obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
-
-    # position
-    position: BoolProperty(name="Position", default=False, description="")
-    position_channel_mode: StringProperty(name="Mode", default="", description="")
-    position_x: BoolProperty(name="X", default=True, description="")
-    position_x_mode: StringProperty(name="Mode", default="", description="")
-    position_x_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    position_x_uv_channel: StringProperty(name="Channel", default="", description="")
-    position_x_rgba: StringProperty(name="Channel", default="", description="")
-    position_y: BoolProperty(name="Y", default=True, description="")
-    position_y_mode: StringProperty(name="Mode", default="", description="")
-    position_y_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    position_y_uv_channel: StringProperty(name="Channel", default="", description="")
-    position_y_rgba: StringProperty(name="Channel", default="", description="")
-    position_z: BoolProperty(name="Z", default=True, description="")
-    position_z_mode: StringProperty(name="Mode", default="", description="")
-    position_z_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    position_z_uv_channel: StringProperty(name="Channel", default="", description="")
-    position_z_rgba: StringProperty(name="Channel", default="", description="")
-    position_packed_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    position_packed_uv_channel: StringProperty(name="Channel", default="", description="")
-    position_pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="")
-    position_ab_packed_a_comp: StringProperty(name="A Component", default="", description="")
-    position_ab_packed_b_comp: StringProperty(name="B Component", default="", description="")
-
-    # axis
-    axis: BoolProperty(name="Axis", default=False, description="") #
-    axis_component: StringProperty(name="Axis", default="", description="")
-    axis_channel_mode: StringProperty(name="Mode", default="", description="")
-    axis_x: BoolProperty(name="X Component", default=True, description="")
-    axis_x_mode: StringProperty(name="Mode", default="", description="")
-    axis_x_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    axis_x_uv_channel: StringProperty(name="Channel", default="", description="")
-    axis_x_rgba: StringProperty(name="Channel", default="", description="")
-    axis_y: BoolProperty(name="Y Component", default=True, description="")
-    axis_y_mode: StringProperty(name="Mode", default="", description="")
-    axis_y_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    axis_y_uv_channel: StringProperty(name="Channel", default="", description="")
-    axis_y_rgba: StringProperty(name="Channel", default="", description="")
-    axis_z: BoolProperty(name="Z Component", default=True, description="")
-    axis_z_mode: StringProperty(name="Mode", default="", description="")
-    axis_z_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    axis_z_uv_channel: StringProperty(name="Channel", default="", description="")
-    axis_z_rgba: StringProperty(name="Channel", default="", description="")
-    axis_packed_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    axis_packed_uv_channel: StringProperty(name="Channel", default="", description="")
-    axis_ab_packed_a_comp: StringProperty(name="A Component", default="", description="")
-    axis_ab_packed_b_comp: StringProperty(name="B Component", default="", description="")
-    
-    # shapekey
-    shapekey_name: StringProperty(name="Shapekey", default="Key 1", description="")
-    shapekey_rest_name: StringProperty(name="Rest Shapekey", default="Basis", description="")
-    
-    # shapekey offset
-    shapekey_offset: BoolProperty(name="Shapekey Offset", default=False, description="") #
-    shapekey_offset_channel_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_offset_x: BoolProperty(name="X", default=True, description="")
-    shapekey_offset_x_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_offset_x_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    shapekey_offset_x_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_x_rgba: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_y: BoolProperty(name="Y", default=True, description="")
-    shapekey_offset_y_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_offset_y_uv_index: IntProperty(name="UV Map", min=0, default=3, description="")
-    shapekey_offset_y_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_y_rgba: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_z: BoolProperty(name="Z", default=True, description="")
-    shapekey_offset_z_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_offset_z_uv_index: IntProperty(name="UV Map", min=0, default=3, description="")
-    shapekey_offset_z_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_z_rgba: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_packed_uv_index: IntProperty(name="UV Map", min=0, default=3, description="")
-    shapekey_offset_packed_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_offset_pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="")
-    shapekey_offset_ab_packed_a_comp: StringProperty(name="A Component", default="", description="")
-    shapekey_offset_ab_packed_b_comp: StringProperty(name="B Component", default="", description="")
-
-    # shapekey normal
-    shapekey_normal: BoolProperty(name="Shapekey Normal", default=False, description="") #
-    shapekey_normal_channel_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_normal_x: BoolProperty(name="X", default=True, description="")
-    shapekey_normal_x_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_normal_x_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    shapekey_normal_x_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_x_rgba: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_y: BoolProperty(name="Y", default=True, description="")
-    shapekey_normal_y_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_normal_y_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    shapekey_normal_y_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_y_rgba: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_z: BoolProperty(name="Z", default=True, description="")
-    shapekey_normal_z_mode: StringProperty(name="Mode", default="", description="")
-    shapekey_normal_z_uv_index: IntProperty(name="UV Map", min=0, default=3, description="")
-    shapekey_normal_z_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_z_rgba: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_xyz_uv_index: IntProperty(name="UV Map", min=0, default=3, description="")
-    shapekey_normal_xyz_uv_channel: StringProperty(name="Channel", default="", description="")
-    shapekey_normal_ab_packed_a_comp: StringProperty(name="A Component", default="", description="")
-    shapekey_normal_ab_packed_b_comp: StringProperty(name="B Component", default="", description="")
-
-    # sphere mask
-    sphere_mask: BoolProperty(name="Sphere Mask", default=False, description="") #
-    sphere_mask_normalize: BoolProperty(name="Normalize", default=True, description="")
-    sphere_mask_clamp: BoolProperty(name="Clamp", default=False, description="")
-    sphere_mask_origin_mode: StringProperty(name="Origin", default="", description="")
-    sphere_mask_origin: PointerProperty(type=bpy.types.Object, name="Object", description="")
-    sphere_mask_mode: StringProperty(name="Mode", default="", description="")
-    sphere_mask_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    sphere_mask_uv_channel: StringProperty(name="Channel", default="", description="")
-    sphere_mask_rgba: StringProperty(name="Channel", default="", description="")
-    sphere_mask_falloff: FloatProperty(name="Falloff", min=0.0, default=1.0, description="")
-
-    # linear mask
-    linear_mask: BoolProperty(name="Linear Mask", default=False, description="") #
-    linear_mask_normalize: BoolProperty(name="Normalize", default=True, description="")
-    linear_mask_clamp: BoolProperty(name="Clamp", default=False, description="")
-    linear_mask_obj_mode: StringProperty(name="Mode", default="", description="")
-    linear_mask_obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
-    linear_mask_mode: StringProperty(name="Mode", default="", description="")
-    linear_mask_axis: StringProperty(name="Axis", default="", description="")
-    linear_mask_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    linear_mask_uv_channel: StringProperty(name="Channel", default="", description="")
-    linear_mask_rgba: StringProperty(name="Channel", default="", description="")
-    linear_mask_falloff: FloatProperty(name="Falloff", min=0.0, default=1.0, description="")
-    
-    # random per collection
-    random_per_collection: BoolProperty(name="Random Per Collection", default=False, description="") #
-    random_per_collection_mode: StringProperty(name="Mode", default="", description="")
-    random_per_collection_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    random_per_collection_uv_channel: StringProperty(name="Channel", default="", description="")
-    random_per_collection_rgba: StringProperty(name="Channel", default="", description="")
-    random_per_collection_uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="")
-    
-    # random per object
-    random_per_object: BoolProperty(name="Random Per Object", default=False, description="") #
-    random_per_object_mode: StringProperty(name="Mode", default="", description="")
-    random_per_object_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    random_per_object_uv_channel: StringProperty(name="Channel", default="", description="")
-    random_per_object_rgba: StringProperty(name="Channel", default="", description="")
-    random_per_object_uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="")
-    
-    # random per poly
-    random_per_poly: BoolProperty(name="Random Per Poly", default=False, description="") #
-    random_per_poly_mode: StringProperty(name="Mode", default="", description="")
-    random_per_poly_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    random_per_poly_uv_channel: StringProperty(name="Channel", default="", description="")
-    random_per_poly_rgba: StringProperty(name="Channel", default="", description="")
-    random_per_poly_uniform: FloatProperty(name="Uniform", min=0.0, max=1.0, default=1.0, description="")
-
-    # parent
-    parent_mode: StringProperty(name="Mode", default="", description="") #
-    parent_depth: IntProperty(name="Current", default=1, min=1, description="")
-    parent_max_depth: IntProperty(name="Depth", default=2, min=1, max=7, description="")
-    parent_automatic_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    parent_automatic_uv_channel: StringProperty(name="Channel", default="", description="")
-
-    # parent position
-    parent_position: BoolProperty(name="Position", default=False, description="") #
-    parent_position_channel_mode: StringProperty(name="Mode", default="", description="")
-    parent_position_x: BoolProperty(name="X", description="")
-    parent_position_x_mode: StringProperty(name="Mode", default="", description="")
-    parent_position_x_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    parent_position_x_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_position_x_rgba: StringProperty(name="Channel", default="", description="")
-    parent_position_y: BoolProperty(name="Y", description="")
-    parent_position_y_mode: StringProperty(name="Mode", default="", description="")
-    parent_position_y_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    parent_position_y_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_position_y_rgba: StringProperty(name="Channel", default="", description="")
-    parent_position_z: BoolProperty(name="Z", description="")
-    parent_position_z_mode: StringProperty(name="Mode", default="", description="")
-    parent_position_z_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    parent_position_z_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_position_z_rgba: StringProperty(name="Channel", default="", description="")
-    parent_position_packed_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    parent_position_packed_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_position_ab_packed_a_comp: StringProperty(name="A Component", default="", description="")
-    parent_position_ab_packed_b_comp: StringProperty(name="B Component", default="", description="")
-    
-    # parent axis
-    parent_axis: BoolProperty(name="Axis", default=False, description="") #
-    parent_axis_component: StringProperty(name="Axis", default="", description="")
-    parent_axis_channel_mode: StringProperty(name="Mode", default="", description="")
-    parent_axis_x: BoolProperty(name="X Component", description="")
-    parent_axis_x_mode: StringProperty(name="Mode", default="", description="")
-    parent_axis_x_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    parent_axis_x_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_axis_x_rgba: StringProperty(name="Channel", default="", description="")
-    parent_axis_y: BoolProperty(name="Y Component", description="")
-    parent_axis_y_mode: StringProperty(name="Mode", default="", description="")
-    parent_axis_y_uv_index: IntProperty(name="UV Map", min=0, default=1, description="")
-    parent_axis_y_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_axis_y_rgba: StringProperty(name="Channel", default="", description="")
-    parent_axis_z: BoolProperty(name="Z Component", description="")
-    parent_axis_z_mode: StringProperty(name="Mode", default="", description="")
-    parent_axis_z_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    parent_axis_z_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_axis_z_rgba: StringProperty(name="Channel", default="", description="")
-    parent_axis_packed_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    parent_axis_packed_uv_channel: StringProperty(name="Channel", default="", description="")
-    parent_axis_ab_packed_a_comp: StringProperty(name="A Component", default="", description="")
-    parent_axis_ab_packed_b_comp: StringProperty(name="B Component", default="", description="")
-
-    # fixed value
-    fixed_value: BoolProperty(name="Fixed Value", default=False, description="") #
-    fixed_value_data: FloatProperty(name="Value", default=0.0, description="")
-    fixed_value_mode: StringProperty(name="Mode", default="", description="")
-    fixed_value_uv_index: IntProperty(name="UV Map", min=0, default=2, description="")
-    fixed_value_uv_channel: StringProperty(name="Channel", default="", description="")
-    fixed_value_rgba: StringProperty(name="Channel", default="", description="")
-
-    # direction
-    direction: BoolProperty(name="Direction", default=False, description="") #
-    direction_mode: StringProperty(name="Vector", default="", description="")
-    direction_vector_x: FloatProperty(name="X", default=0.0, description="")
-    direction_vector_y: FloatProperty(name="Y", default=0.0, description="")
-    direction_vector_z: FloatProperty(name="Z", default=1.0, description="")
-    direction_pack_mode: StringProperty(name="Mode", default="", description="")
+    world_obj: PointerProperty(type=bpy.types.Object, name="World", description="")
 
     # mesh
     duplicate_mesh: BoolProperty(name="Duplicate Mesh", default=True, description="")

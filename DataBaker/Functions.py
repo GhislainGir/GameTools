@@ -20,17 +20,12 @@ from mathutils.bvhtree import BVHTree
 import random
 import numpy as np
 import xml.etree.ElementTree as ET
-import uuid
 import time
+import uuid
+from ctypes import POINTER, pointer, c_int, cast, c_float
 
-XYZUNITVECTOR = mathutils.Vector((1.0, 1.0, 1.0))
-HALFXYZVECTOR = mathutils.Vector((0.5, 0.5, 0.5))
-XYZLIST = ["X", "Y", "Z"]
-XYZVECTORS = {
-    "X": mathutils.Vector((1.0, 0.0, 0.0)),
-    "Y": mathutils.Vector((0.0, 1.0, 0.0)),
-    "Z": mathutils.Vector((0.0, 0.0, 1.0)),
-}
+from . import Properties
+from .Properties import DATABAKER_PG_DataLayerPropertyGroup
 
 #######################################################################################
 ###################################### FUNCTIONS ######################################
@@ -38,7 +33,7 @@ XYZVECTORS = {
 
 ##############
 ### REPORT ###
-def new_bake_report(context):
+def new_bake_report(context: bpy.types.Context):
     """ """
     settings = context.scene.DataBakerSettings
 
@@ -54,7 +49,7 @@ def new_bake_report(context):
     add_bake_report("unit_invert_y", settings.invert_y)
     add_bake_report("unit_invert_z", settings.invert_z)
 
-    add_bake_report("transform_obj", settings.transform_obj)
+    add_bake_report("world_obj", settings.world_obj)
     
 def reset_bake_report():
     """ """
@@ -90,7 +85,7 @@ def reset_bake_report():
     report.xml = False
     report.xml_path = ""
 
-    report.transform_obj = None
+    report.world_obj = None
 
     # position
     report.position = False
@@ -310,6 +305,14 @@ def reset_bake_report():
     report.direction_vector_z = 0.0
     report.direction_pack_mode = ""
 
+    # custom prop
+    report.custom_prop = False
+    report.custom_prop_name = ""
+    report.custom_prop_mode = ""
+    report.custom_prop_uv_index = 0
+    report.custom_prop_uv_channel = ""
+    report.custom_prop_rgba = ""
+
     # mesh
     report.duplicate_mesh = False
     report.make_single_user = False
@@ -328,11 +331,11 @@ def reset_bake_report():
     report.export_mesh_file_path = ""
     report.export_mesh_file_override = False
 
-def add_bake_report(prop_name, prop_value):
+def add_bake_report(prop_name: str, prop_value: float|int|str):
     """ """
     setattr(bpy.context.scene.DataBakerReport, prop_name, prop_value)
 
-def add_bake_report_uv(ID, name):
+def add_bake_report_uv(ID: str, name: str):
     """ """
     settings = bpy.context.scene.DataBakerSettings
     report = bpy.context.scene.DataBakerReport
@@ -341,152 +344,64 @@ def add_bake_report_uv(ID, name):
     report_uvmap.ID = ID
     report_uvmap.name = name
 
-def export_bake_report(context):
+def export_bake_report(context: bpy.types.Context):
     """ """
     return(export_xml(context))
 
-###################
-### MULTIPLIERS ###
-def get_position_data_needs_multiplier(context):
-    """ """
-    
-    settings = context.scene.DataBakerSettings
-    return settings.position and (settings.position_channel_mode == "AB_PACKED" or settings.position_channel_mode == "XYZ_PACKED" or settings.position_x_mode == "VCOL" or settings.position_y_mode == "VCOL" or settings.position_z_mode == "VCOL")
-
-def get_position_data_multiplier(context):
-    """ Loop through all selected objects (or just the specified transform object) and return the largest absolute X, Y or Z position """
-    
-    settings = context.scene.DataBakerSettings
-
-    objs = [settings.transform_obj] if settings.transform_obj else context.selected_objects # baking a specified object's location or each object's location?
-
-    largest_component = 0.0
-        
-    for obj in objs:
-        # only allow selected objects of types MESH or EMPTY to be processed, but allow all types for the specified object, if any
-        if obj.type == 'MESH' or obj.type == 'EMPTY' or settings.transform_obj != None:
-            obj_location = obj.matrix_world.to_translation()
-            if settings.origin:
-                obj_location -= settings.origin.matrix_world.to_translation() # make position relative to a specified origin, if any
-            
-            largest_component = max(largest_component, max(math.fabs(obj_location.x), max(math.fabs(obj_location.y), math.fabs(obj_location.z))))
-   
-    if largest_component > 0.0:
-        largest_component += settings.precision_offset
-        largest_component *= settings.scale
-    
-    # round to the nearest integer. No point in annoying the user with a more precise float value which might be annoying to copy & paste into the engine
-    return max(math.ceil(largest_component), 1)
-
-def get_shapekey_offset_data_needs_multiplier(context):
-    """ """
-    
-    settings = context.scene.DataBakerSettings
-    return settings.shapekey_offset and (settings.shapekey_offset_channel_mode == "AB_PACKED" or settings.shapekey_offset_channel_mode == "XYZ_PACKED" or settings.shapekey_offset_x_mode == "VCOL" or settings.shapekey_offset_y_mode == "VCOL" or settings.shapekey_offset_z_mode == "VCOL")
-
-def get_shapekey_offset_data_multiplier(context):
-    """ Loop through all selected objects to return the largest absolute X, Y or Z shapekey offset """
-    
-    settings = context.scene.DataBakerSettings
-
-    largest_component = 0.0
-    
-    for obj in context.selected_objects:
-        if obj.data.shape_keys and (settings.shapekey_name in obj.data.shape_keys.key_blocks) and (settings.shapekey_rest_name in obj.data.shape_keys.key_blocks):
-            """
-            initial_shape_keys = []
-            for shape_key in obj.data.shape_keys.key_blocks:
-                initial_shape_keys.append((shape_key.name, shape_key.value)) # cache shapekeys
-                if shape_key.name == settings.shapekey_name:
-                    shape_key.value = 1.0
-                else:
-                    shape_key.value = 0.0
-            """
-            for face in obj.data.polygons:
-                for loop_id in face.loop_indices:
-                    vertex_index = obj.data.loops[loop_id].vertex_index
-
-                    shapekey_vertex_pos = obj.data.shape_keys.key_blocks[settings.shapekey_name].data[vertex_index].co
-                    shapekey_rest_vertex_pos = obj.data.shape_keys.key_blocks[settings.shapekey_rest_name].data[vertex_index].co
-
-                    offset = shapekey_vertex_pos - shapekey_rest_vertex_pos
-
-                    largest_component = max(largest_component, max(math.fabs(offset.x), max(math.fabs(offset.y), math.fabs(offset.z))))
-            """
-            for shape_key_name, shape_key_value in initial_shape_keys:
-                obj.data.shape_keys.key_blocks[shape_key_name].value = shape_key_value # restore shapekeys
-            """
-
-    if largest_component > 0.0:
-        largest_component += settings.precision_offset
-        largest_component *= settings.scale
-
-    # round to the nearest integer. No point in annoying the user with a more precise float value which might be annoying to copy & paste into the engine
-    return max(math.ceil(largest_component), 1.0)
-
-def get_parent_position_data_needs_multiplier(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-    return settings.parent_position and (settings.parent_position_channel_mode == "AB_PACKED" or settings.parent_position_channel_mode == "XYZ_PACKED" or settings.parent_position_x_mode == "VCOL" or settings.parent_position_y_mode == "VCOL" or settings.parent_position_z_mode == "VCOL")
-
-def get_parent_position_data_multiplier(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    # make sure user specified valid depth
-    if settings.parent_max_depth <= 0:
-        return 0.0
-
-    manual_max_depth = max(min(settings.parent_depth, settings.parent_max_depth), 1.0)
-
-    objs = [settings.transform_obj] if settings.transform_obj else context.selected_object # baking a specified object's parent's location or all selected object's parent's location?
-    
-    # if we pack parent's position using ABPacking OR XYZPacking OR Individual + Vertex Color, we need to normalize the baked positions to [0:1] and thus first need to find the most distant position's X/Y/Z component as a global divisor
-    largest_component = 0.0
-    
-    for obj in objs:
-        parent_obj = obj
-
-        # walk up the hierarchy until we can't find a parent but no more than the specified max hierarchy depth
-        for depth_index in range(settings.parent_max_depth):
-            # if object is valid AND so is its parent AND that parent is either a MESH or an EMPTY
-            if parent_obj and parent_obj.parent and (parent_obj.parent.type == 'MESH' or parent_obj.parent.type == 'EMPTY'):
-                # only process the desired depth if in manual mode
-                if settings.parent_mode == "MANUAL":
-                    if depth_index != (manual_max_depth + 1):
-                        continue
-                
-                # have we found a new parent?
-                parent_obj = parent_obj.parent
-                if parent_obj == None:
-                    break
-                
-                parent_obj_location = parent_obj.matrix_world.to_translation()
-                if settings.origin:
-                    parent_obj_location -= settings.origin.matrix_world.to_translation()
-
-                # cache the largest absolute position X/Y/Z component
-                largest_component = max(largest_component, max(math.fabs(parent_obj_location.x), max(math.fabs(parent_obj_location.y), math.fabs(parent_obj_location.z))))
-            else:
-                break
-
-    if largest_component > 0:
-        largest_component += settings.precision_offset
-        largest_component *= settings.scale
-    
-    # round to the nearest integer. No point in annoying the user with a more precise float value which might be annoying to copy & paste into the engine
-    return max(math.ceil(largest_component), 1)
-
 ###############
 ### PACKING ###
-def get_packed_xyz_vector(unit_vector):
+def get_packed_11_11_10_xyz(xyz: mathutils.Vector, multiplier: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float]:  
+    """ """
+
+    if multiplier <= 0:
+        return (False, "Invalid multiplier", 0.0)
+
+    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, xyz.x / multiplier))) + 1) * 0.5) * (1<<10))))
+    bitstring_a = bitstring_a[2:] # get rid of 0b
+    bitstring_a = bitstring_a.zfill(11) # ensure it's 11 char long
+
+    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, xyz.y / multiplier))) + 1) * 0.5) * (1<<10))))
+    bitstring_b = bitstring_b[2:] # get rid of 0b
+    bitstring_b = bitstring_b.zfill(11) # ensure it's 11 char long
+
+    bitstring_c = str(bin(math.floor((((min(1.0, max(0.0, xyz.z / multiplier))) + 1) * 0.5) * (1<<9))))
+    bitstring_c = bitstring_c[2:] # get rid of 0b
+    bitstring_c = bitstring_c.zfill(10) # ensure it's 10 char long
+
+    bits = int((bitstring_a + bitstring_b + bitstring_c), 2)
+
+    cp = pointer(c_int(bits))
+    fp = cast(cp, POINTER(c_float))
+    return (True, "", fp.contents.value)
+
+def get_packed_16_16_ab(xyz: mathutils.Vector, a_component: float, b_component: float, multiplier: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float]:
+    """ """ 
+
+    if multiplier <= 0:
+        return (False, "Invalid multiplier", 0.0)
+
+    a = xyz.x if a_component == "X" else xyz.y if a_component == "Y" else xyz.z
+    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, a / multiplier))) + 1) * 0.5) * (1<<15))))
+    bitstring_a = bitstring_a[2:] # get rid of 0b
+    bitstring_a = bitstring_a.zfill(16) # ensure it's 11 char long
+
+    b = xyz.x if b_component == "X" else xyz.y if b_component == "Y" else xyz.z
+    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, b / multiplier))) + 1) * 0.5) * (1<<15))))
+    bitstring_b = bitstring_b[2:] # get rid of 0b
+    bitstring_b = bitstring_b.zfill(16) # ensure it's 11 char long
+
+    bits = int((bitstring_a + bitstring_b), 2)
+
+    cp = pointer(c_int(bits))
+    fp = cast(cp, POINTER(c_float))
+    return (True, "", fp.contents.value)
+
+def get_packed_xyz_vector_legacy(unit_vector: mathutils.Vector) -> float:
     """ Algorithm to pack three normalized floats into one. Results in *severe* precision loss and probably isn't practical to encode data like positions """
 
     return (math.ceil(unit_vector.x * 100) * 10) + (math.ceil(unit_vector.y * 100) * 0.1) + (math.ceil(unit_vector.z * 100) * 0.001)
 
-def get_packed_ab_vector(unit_vector, a_component, b_component):
+def get_packed_ab_vector_legacy(unit_vector: mathutils.Vector, a_component: float, b_component: float) -> float:
     """ Algorithm to pack two normalized floats into one. Gives acceptable precision loss unless numbers are large-ish """
 
     a = unit_vector.x if a_component == "X" else unit_vector.y if a_component == "Y" else unit_vector.z
@@ -499,20 +414,7 @@ def get_packed_ab_vector(unit_vector, a_component, b_component):
 
 ############
 ### BAKE ###
-def get_bake_axis(quat, component, sign, remap, default = "Z"):
-    """ """
-
-    axis_to_bake = (quat @ XYZVECTORS["X"]) if component == "X" else (quat @ XYZVECTORS["Y"]) if component == "Y" else (quat @ XYZVECTORS["Z"]) * sign
-    
-    if (axis_to_bake.length < 0.001): # safe to normalize?
-        axis_to_bake = XYZVECTORS[default]
-
-    if remap:
-        axis_to_bake = (axis_to_bake + XYZUNITVECTOR) * 0.5 # remap vector from [-1:1] to [0:1]
-
-    return axis_to_bake
-
-def get_bake_selection(context):
+def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy.types.Object]:
     """
     Modify & ensure the active & selected objects can lead to a valid bake and return the list of objects to include in the bake.
 
@@ -541,42 +443,31 @@ def get_bake_selection(context):
     """
     Bake will probably need to do a lot of UV processing so ensure the required UVMaps can be accessed or else, created
     """
-    uvmap_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
-    bake_uvmaps = []
-
-    # get list of expected uvmaps
-    info_uv, info_vcol, info_normal = get_bake_info(context)
-    for uvmap_info in info_uv:
-        ID, uv_index, uv_channel, is_packed, is_32_bits, has_multiplier, channel_mode = uvmap_info
-        name_to_find = uvmap_name + "." + str(uv_index)
-        if name_to_find not in bake_uvmaps:
-            bake_uvmaps.append(name_to_find)
-            add_bake_report_uv(ID, name_to_find)
-
-    add_bake_report("mesh_uvmap_count", len(bake_uvmaps))
+    uv_layers, uv_maps = get_data_layers_uv_maps(context) # @TODO check
 
     if settings.invert_v:
         add_bake_report("mesh_uvmap_invert_v", True)
 
     obj_uvmaps = []
     for obj in objs_to_bake:
-        if any(uvmap_name in obj.data.uv_layers for uvmap_name in bake_uvmaps): # UVMap exists?
-            pass
-        elif len(obj.data.uv_layers) >= 8: # ensure UVMap can be created
-            return (False, obj.name + " has the maximum amount of uvmaps already", None, None)
+        if obj.type == "MESH":
+            if any(uvmap_name in obj.data.uv_layers for uvmap_name in uv_maps): # UVMap exists?
+                pass
+            elif len(obj.data.uv_layers) >= 8: # ensure UVMap can be created
+                return (False, obj.name + " has the maximum amount of uvmaps already", None, None)
 
-        for uvlayer in obj.data.uv_layers: # gather uvmaps as if objects were joined
-            if uvlayer.name not in obj_uvmaps:
-                obj_uvmaps.append(uvlayer.name)
+            for uvlayer in obj.data.uv_layers: # gather uvmaps as if objects were joined
+                if uvlayer.name not in obj_uvmaps:
+                    obj_uvmaps.append(uvlayer.name)
 
-    if not any(uvmap_name in obj_uvmaps for uvmap_name in bake_uvmaps) and settings.merge_mesh and len(obj_uvmaps) >= 8:
+    if not any(uvmap_name in obj_uvmaps for uvmap_name in uv_maps) and settings.merge_mesh and len(obj_uvmaps) >= 8:
         return (False, "Joined mesh is projected to have more than the maximum amount of uvmaps", None, None)
 
     context.view_layer.objects.active = None # blank canvas
 
     return (True, "", objs_to_bake, active_obj)
 
-def get_bake_name(context, active_object):
+def get_bake_name(context: bpy.types.Context, active_object:bpy.types.Object) -> str:
     """
     Return the name to give to the mesh & images to generate.
 
@@ -593,7 +484,7 @@ def get_bake_name(context, active_object):
     name = replace_tags(name, tags)
     return name
 
-def pre_process_bake_selection(context, objs_to_bake):
+def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, list, list]:
     """ """
 
     settings = context.scene.DataBakerSettings
@@ -622,7 +513,7 @@ def pre_process_bake_selection(context, objs_to_bake):
 
     return (True, "", meshes, empties)
 
-def post_process_bake_selection(context, meshes, empties):
+def post_process_bake_selection(context: bpy.types.Context, meshes: list, empties: list) -> tuple[bool, str, list]:
     """ """
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -656,7 +547,7 @@ def post_process_bake_selection(context, meshes, empties):
 
     return (True, "", context.selected_objects)
 
-def bake(context):
+def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     """
     Main bake function.
 
@@ -668,11 +559,17 @@ def bake(context):
     
     settings = context.scene.DataBakerSettings
     new_bake_report(context)
-    
+
     #############
     # BAKE INFO #
 
     bake_start_time = time.time()
+
+    success, msg = get_data_layers_sanity(context)
+    if not success:
+        add_bake_report("success", False)
+        add_bake_report("msg", msg)
+        return (False, 'ERROR', msg)
 
     success, msg, objs_to_bake, active_object = get_bake_selection(context)
     if not success:
@@ -685,15 +582,73 @@ def bake(context):
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
-    
+
+
     bake_name = get_bake_name(context, active_object)
     add_bake_report("name", bake_name)
 
     ########
     # BAKE #
 
-    for bake_function in get_bake_functions():
-        bake_function(context, meshes, empties)
+    for data_layer_index, data_layer in enumerate(settings.data_layers):
+        if not get_data_layer_sanity_ask_for_packing(data_layer):
+            success, msg, packing = get_data_layer_sanity_packing(data_layer, settings.data_layers)
+            if not success:
+                return (False, msg, packing)
+
+            data_to_bake = 0.0
+            if packing:
+                layers_to_bake = []
+                if len(packing[0]) == 0:
+                    layers_to_bake.append(data_layer)
+                    if len(packing[1]) != 0:
+                        layers_to_bake.append(packing[1][0])
+                    if len(packing[2]) != 0:
+                        layers_to_bake.append(packing[2][0])
+                elif len(packing[1]) == 0:
+                    if len(packing[0]) != 0:
+                        layers_to_bake.append(packing[0][0])
+                    layers_to_bake.append(data_layer)
+                    if len(packing[2]) != 0:
+                        layers_to_bake.append(packing[2][0])
+                elif len(packing[2]) == 0:
+                    if len(packing[0]) != 0:
+                        layers_to_bake.append(packing[0][0])
+                    if len(packing[1]) != 0:
+                        layers_to_bake.append(packing[1][0])
+                    layers_to_bake.append(data_layer)
+                print("=====")
+                print(layers_to_bake)
+                print("=====")
+
+                t = []
+                for l in layers_to_bake:
+                    t.append(get_data_layer_bake_function(l)(context, data_layer, meshes, empties))
+
+                u = {}
+                for i in t:
+                    for m, d in i:
+                        if m not in u:
+                            u[m] = [d]
+                        else:
+                            i = u[m]
+                            i.append(d)
+
+                print(u)
+
+                if data_layer.storage_mode == "UV":
+                    for mesh_to_bake, data_array in u.items():
+                        bake_data_uv(mesh_to_bake, data_array, data_layer.uv_index, data_layer.uv_channel, settings.uvmap_name, settings.invert_v)
+                elif data_layer.storage_mode == "VCOL":
+                    for mesh_to_bake, data_array in u.items():
+                        bake_data_vcol(mesh_to_bake, data_array, data_layer.vcol_rgba)
+                elif data_layer.storage_mode == "NORMAL":
+                    for mesh_to_bake, data_array in u.items():
+                        bake_data_normal(mesh_to_bake, data_array)
+                else:
+                    pass
+
+    # handle packing...
 
     ########
     # MESH #
@@ -725,2002 +680,1281 @@ def bake(context):
 
     return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
 
-def bake_data(obj, bake_data, bake_mode, uv_index, uv_channel, uv_name, rgba, invert_v = True, bake_loop_id = -1):
+def bake_data_uv(obj: bpy.types.Object, data_array: float, uv_index: int, uv_channel: str, uv_name: str, invert_v: bool = True) -> bool:
     """ Writes a float (data) to a specific UVMap at a specific channel of a given object, or to its vertex color at a specific color channel """
 
     if uv_index < 0 or uv_index > 7:
         return False
 
-    if bake_mode == "UV":
-        # create & zero uvmap(s) if needed
-        while (uv_index > (len(obj.data.uv_layers) - 1)):
-            obj.data.uv_layers.new()
-            uvmap_index = len(obj.data.uv_layers) - 1
-            
-            for face in obj.data.polygons:
-                for loop_id in face.loop_indices:
-                    obj.data.uv_layers[uvmap_index].data[loop_id].uv = (0.0, 1.0 if invert_v else 0.0)
-        
-        uv_name = uv_name if uv_name != "" else "UVMap.BakedData"
-        uv_name += "." + str(uv_index)
-        obj.data.uv_layers[uv_index].name = uv_name
-    elif rgba == "R" or rgba == "G" or rgba == "B" or rgba == "A" or rgba == "RGB" or rgba == "RG":
-        if obj.data.vertex_colors:
-            vcol = obj.data.vertex_colors.active
-        else:
-            vcol = obj.data.vertex_colors.new()
-            
-            for face in obj.data.polygons:
-                for loop_id in face.loop_indices:
-                    vcol.data[loop_id].color = [0.0, 0.0, 0.0, 0.0]
+    if not data_array:
+        return False
 
-    elif bake_mode == "NORMALS":
-        #obj.data.use_auto_smooth = True # @DEPRECATED in 4.1, used to be required to use custom normals
+    # create & zero uvmap(s) if needed @TODO ensure this works correctly
+    while (uv_index > (len(obj.data.uv_layers) - 1)):
+        obj.data.uv_layers.new()
+        uvmap_index = len(obj.data.uv_layers) - 1
 
         for face in obj.data.polygons:
-            face.use_smooth = True
+            for loop_id in face.loop_indices:
+                obj.data.uv_layers[uvmap_index].data[loop_id].uv = (0.0, 1.0 if invert_v else 0.0)
 
-        # create and assign normal buffer
-        normals = []
-        for vertex in obj.data.vertices:
-            normals.append(bake_data)
+    uv_name = uv_name if uv_name != "" else "UVMap.BakedData"
+    uv_name += "." + str(uv_index)
+    obj.data.uv_layers[uv_index].name = uv_name
 
-        obj.data.normals_split_custom_set_from_vertices(normals)
-        return True
+    if uv_channel == "U":
+        index = 0
+        invert_v = False
+    else:
+        index = 1
+
+    for loop_id in data_array:
+        print(loop_id)
+        if len(data_array) == 1:
+            data_to_bake = data_array[0]
+        elif len(data_array) == 2:
+            data_to_bake = get_packed_16_16_ab(data_array[0], data_array[1])
+        else:
+            data_to_bake = get_packed_16_16_ab(data_array[0], data_array[1], data_array[2])
+        
+        obj.data.uv_layers[uv_index].data[loop_id].uv[index] = (1.0 - data_to_bake) if invert_v else data_to_bake
+    
+    return True
+
+def bake_data_vcol(obj: bpy.types.Object, data_array: float, rgba: str) -> bool:
+    """ Writes a float (data) to a specific UVMap at a specific channel of a given object, or to its vertex color at a specific color channel """
+
+    if not data_to_bake:
+        return False
+
+    if obj.data.vertex_colors:
+        vcol = obj.data.vertex_colors.active
+    else:
+        vcol = obj.data.vertex_colors.new()
+    
+        for face in obj.data.polygons:
+            for loop_id in face.loop_indices:
+                vcol.data[loop_id].color = [0.0, 0.0, 0.0, 0.0]
+
+    for loop_id, data in data_to_bake:
+        if rgba == "R":
+            vcol.data[loop_id].color[0] = data # @TODO need to remap
+        elif rgba == "G":
+            vcol.data[loop_id].color[1] = data
+        elif rgba == "B":
+            vcol.data[loop_id].color[2] = data
+        elif rgba == "A":
+            vcol.data[loop_id].color[3] = data
+
+    return True
+
+def bake_data_normal(obj: bpy.types.Object, data_array: float) -> bool:
+    """ Writes a float (data) to a specific UVMap at a specific channel of a given object, or to its vertex color at a specific color channel """
+
+    #obj.data.use_auto_smooth = True # @DEPRECATED in 4.1, used to be required to use custom normals
 
     for face in obj.data.polygons:
-        for loop_id in face.loop_indices:
-            # override loop ID if one was specified. We might call this function *while* we loop through loop indices already to compute data to bake, based on polys or vertices, and so we wouldn't want to do that twice.
-            # we're going to exit early those for loops if that's the case and write data just that once on the specified loop index @NOTE fix hack
-            if (bake_loop_id >= 0):
-                loop_id = bake_loop_id
-            
-            if bake_mode == "UV":
-                # only set data on the specified UV channel (U or V) and preserve the other data
-                if (uv_channel == "U"):
-                    obj.data.uv_layers[uv_index].data[loop_id].uv[0] = bake_data
-                else:
-                    # need to flip UV's Y axis for Unreal!
-                    obj.data.uv_layers[uv_index].data[loop_id].uv[1] = (1.0 - bake_data) if invert_v else bake_data
-                
-            else:
-                # only set data on the specified rgba channel and preserve data on other channels
-                col = vcol.data[loop_id].color
-                if rgba == "R":
-                    col[0] = bake_data
-                elif rgba == "G":
-                    col[1] = bake_data
-                elif rgba == "B":
-                    col[2] = bake_data
-                elif rgba == "A":
-                    col[3] = bake_data
-                elif rgba == "RGB":
-                    col[0] = bake_data.x
-                    col[1] = bake_data.y
-                    col[2] = bake_data.z
-                elif rgba == "RG":
-                    col[0] = bake_data.x
-                    col[1] = bake_data.y
-    
-                vcol.data[loop_id].color = col
-            
-            # exit early if loop ID was specified and data written there just that once. We don't want to loop through loop indices here
-            if (bake_loop_id >= 0):
-                break
-        # exit early if loop ID was specified and data written there just that once. We don't want to loop through polygons here
-        if (bake_loop_id >= 0):
-            break
-        
+        face.use_smooth = True
+
+    # create and assign normal buffer
+    normals = []
+    for vertex in obj.data.vertices: # @TODO we might need to duplicate verts? (rand per face)
+        normals.append(data_to_bake)
+
+    obj.data.normals_split_custom_set_from_vertices(normals)
     return True
+
+##################
+### DATA LAYER ###
+def get_data_layer_sanity_disallow_packing(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
+    """
+    Return true if the data_layer's storage_mode doesn't allow other layers to be bit-packed into it, false else
+    """
+    if get_data_layer_sanity_ask_for_packing(data_layer):
+        return False
+
+    return data_layer.storage_mode == "VCOL"
+
+def get_data_layer_sanity_ask_for_packing(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
+    """
+    Return true if the data_layer's storage_mode indicates that the layer should be packed into another layer,  false else
+    """
+    return data_layer.storage_mode == "FRACTION" or data_layer.storage_mode == "AB" or data_layer.storage_mode == "XYZ"
+
+def get_data_layer_sanity_empty_ptr_id(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
+    """
+    Return true if the data_layer's ptr_ID is empty, false else
+    """
+    return data_layer.ptr_ID == ""
+
+def get_data_layer_sanity_self_ptr_id(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
+    """
+    Return true if the data_layer's ptr_ID is the same as it's ID, false else
+    """
+    return data_layer.ptr_ID == data_layer.ID
+
+def get_data_layer_sanity_packing_target(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> DATABAKER_PG_DataLayerPropertyGroup:
+    """
+    Return the first data_layer in the data_layers list which ID matches the given data_layer's ptr_ID
+    """
+    return next(target_data_layer for target_data_layer in data_layers if target_data_layer.ID == data_layer.ptr_ID)
+
+def get_data_layer_sanity_is_self(data_layer: DATABAKER_PG_DataLayerPropertyGroup, other_data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
+    """ 
+    Return true if the data_layer ptr and other_data_layer ptr point to the same object
+    """
+    return data_layer == other_data_layer
+
+def get_data_layer_sanity_packing(target_data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> tuple[bool, str, list]:
+    """
+    Find all layers targeting the given data_layer and see if all use the same packing mode and that all ask to be bit-packed in different components
+    """
+    layers_sharing_target = [layer for layer in data_layers if layer.ptr_ID == target_data_layer.ID]
+
+    if not layers_sharing_target:
+        (True, get_data_layer_name(target_data_layer) + " isn't asked to pack other layers", None)
+
+    layers_packed_in_a = []
+    layers_packed_in_b = []
+    layers_packed_in_c = []
+
+    # ignore potential packing errors and just build lists first
+    for sibling_data_layer in layers_sharing_target:
+        if sibling_data_layer.storage_mode == "FRACTION" or (sibling_data_layer.storage_mode == "AB" and sibling_data_layer.pack_ab == "A") or (sibling_data_layer.storage_mode == "XYZ" and sibling_data_layer.pack_xyz == "X"):
+            layers_packed_in_a.append(sibling_data_layer)
+        elif (sibling_data_layer.storage_mode == "AB" and sibling_data_layer.pack_ab == "B") or (sibling_data_layer.storage_mode == "XYZ" and sibling_data_layer.pack_xyz == "Y"):
+            layers_packed_in_b.append(sibling_data_layer)
+        elif (sibling_data_layer.storage_mode == "XYZ" and sibling_data_layer.pack_xyz == "Z"):
+            layers_packed_in_c.append(sibling_data_layer)
+        else:
+            pass
+
+    packing = [layers_packed_in_a, layers_packed_in_b, layers_packed_in_c]
+
+    # check for potential packing errors
+    for packed_layers_component, packed_layers in enumerate([layers_packed_in_a, layers_packed_in_b, layers_packed_in_c]):
+        packed_layers_names = [layer.ID for layer in packed_layers]
+        packed_layers_component_name = "A" if packed_layers_component == 0 else "B" if packed_layers_component == 1 else "C"
+
+        # can't pack more than one layer per component
+        if len(packed_layers) > 1:
+            return (False, "Packing error with " + get_data_layer_name(target_data_layer) + ": multiple layers packed in component " + packed_layers_component_name + ": " + ','.join(packed_layers_names), packing)
+
+        # ensure packing mode is consistent
+        for packed_layer in packed_layers:
+            if packed_layer.storage_mode != packed_layer.storage_mode:
+                return (False, "Packing error with " + get_data_layer_name(target_data_layer) + ": target " + get_data_layer_name(packed_layer) + " don't share the packing mode", packing)
+
+    packed_layers_names = [layer.ID for layer in packed_layers for packed_layers in packing]
+
+    return (True, get_data_layer_name(target_data_layer) + "successfully packing other layers: " + ','.join(packed_layers_names), packing)
+
+def get_data_layer_sanity_channel(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> tuple[bool, str]:
+    """
+    Check if the data_layer's storage_mode don't conflict with other layers: UV index & U/V channel, VCOL R/G/B/A channel, NORMAL X/Y/Z component
+    """
+    if data_layer.storage_mode == "UV":
+        if data_layer.uv_index > 7:
+            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": can't have " + str(data_layer.uv_index + 1) + " UVMaps")
+
+        uv_components = []
+        for data_layer in data_layers:
+            layer_index = data_layer.uv_index * 2 + (0 if data_layer.uv_channel == "U" else 1)
+            if data_layer.storage_mode == "UV" and (layer_index in uv_components):
+                return (False, "Packing error with " + get_data_layer_name(data_layer) + ": UVMap " + str(data_layer.uv_index) + " channel " + data_layer.uv_channel + " is already used")
+            else:
+                uv_components.append(layer_index)
+    elif data_layer.storage_mode == "VCOL":
+        vcol_components = []
+        for data_layer in data_layers:
+            if data_layer.storage_mode == "VCOL" and (data_layer.vcol_rgba in vcol_components):
+                return (False, "Packing error with " + get_data_layer_name(data_layer) + ": " + data_layer.vcol_rgba + " already targeted")
+            else:
+                vcol_components.append(data_layer.vcol_rgba)
+    elif data_layer.storage_mode == "NORMAL":
+        normal_components = []
+        for data_layer in data_layers:
+            if data_layer.storage_mode == "NORMAL" and (data_layer.normal_xyz in normal_components):
+                return (False, "Packing error with " + get_data_layer_name(data_layer) + ": Normal " + str(data_layer.normal_xyz) + " is already used")
+            else:
+                normal_components.append(data_layer.normal_xyz)
+    else:
+        return (True, "")
+
+    return (True, "")
+
+def get_data_layer_sanity(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> tuple[bool, str, list]:
+    """ 
+    If layer is meant to be 'packed', the layer itself will be 'discarded', because included in the bake process
+    when the targeted layer itself is baked. So we just need to check the validity of this data layer's target.
+    """
+    if not data_layer:
+        return (False, "Invalid data layer", None)
+
+    # data layer might "be packed into another layer"
+    if get_data_layer_sanity_ask_for_packing(data_layer): # FRACTION, AB, XYZ?
+        if get_data_layer_sanity_empty_ptr_id(data_layer): # null ptr_ID?
+            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": no target specified", None)
+        if get_data_layer_sanity_self_ptr_id(data_layer): # ptr_ID == ID?
+            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": targeting itself (ID)", None)
+
+        # get target!
+        data_layer_target = get_data_layer_sanity_packing_target(data_layer, data_layers) # ptr_ID -> target
+        if data_layer_target:
+            if get_data_layer_sanity_is_self(data_layer, data_layer_target): # target == self?
+                return (False, "Packing error with " + get_data_layer_name(data_layer_target) + ": targeting itself (Layer)", None)
+            if get_data_layer_sanity_disallow_packing(data_layer_target): # target FRACTION, AB, XYZ or VCOL?
+                return (False, "Packing error with " + get_data_layer_name(data_layer_target) + ": is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
+
+            return get_data_layer_sanity_packing(data_layer_target, data_layers)
+        else:
+            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": target specified couldn't be found", None)
+    else: # data layer might "pack other layers"
+        success, msg, packing = get_data_layer_sanity_packing(data_layer, data_layers)
+        if not success:
+            return (False, msg, packing)
+
+        success, msg = get_data_layer_sanity_channel(data_layer, data_layers)
+        if not success:
+            return (False, msg, None)
+
+        return (True, "", None)
+
+def get_data_layers_sanity_ids_sane(data_layers: list) -> bool:
+    """
+    Return true if layers all have unique IDs, false else
+    """
+    ids = []
+    for data_layer in data_layers:
+        if data_layer.ID == "":
+            return (False, "Empty ID")
+        elif data_layer.ID not in ids:
+            ids.append(data_layer.ID)
+        else:
+            return (False, "Duplicated IDs")
+    
+    return (True, "")
+
+def get_data_layers_sanity(context: bpy.types.Context) -> tuple[bool, str, DATABAKER_PG_DataLayerPropertyGroup]:
+    """
+
+    """
+    settings = context.scene.DataBakerSettings
+
+    success, msg = get_data_layers_sanity_ids_sane(settings.data_layers)
+    if not success:
+        return (False, msg)
+
+    for data_layer in settings.data_layers:
+        success, msg, _ = get_data_layer_sanity(data_layer, settings.data_layers)
+        if not success:
+            return (False, msg)
+
+    return (True, "")
+
+def get_data_layers_uv_maps(context: bpy.types.Context) -> tuple[list, list]:
+    """ """
+    settings = context.scene.DataBakerSettings
+    uvmap_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
+
+    data_layers_uv = [d for d in settings.data_layers if d.storage_mode == "UV"]
+    uv_layers = []
+    uv_maps = []
+    for data_layer_uv in data_layers_uv:
+        uv_layers.append(data_layer_uv.uv_index * 2 + (1 if data_layer_uv.uv_channel == "U" else 0))
+        
+        uv_index_str = str(data_layer_uv.uv_index)
+        uv_index_str = uv_index_str.zfill(3)
+        if (uvmap_name + uv_index_str) not in uv_maps:
+            uv_maps.append(uvmap_name + uv_index_str)
+
+    return (uv_layers, uv_maps)
+
+def get_data_layer_name(item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
+    """ """
+    if item:
+        if item.data == "POSITION":
+            return "Position " + item.component
+        elif item.data == "AXIS":
+            return "Axis " + item.component
+        elif item.data == "SHAPEKEY":
+            if item.shapekey_mode == "OFFSET":
+                return "Shapekey Offset " + item.component
+            elif item.shapekey_mode == "NORMAL":
+                return "Shapekey Normal " + item.component
+            else:
+                pass
+        elif item.data == "MASK":
+            if item.mask_mode == "SPHERE":
+                return "Mask Sphere"
+            elif item.mask_mode == "LINEAR":
+                return "Mask Linear " + item.axis
+        elif item.data == "RANDOM":
+            if item.rand_mode == "COLLECTION":
+                return "Random Per Col"
+            elif item.rand_mode == "OBJECT":
+                return "Random Per Obj"
+            elif item.rand_mode == "FACE":
+                return "Random Per Face"
+            else:
+                pass
+        elif item.data == "PARENT_POS":
+            return "Parent " + str(item.index) + " Pos " + item.component
+        elif item.data == "PARENT_AXIS":
+            return "Parent " + str(item.index) + " Axis " + item.component
+        elif item.data == "VALUE":
+            return "Value"
+        elif item.data == "CUSTOM_PROP":
+            if item.name == "":
+                return "Invalid Custom Prop"
+            else:
+                return item.name
+        else:
+            pass
+
+    return "UNKNOWN"
+
+def get_data_layer_storage_mode_icon(item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
+    """ """
+    if item:
+        if item.storage_mode == "UV":
+            return "UV"
+        elif item.storage_mode == "VCOL":
+            return "GROUP_VCOL"
+        elif item.storage_mode == "NORMAL":
+            return "NORMALS_FACE"
+        else:
+            return "DOT"
+
+    return "X"
+
+def get_data_layer_packing_mode_icon(data: list, item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
+    """ """
+    if item:
+        if item.storage_mode == "AB" or item.storage_mode == "XYZ" or item.storage_mode == "FRACTION":
+            if item.ptr_ID == "":
+                return "QUESTION"
+            else: # packed in target data
+                return "COPYDOWN"
+        else:
+            if item.storage_mode == "AB":
+                return "OVERLAY"
+            elif item.storage_mode == "XYZ":
+                return "THREE_DOTS"
+            elif item.storage_mode == "FRACTION":
+                return "PIVOT_ACTIVE"
+            else:
+                pass
+
+    return "DOT"
+
+def copy_data_layer(to_data_layer: DATABAKER_PG_DataLayerPropertyGroup, from_data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
+    """ """
+    if to_data_layer and from_data_layer:
+        to_data_layer.data = from_data_layer.data
+        
+        # automatically wrap XYZ component
+        to_data_layer.component = "X" if from_data_layer.component == "Z" else "Y" if from_data_layer.component == "X" else "Z"
+        
+        # automatically wrap uv/vcol rgba/normal xyz
+        to_data_layer.storage_mode = from_data_layer.storage_mode
+        if from_data_layer.storage_mode == "UV":
+            to_data_layer.uv_channel = "U" if from_data_layer.uv_channel == "V" else "V"
+            to_data_layer.uv_index = from_data_layer.uv_index + 1 if from_data_layer.uv_channel == "V" else from_data_layer.uv_index
+        elif from_data_layer.storage_mode == "VCOL":
+            to_data_layer.vcol_rgba = "A" if from_data_layer.vcol_rgba == "B" else "B" if from_data_layer.vcol_rgba == "G" else "G" if from_data_layer.vcol_rgba == "R" else "R"
+        elif from_data_layer.storage_mode == "NORMAL":
+            to_data_layer.normal_xyz = "Z" if from_data_layer.normal_xyz == "Y" else "Y" if from_data_layer.normal_xyz == "X" else "X"
+        else:
+            pass
+
+        to_data_layer.pack_a_b = from_data_layer.pack_a_b
+        to_data_layer.pack_x_y_z = from_data_layer.pack_x_y_z
+        to_data_layer.pack_only_if_non_null = from_data_layer.pack_only_if_non_null
+
+        to_data_layer.axis = from_data_layer.axis
+        to_data_layer.axis_mode = from_data_layer.axis_mode
+        to_data_layer.axis_obj = from_data_layer.obj
+
+        to_data_layer.name = from_data_layer.name
+
+        to_data_layer.obj = from_data_layer.obj
+
+        to_data_layer.shapekey_mode = from_data_layer.shapekey_mode
+        
+        to_data_layer.mask_mode = from_data_layer.mask_mode
+
+        to_data_layer.normalize = from_data_layer.normalize
+        to_data_layer.clamp = from_data_layer.clamp
+        to_data_layer.falloff = from_data_layer.falloff
+        to_data_layer.uniform = from_data_layer.uniform
+
+        to_data_layer.origin_mode = from_data_layer.origin_mode
+
+        to_data_layer.rand_mode = from_data_layer.rand_mode
+        to_data_layer.rand_seed = from_data_layer.rand_seed
+        to_data_layer.rand_float_mode = from_data_layer.rand_float_mode
+
+        to_data_layer.x = from_data_layer.x
+        to_data_layer.y = from_data_layer.y
+        to_data_layer.z = from_data_layer.z
+        to_data_layer.index = from_data_layer.index
+
+        return True
+    return False
+
+def get_data_layer_bake_function(data_layer: DATABAKER_PG_DataLayerPropertyGroup):
+    """ """
+    if data_layer:
+        if data_layer.data == "POSITION" :
+            return get_bake_position
+        elif data_layer.data == "AXIS":
+            return get_bake_axis
+        elif data_layer.data == "SHAPEKEY":
+            return get_bake_shapekey
+        elif data_layer.data == "MASK":
+            return get_bake_mask
+        elif data_layer.data == "RANDOM":
+            return get_bake_random
+        elif data_layer.data == "PARENT_POS":
+            return get_bake_parent_pos
+        elif data_layer.data == "PARENT_AXIS":
+            return get_bake_parent_axis
+        elif data_layer.data == "VALUE":
+            return get_bake_value
+        elif data_layer.data == "CUSTOM_PROP":
+            return get_bake_custom_prop
+        else:
+            return get_bake_none
+    
+    return get_bake_none
 
 ######################
 ### BAKE FUNCTIONS ###
-def get_bake_functions():
-    """ """
-    return [
-        bake_position,
-        bake_axis,
-        bake_shapekey_offset,
-        bake_shapekey_normal,
-        bake_linear_mask,
-        bake_sphere_mask,
-        bake_random_value_per_collection,
-        bake_random_value_per_object,
-        bake_random_value_per_polygon,
-        bake_parent,
-        bake_fixed_value,
-        bake_direction
-    ]
 
-def bake_position(context, meshes, empties):
+def get_bake_position(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-
     settings = context.scene.DataBakerSettings
-    if settings.position:
-        add_bake_report("position", True)
-        add_bake_report("position_channel_mode", settings.position_channel_mode)
-        add_bake_report("position_x", settings.position_x)
-        add_bake_report("position_x_mode", settings.position_x_mode)
-        add_bake_report("position_x_uv_index", settings.position_x_uv_index)
-        add_bake_report("position_x_uv_channel", settings.position_x_uv_channel)
-        add_bake_report("position_x_rgba", settings.position_x_rgba)
-        add_bake_report("position_y", settings.position_y)
-        add_bake_report("position_y_mode", settings.position_y_mode)
-        add_bake_report("position_y_uv_index", settings.position_y_uv_index)
-        add_bake_report("position_y_uv_channel", settings.position_y_uv_channel)
-        add_bake_report("position_y_rgba", settings.position_y_rgba)
-        add_bake_report("position_z", settings.position_z)
-        add_bake_report("position_z_mode", settings.position_z_mode)
-        add_bake_report("position_z_uv_index", settings.position_z_uv_index)
-        add_bake_report("position_z_uv_channel", settings.position_z_uv_channel)
-        add_bake_report("position_z_rgba", settings.position_z_rgba)
-        add_bake_report("position_packed_uv_index", settings.position_packed_uv_index)
-        add_bake_report("position_packed_uv_channel", settings.position_packed_uv_channel)
-        add_bake_report("position_pack_only_if_non_null", settings.position_pack_only_if_non_null)
-        add_bake_report("position_ab_packed_a_comp", settings.position_ab_packed_a_comp)
-        add_bake_report("position_ab_packed_b_comp", settings.position_ab_packed_b_comp)
-    else:
-        return False
 
     signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
                                     -1.0 if settings.invert_y else 1.0,
                                     -1.0 if settings.invert_z else 1.0))
     signed_scale = signed_axis * settings.scale
-
-    # data might need a 'multiplier' to be normalized and packed/unpacked
-    packing_multiplier = get_position_data_multiplier(context) if get_position_data_needs_multiplier(context) else 1.0
-    packing_divisor = 1.0 / packing_multiplier
-    add_bake_report("position_multiplier", packing_multiplier)
+    
+    bake_data = []
 
     for mesh in meshes:
-        ref_obj = settings.transform_obj if settings.transform_obj else mesh # use specified object if any, else use self
-        loc = ref_obj.matrix_world.to_translation() # get object's location and make it relative to specified origin, if any
-        if settings.origin:
-            loc -= settings.origin.matrix_world.to_translation()
-        loc_to_bake = loc * signed_scale
+        data_loop_ids = []
 
-        if settings.position_channel_mode == "INDIVIDUAL":
-            # packing axis is only available if we pack X/Y/Z components individually
-            if settings.axis and settings.axis_channel_mode == "POSITION_PACKED":
-                quat = ref_obj.matrix_world.to_quaternion()
+        target_obj = data_layer.obj if data_layer.obj else mesh
+        target_obj_mat = target_obj.matrix_world
+        if settings.world_obj:
+            target_obj_mat = target_obj_mat @ settings.world_obj.matrix_world.inverted # relative to world obj
+        target_obj_loc = target_obj_mat.to_translation()
 
-                axis_to_bake = get_bake_axis(quat, settings.axis_component, signed_axis, True)
+        vector_to_bake = target_obj_loc * signed_scale
 
-                # round position & pack axis in fractional part
-                loc_to_bake.x = math.floor(loc_to_bake.x) + axis_to_bake.x
-                loc_to_bake.y = math.floor(loc_to_bake.y) + axis_to_bake.y
-                loc_to_bake.z = math.floor(loc_to_bake.z) + axis_to_bake.z
-
-            # X POSITION
-            if settings.position_x:
-                data_to_bake = loc_to_bake.x
-
-                if settings.position_x_mode == "VCOL":
-                    data_to_bake = data_to_bake * packing_divisor
-                    data_to_bake = (data_to_bake + 1) * 0.5
-
-                bake_data(mesh, data_to_bake, settings.position_x_mode, settings.position_x_uv_index, settings.position_x_uv_channel, settings.uvmap_name, settings.position_x_rgba, settings.invert_v)
-
-            # Y POSITION
-            if settings.position_y:
-                data_to_bake = loc_to_bake.y
-
-                if settings.position_y_mode == "VCOL":
-                    data_to_bake = data_to_bake * packing_divisor
-                    data_to_bake = (data_to_bake + 1) * 0.5
-
-                bake_data(mesh, data_to_bake, settings.position_y_mode, settings.position_y_uv_index, settings.position_y_uv_channel, settings.uvmap_name, settings.position_y_rgba, settings.invert_v)
-
-            # Z POSITION
-            if settings.position_z:
-                data_to_bake = loc_to_bake.z
-
-                if settings.position_z_mode == "VCOL":
-                    data_to_bake = data_to_bake * packing_divisor
-                    data_to_bake = (data_to_bake + 1) * 0.5
-
-                bake_data(mesh, data_to_bake, settings.position_z_mode, settings.position_z_uv_index, settings.position_z_uv_channel, settings.uvmap_name, settings.position_z_rgba, settings.invert_v)
-        # PACKED
+        if data_layer.component == "X":
+            data_to_bake = vector_to_bake.x
+        elif data_layer.component == "Y":
+            data_to_bake = vector_to_bake.y
+        elif data_layer.component == "Z":
+            data_to_bake = vector_to_bake.z
         else:
-            remapped_loc = mathutils.Vector((
-                max(min(loc_to_bake.x * packing_divisor, 1.0), -1.0),
-                max(min(loc_to_bake.y * packing_divisor, 1.0), -1.0),
-                max(min(loc_to_bake.z * packing_divisor, 1.0), -1.0))
-                )
-
-            normalized_loc = (remapped_loc + XYZUNITVECTOR) * 0.5
-
             data_to_bake = 0.0
-            # X/Y or X/Z or Y/Z POSITION
-            if settings.position_channel_mode == "AB_PACKED":
-                data_to_bake = get_packed_ab_vector(normalized_loc, settings.position_ab_packed_a_comp, settings.position_ab_packed_b_comp)
-            # XYZ POSITION
-            elif settings.position_channel_mode == "XYZ_PACKED":
-                data_to_bake = get_packed_xyz_vector(normalized_loc)
 
-            if settings.position_pack_only_if_non_null:
-                if loc_to_bake.length < 0.01:
-                    data_to_bake = 0.0 # @NOTE might be interesting to report in case this behaves unexpectedly?
+        for face in mesh.data.polygons:
+            for loop_id in face.loop_indices:
+                data_loop_ids.append((loop_id, data_to_bake))
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data
 
-            bake_data(mesh, data_to_bake, "UV", settings.position_packed_uv_index, settings.position_packed_uv_channel, settings.uvmap_name, 0, settings.invert_v)
-
-    return True   
-
-def bake_axis(context, meshes, empties):
+def get_bake_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-
     settings = context.scene.DataBakerSettings
-    if settings.axis and settings.axis_channel_mode != "POSITION_PACKED":
-        add_bake_report("axis", True)
-        add_bake_report("axis_component", settings.axis_component)
-        add_bake_report("axis_channel_mode", settings.axis_channel_mode)
-        add_bake_report("axis_x", settings.axis_x)
-        add_bake_report("axis_x_mode", settings.axis_x_mode)
-        add_bake_report("axis_x_uv_index", settings.axis_x_uv_index)
-        add_bake_report("axis_x_uv_channel", settings.axis_x_uv_channel)
-        add_bake_report("axis_x_rgba", settings.axis_x_rgba)
-        add_bake_report("axis_y", settings.axis_y)
-        add_bake_report("axis_y_mode", settings.axis_y_mode)
-        add_bake_report("axis_y_uv_index", settings.axis_y_uv_index)
-        add_bake_report("axis_y_uv_channel", settings.axis_y_uv_channel)
-        add_bake_report("axis_y_rgba", settings.axis_y_rgba)
-        add_bake_report("axis_z", settings.axis_z)
-        add_bake_report("axis_z_mode", settings.axis_z_mode)
-        add_bake_report("axis_z_uv_index", settings.axis_z_uv_index)
-        add_bake_report("axis_z_uv_channel", settings.axis_z_uv_channel)
-        add_bake_report("axis_z_rgba", settings.axis_z_rgba)
-        add_bake_report("axis_packed_uv_index", settings.axis_packed_uv_index)
-        add_bake_report("axis_packed_uv_channel", settings.axis_packed_uv_channel)
-        add_bake_report("axis_ab_packed_a_comp", settings.axis_ab_packed_a_comp)
-        add_bake_report("axis_ab_packed_b_comp", settings.axis_ab_packed_b_comp)
-    else:
-        return False
-    
+
     signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
                                     -1.0 if settings.invert_y else 1.0,
                                     -1.0 if settings.invert_z else 1.0))
+    
+    bake_data = []
 
     for mesh in meshes:
-        ref_obj = settings.transform_obj if settings.transform_obj else mesh
+        data_loop_ids = []
         
-        ref_obj_quat = ref_obj.matrix_world.to_quaternion()
-        
-        axis_to_bake = get_bake_axis(ref_obj_quat, settings.axis_component, signed_axis, False)
+        target_obj = data_layer.obj if data_layer.obj else mesh
+        target_obj_mat = target_obj.matrix_world
+        if settings.world_obj:
+            target_obj_mat = target_obj_mat @ settings.world_obj.matrix_world.inverted # relative to world obj
 
-        if settings.axis_channel_mode == "INDIVIDUAL":
-            # AXIS X COMPONENT
-            if settings.axis_x:
-                data_to_bake = axis_to_bake.x
-                
-                if (settings.axis_x_mode == "VCOL"):
-                    data_to_bake = (data_to_bake + 1) * 0.5
+        target_obj_quat = target_obj_mat.to_quaternion()
 
-                bake_data(mesh, data_to_bake, settings.axis_x_mode, settings.axis_x_uv_index, settings.axis_x_uv_channel, settings.uvmap_name, settings.axis_x_rgba, settings.invert_v)
-
-            # AXIS Y COMPONENT
-            if settings.axis_y:
-                data_to_bake = axis_to_bake.y
-
-                if (settings.axis_y_mode == "VCOL"):
-                    data_to_bake = (data_to_bake + 1) * 0.5
-
-                bake_data(mesh, data_to_bake, settings.axis_y_mode, settings.axis_y_uv_index, settings.axis_y_uv_channel, settings.uvmap_name, settings.axis_y_rgba, settings.invert_v)
-
-            # AXIS Z COMPONENT
-            if settings.axis_z:
-                data_to_bake = axis_to_bake.z
-
-                if (settings.axis_z_mode == "VCOL"):
-                    data_to_bake = (data_to_bake + 1) * 0.5
-
-                bake_data(mesh, data_to_bake, settings.axis_z_mode, settings.axis_z_uv_index, settings.axis_z_uv_channel, settings.uvmap_name, settings.axis_z_rgba, settings.invert_v)
-        # PACKED
+        if data_layer.axis == "X":
+            axis = mathutils.Vector((1.0, 0.0, 0.0))
+        elif data_layer.axis == "Y":
+            axis = mathutils.Vector((0.0, 1.0, 0.0))
+        elif data_layer.axis == "Z":
+            axis = mathutils.Vector((0.0, 0.0, 1.0))
         else:
-            RemappedAxis = (axis_to_bake + XYZUNITVECTOR) * 0.5
-            
-            # X/Y or X/Z or Y/Z AXIS
-            if settings.axis_channel_mode == "AB_PACKED":
-                data_to_bake = get_packed_ab_vector(RemappedAxis, settings.axis_ab_packed_a_comp, settings.axis_ab_packed_b_comp)                
-            # XYZ AXIS
-            elif settings.axis_channel_mode == "XYZ_PACKED":
-                data_to_bake = get_packed_xyz_vector(RemappedAxis)
+            axis = mathutils.Vector((0.0, 0.0, 0.0))
 
-            bake_data(mesh, data_to_bake, "UV", settings.axis_packed_uv_index, settings.axis_packed_uv_channel, settings.uvmap_name, 0, settings.invert_v)
-    return True
+        vector_to_bake = (target_obj_quat @ (axis * signed_axis))
 
-def bake_shapekey_offset(context, meshes, empties):
+        if data_layer.component == "X":
+            data_to_bake = vector_to_bake.x
+        elif data_layer.component == "Y":
+            data_to_bake = vector_to_bake.y
+        elif data_layer.component == "Z":
+            data_to_bake = vector_to_bake.z
+        else:
+            data_to_bake = 0.0
+
+        for face in mesh.data.polygons:
+            for loop_id in face.loop_indices:
+                data_loop_ids.append((loop_id, data_to_bake))
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data
+
+def get_bake_shapekey(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-
+    # @TODO rework way shapekeys offset & normal are computed
     settings = context.scene.DataBakerSettings
-    if settings.shapekey_offset:
-        add_bake_report("shapekey_name", settings.shapekey_name)
-        add_bake_report("shapekey_rest_name", settings.shapekey_rest_name)
 
-        add_bake_report("shapekey_offset", True)
-        add_bake_report("shapekey_offset_channel_mode", settings.shapekey_offset_channel_mode)
-        add_bake_report("shapekey_offset_x", settings.shapekey_offset_x)
-        add_bake_report("shapekey_offset_x_mode", settings.shapekey_offset_x_mode)
-        add_bake_report("shapekey_offset_x_uv_index", settings.shapekey_offset_x_uv_index)
-        add_bake_report("shapekey_offset_x_uv_channel", settings.shapekey_offset_x_uv_channel)
-        add_bake_report("shapekey_offset_x_rgba", settings.shapekey_offset_x_rgba)
-        add_bake_report("shapekey_offset_y", settings.shapekey_offset_y)
-        add_bake_report("shapekey_offset_y_mode", settings.shapekey_offset_y_mode)
-        add_bake_report("shapekey_offset_y_uv_index", settings.shapekey_offset_y_uv_index)
-        add_bake_report("shapekey_offset_y_uv_channel", settings.shapekey_offset_y_uv_channel)
-        add_bake_report("shapekey_offset_y_rgba", settings.shapekey_offset_y_rgba)
-        add_bake_report("shapekey_offset_z", settings.shapekey_offset_z)
-        add_bake_report("shapekey_offset_z_mode", settings.shapekey_offset_z_mode)
-        add_bake_report("shapekey_offset_z_uv_index", settings.shapekey_offset_z_uv_index)
-        add_bake_report("shapekey_offset_z_uv_channel", settings.shapekey_offset_z_uv_channel)
-        add_bake_report("shapekey_offset_z_rgba", settings.shapekey_offset_z_rgba)
-        add_bake_report("shapekey_offset_packed_uv_index", settings.shapekey_offset_packed_uv_index)
-        add_bake_report("shapekey_offset_packed_uv_channel", settings.shapekey_offset_packed_uv_channel)
-        add_bake_report("shapekey_offset_ab_packed_a_comp", settings.shapekey_offset_ab_packed_a_comp)
-        add_bake_report("shapekey_offset_ab_packed_b_comp", settings.shapekey_offset_ab_packed_b_comp)
-    else:
-        return False
-    
     signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
                                     -1.0 if settings.invert_y else 1.0,
                                     -1.0 if settings.invert_z else 1.0))
     signed_scale = signed_axis * settings.scale
 
-    # data might need a 'multiplier' to be normalized and packed/unpacked
-    packing_multiplier = get_shapekey_offset_data_multiplier(context) if get_shapekey_offset_data_needs_multiplier(context) else 1.0
-    packing_divisor = 1.0 / packing_multiplier
-    add_bake_report("shapekey_offset_multiplier", packing_multiplier)
+    bake_data = []
 
     for mesh in meshes:
-        # make sure shapekey exists
-        if mesh.data.shape_keys and (settings.shapekey_name in mesh.data.shape_keys.key_blocks) and (settings.shapekey_rest_name in mesh.data.shape_keys.key_blocks):
-            initial_shape_keys = []
-            for shape_key in mesh.data.shape_keys.key_blocks:
-                initial_shape_keys.append((shape_key.name, shape_key.value)) # cache shapekeys
-                if shape_key.name == settings.shapekey_name:
-                    shape_key.value = 1.0
-                else:
-                    shape_key.value = 0.0
-        
-            dgraph = context.evaluated_depsgraph_get()
-            obj_eval = mesh.evaluated_get(dgraph)
-            mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-            
-            for face in mesh.data.polygons:
-                for loop_id in face.loop_indices:
-                    vertex_index = mesh.data.loops[loop_id].vertex_index
-                    
-                    shapekey_vertex_pos = mesh.data.shape_keys.key_blocks[settings.shapekey_name].data[vertex_index].co
-                    shapekey_rest_vertex_pos = mesh.data.shape_keys.key_blocks[settings.shapekey_rest_name].data[vertex_index].co
-                    
-                    offset = (shapekey_vertex_pos - shapekey_rest_vertex_pos) * signed_scale
-                                    
-                    if settings.shapekey_offset_channel_mode == "INDIVIDUAL":
-                        # packing normal is only available if we pack X/Y/Z components individually
-                        if settings.shapekey_normal and settings.shapekey_normal_channel_mode == "OFFSET_PACKED":
-                            normal = mesh_eval.vertices[vertex_index].normal * signed_axis
-                            
-                            # @hack prevent float from getting too close to 1 which causes issues with that packing method (fractional part of 1.0 is .0 which is incorrect)
-                            fix_precision_issue = 0.025
+        data_loop_ids = []
 
-                            xyz_packed_normal_conv_bias = (normal + XYZUNITVECTOR) * (0.5 - fix_precision_issue) # remap normal from [-1:1] to [0:1]
+        # cache & reset all shape keys
+        initial_shape_keys = []
+        for shape_key in mesh.data.shape_keys.key_blocks:
+            initial_shape_keys.append((shape_key.name, shape_key.value))
+            shape_key.value = 0.0
 
-                            # round offset & pack normal into the fractional part
-                            offset.x = math.floor(offset.x) + xyz_packed_normal_conv_bias.x
-                            offset.y = math.floor(offset.y) + xyz_packed_normal_conv_bias.y
-                            offset.z = math.floor(offset.z) + xyz_packed_normal_conv_bias.z
-                        
-                        # X OFFSET
-                        if settings.shapekey_offset_x:
-                            data_to_bake = offset.x
-                            
-                            if settings.shapekey_offset_x_mode == "VCOL":
-                                data_to_bake = data_to_bake * packing_divisor
-                                data_to_bake = (data_to_bake + 1) * 0.5
+        # enable shape key to bake
+        if data_layer.name in mesh.data.shape_keys.key_blocks:
+            mesh.data.shape_keys.key_blocks[settings.name].value = 1.0
 
-                            bake_data(mesh, data_to_bake, settings.shapekey_offset_x_mode, settings.shapekey_offset_x_uv_index, settings.shapekey_offset_x_uv_channel, settings.uvmap_name, settings.shapekey_offset_x_rgba, settings.invert_v, loop_id)
-                            
-                        # Y OFFSET
-                        if settings.shapekey_offset_y:
-                            data_to_bake = offset.y
-
-                            if settings.shapekey_offset_y_mode == "VCOL":
-                                data_to_bake = data_to_bake * packing_divisor
-                                data_to_bake = (data_to_bake + 1) * 0.5
-
-                            bake_data(mesh, data_to_bake, settings.shapekey_offset_y_mode, settings.shapekey_offset_y_uv_index, settings.shapekey_offset_y_uv_channel, settings.uvmap_name, settings.shapekey_offset_y_rgba, settings.invert_v, loop_id)
-
-                        # Z OFFSET
-                        if settings.shapekey_offset_z:
-                            data_to_bake = offset.z
-
-                            if settings.shapekey_offset_z_mode == "VCOL":
-                                data_to_bake = data_to_bake * packing_divisor
-                                data_to_bake = (data_to_bake + 1) * 0.5
-
-                            bake_data(mesh, data_to_bake, settings.shapekey_offset_z_mode, settings.shapekey_offset_z_uv_index, settings.shapekey_offset_z_uv_channel, settings.uvmap_name, settings.shapekey_offset_z_rgba, settings.invert_v, loop_id)
-                    
-                    else:
-                        remapped_offset = mathutils.Vector((
-                                max(min(offset.x * packing_divisor, 1.0), -1.0),
-                                max(min(offset.y * packing_divisor, 1.0), -1.0),
-                                max(min(offset.z * packing_divisor, 1.0), -1.0))
-                            )
-
-                        normalized_offset = (remapped_offset + XYZUNITVECTOR) * 0.5
-                        
-                        data_to_bake = 0.0
-                        # X/Y or X/Z or Y/Z OFFSET
-                        if settings.shapekey_offset_channel_mode == "AB_PACKED":
-                            data_to_bake = get_packed_ab_vector(normalized_offset, settings.shapekey_offset_ab_packed_a_comp, settings.shapekey_offset_ab_packed_b_comp)
-                        # XYZ OFFSET
-                        elif settings.shapekey_offset_channel_mode == "XYZ_PACKED":
-                            data_to_bake = get_packed_xyz_vector(normalized_offset)
-                            
-                        if settings.shapekey_offsetPackOnlyIfNonNull:
-                            if offset.length < 0.01:
-                                data_to_bake = 0.0
-                        
-                        bake_data(mesh, data_to_bake, "UV", settings.shapekey_offset_packed_uv_index, settings.shapekey_offset_packed_uv_channel, settings.uvmap_name, 0, settings.invert_v, loop_id)
-                        
-            # clear converted mesh
-            obj_eval.to_mesh_clear()
-
-            for shape_key_name, shape_key_value in initial_shape_keys:
-                mesh.data.shape_keys.key_blocks[shape_key_name].value = shape_key_value # restore shapekeys
-    
-    return True
-
-def bake_shapekey_normal(context, meshes, empties):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-    if settings.shapekey_normal and settings.shapekey_normal_channel_mode != "OFFSET_PACKED":
-        add_bake_report("shapekey_name", settings.shapekey_name)
-        add_bake_report("shapekey_rest_name", settings.shapekey_rest_name)
-
-        add_bake_report("shapekey_normal", True)
-        add_bake_report("shapekey_normal_channel_mode", settings.shapekey_normal_channel_mode)
-        add_bake_report("shapekey_normal_x", settings.shapekey_normal_x)
-        add_bake_report("shapekey_normal_x_mode", settings.shapekey_normal_x_mode)
-        add_bake_report("shapekey_normal_x_uv_index", settings.shapekey_normal_x_uv_index)
-        add_bake_report("shapekey_normal_x_uv_channel", settings.shapekey_normal_x_uv_channel)
-        add_bake_report("shapekey_normal_x_rgba", settings.shapekey_normal_x_rgba)
-        add_bake_report("shapekey_normal_y", settings.shapekey_normal_y)
-        add_bake_report("shapekey_normal_y_mode", settings.shapekey_normal_y_mode)
-        add_bake_report("shapekey_normal_y_uv_index", settings.shapekey_normal_y_uv_index)
-        add_bake_report("shapekey_normal_y_uv_channel", settings.shapekey_normal_y_uv_channel)
-        add_bake_report("shapekey_normal_y_rgba", settings.shapekey_normal_y_rgba)
-        add_bake_report("shapekey_normal_z", settings.shapekey_normal_z)
-        add_bake_report("shapekey_normal_z_mode", settings.shapekey_normal_z_mode)
-        add_bake_report("shapekey_normal_z_uv_index", settings.shapekey_normal_z_uv_index)
-        add_bake_report("shapekey_normal_z_uv_channel", settings.shapekey_normal_z_uv_channel)
-        add_bake_report("shapekey_normal_z_rgba", settings.shapekey_normal_z_rgba)
-        add_bake_report("shapekey_normal_xyz_uv_index", settings.shapekey_normal_xyz_uv_index)
-        add_bake_report("shapekey_normal_xyz_uv_channel", settings.shapekey_normal_xyz_uv_channel)
-        add_bake_report("shapekey_normal_ab_packed_a_comp", settings.shapekey_normal_ab_packed_a_comp)
-        add_bake_report("shapekey_normal_ab_packed_b_comp", settings.shapekey_normal_ab_packed_b_comp)
-    else:
-        return False
-    
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-
-    for mesh in meshes:
-        # make sure shapekey exists
-        if not mesh.data.shape_keys or not (settings.shapekey_name in mesh.data.shape_keys.key_blocks) or not (settings.shapekey_rest_name in mesh.data.shape_keys.key_blocks):
-            continue
-        
-        # enable shapekey
-        shapekey_value_to_restore = mesh.data.shape_keys.key_blocks[settings.shapekey_name].value
-        mesh.data.shape_keys.key_blocks[settings.shapekey_name].value = 1
-        
-        # create converted mesh to read normals
+        # cache posed vertices
         dgraph = context.evaluated_depsgraph_get()
         obj_eval = mesh.evaluated_get(dgraph)
         mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        
-        for face in mesh.data.polygons:
-            for loop_id in face.loop_indices:
-                vertex_index = mesh.data.loops[loop_id].vertex_index
-
-                normal = mesh_eval.vertices[vertex_index].normal * signed_axis
-
-                if settings.shapekey_normal_channel_mode == "INDIVIDUAL":
-                    # NORMAL X COMPONENT
-                    if settings.shapekey_normal_x:
-                        data_to_bake = normal.x
-
-                        if (settings.shapekey_normal_x_mode == "VCOL"):
-                            data_to_bake = (data_to_bake + 1) * 0.5
-
-                        bake_data(mesh, data_to_bake, settings.shapekey_normal_x_mode, settings.shapekey_normal_x_uv_index, settings.shapekey_normal_x_uv_channel, settings.uvmap_name, settings.shapekey_normal_x_rgba, settings.invert_v, loop_id)
-                    # NORMAL Y COMPONENT
-                    if settings.shapekey_normal_y:
-                        data_to_bake = normal.y
-
-                        if (settings.shapekey_normal_y_mode == "VCOL"):
-                            data_to_bake = (data_to_bake + 1) * 0.5
-
-                        bake_data(mesh, data_to_bake, settings.shapekey_normal_y_mode, settings.shapekey_normal_y_uv_index, settings.shapekey_normal_y_uv_channel, settings.uvmap_name, settings.shapekey_normal_y_rgba, settings.invert_v, loop_id)
-                    # NORMAL Z COMPONENT
-                    if settings.shapekey_normal_z:
-                        data_to_bake = normal.z
-
-                        if (settings.shapekey_normal_z_mode == "VCOL"):
-                            data_to_bake = (data_to_bake + 1) * 0.5
-
-                        bake_data(mesh, data_to_bake, settings.shapekey_normal_z_mode, settings.shapekey_normal_z_uv_index, settings.shapekey_normal_z_uv_channel, settings.uvmap_name, settings.shapekey_normal_z_rgba, settings.invert_v, loop_id)
-                else:
-                    clamped_normal = mathutils.Vector((
-                        max(min(normal.x, 1.0), -1.0),
-                        max(min(normal.y, 1.0), -1.0),
-                        max(min(normal.z, 1.0), -1.0)))
-                    
-                    # @hack prevent float from getting too close to 1 which seems to cause issues. @NOTE investigate to fix hack
-                    fix_precision_issue = 0.025
-
-                    remapped_normal = mathutils.Vector((
-                        (clamped_normal.x + 1) * (0.5 - fix_precision_issue),
-                        (clamped_normal.y + 1) * (0.5 - fix_precision_issue),
-                        (clamped_normal.z + 1) * (0.5 - fix_precision_issue)))
-                    # X/Y or X/Z or Y/Z normal
-                    if settings.shapekey_normal_channel_mode == "AB_PACKED":
-                        data_to_bake = get_packed_ab_vector(remapped_normal, settings.shapekey_normal_ab_packed_a_comp, settings.shapekey_normal_ab_packed_b_comp)
-                    # XYZ
-                    elif settings.shapekey_normal_channel_mode == "XYZ_PACKED":
-                        data_to_bake = get_packed_xyz_vector(remapped_normal)
-                    
-                    bake_data(mesh, data_to_bake, "UV", settings.shapekey_normal_xyz_uv_index, settings.shapekey_normal_xyz_uv_channel, settings.uvmap_name, 0, settings.invert_v, loop_id)
-                    
-        # clear converted mesh
+        vertices_posed = [vertex.copy() for vertex in mesh_eval.vertices]
         obj_eval.to_mesh_clear()
-        
-        # restore shapekey
-        mesh.data.shape_keys.key_blocks[settings.shapekey_name].value = shapekey_value_to_restore
-    return True
 
-def get_sphere_mask_max_dist(meshes, origin):
-    """ """
+        # disable shape key to bake
+        if data_layer.name in mesh.data.shape_keys.key_blocks:
+            mesh.data.shape_keys.key_blocks[settings.name].value = 0.0
 
-    vertex_max_dist = 0.0
-    for mesh in meshes:
-        for face in mesh.data.polygons:
+        # cache rest vertices
+        dgraph = context.evaluated_depsgraph_get()
+        obj_eval = mesh.evaluated_get(dgraph)
+        mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
+        vertices_rest = [vertex.copy() for vertex in mesh_eval.vertices]
+        obj_eval.to_mesh_clear()
+
+        # restore shapekeys
+        for shape_key_name, shape_key_value in initial_shape_keys:
+            mesh.data.shape_keys.key_blocks[shape_key_name].value = shape_key_value 
+
+        # compute shape key value to bake
+        for face in mesh_eval.data.polygons:
             for loop_id in face.loop_indices:
-                vertex_index = mesh.data.loops[loop_id].vertex_index
+                vertex_index = mesh_eval.data.loops[loop_id].vertex_index
 
-                vertex_pos = mesh.matrix_world @ mesh.data.vertices[vertex_index].co
-                offset = vertex_pos - origin
-                vertex_dist = offset.length
-                if (vertex_dist > vertex_max_dist):
-                    vertex_max_dist = vertex_dist
-
-    return vertex_max_dist
-
-def bake_sphere_mask(context, meshes, empties):
-    """ """
-    settings = context.scene.DataBakerSettings
-    if settings.sphere_mask:
-        add_bake_report("sphere_mask", True)
-        add_bake_report("sphere_mask_normalize", settings.sphere_mask_normalize)
-        add_bake_report("sphere_mask_clamp", settings.sphere_mask_clamp)
-        add_bake_report("sphere_mask_origin_mode", settings.sphere_mask_origin_mode)
-        add_bake_report("sphere_mask_origin", settings.sphere_mask_origin)
-        add_bake_report("sphere_mask_mode", settings.sphere_mask_mode)
-        add_bake_report("sphere_mask_uv_index", settings.sphere_mask_uv_index)
-        add_bake_report("sphere_mask_uv_channel", settings.sphere_mask_uv_channel)
-        add_bake_report("sphere_mask_rgba", settings.sphere_mask_rgba)
-        add_bake_report("sphere_mask_falloff", settings.sphere_mask_falloff)
-    else:
-        return False
-    
-    origin_pos = mathutils.Vector((0.0, 0.0, 0.0))
-    origin_pos_set = False
-
-    if settings.sphere_mask_origin_mode == "ORIGIN" or settings.sphere_mask_origin_mode == "SELECTION" or settings.sphere_mask_origin_mode == "OBJECT":
-        if settings.origin: # default origin
-            origin_pos = settings.origin.matrix_world.to_translation()
-
-        if settings.sphere_mask_origin_mode == "SELECTION": # selection origin
-            averaged_pos = mathutils.Vector((0.0, 0.0, 0.0))
-            averaged_div = 1.0 / max(len(meshes), 1)
-            for mesh in meshes:
-                averaged_pos += mesh.matrix_world.to_translation()
-
-            origin_pos.x = averaged_pos.x * averaged_div
-            origin_pos.y = averaged_pos.y * averaged_div
-            origin_pos.z = averaged_pos.z * averaged_div
-        elif settings.sphere_mask_origin_mode == "OBJECT": # object origin
-            if settings.sphere_mask_origin:
-                origin_pos = settings.sphere_mask_origin.matrix_world.to_translation()
-            else:
-                return False
-
-        origin_pos_set = True
-
-    # precompute greatest vertex distance if need to, else we'll do this on per-object basis
-    max_dist = get_sphere_mask_max_dist(meshes, origin_pos) if origin_pos_set else 0.0
-
-    for mesh in meshes:
-        if origin_pos_set:
-            pass
-        else:
-            origin_obj = mesh
-            
-            if settings.sphere_mask_origin_mode == "SELF":
-                origin_pos = mesh.matrix_world.to_translation()
-                
-                origin_objs = [origin_obj]
-                max_dist = get_sphere_mask_max_dist(origin_objs, origin_pos)
-            elif settings.sphere_mask_origin_mode == "PARENT":
-                if mesh.parent:
-                    origin_obj = mesh.parent
-                    origin_pos = mesh.parent.matrix_world.to_translation()
-
-                    origin_objs = []
-                    origin_objs = [child_obj for child_obj in origin_obj.children if child_obj in meshes] # make sure that child is part of our selected meshes
-
-                    max_dist = get_sphere_mask_max_dist(origin_objs, origin_pos)
+                if data_layer.shapekey_mode == "OFFSET":
+                    vector_to_bake = (vertices_posed[vertex_index].co - vertices_rest[vertex_index].co) * signed_scale
+                elif data_layer.shapekey_mode == "NORMAL":
+                    vector_to_bake = vertices_posed[vertex_index].normal * signed_axis
                 else:
-                    continue
-        
-        for face in mesh.data.polygons:
-            for loop_id in face.loop_indices:
-                vertex_index = mesh.data.loops[loop_id].vertex_index
-                vertex_pos = mesh.matrix_world @ mesh.data.vertices[vertex_index].co
-                offset = vertex_pos - origin_pos
-                vertex_dist = offset.length
+                    vector_to_bake = mathutils.Vector((0.0, 0.0, 0.0))
 
-                if settings.sphere_mask_normalize or settings.sphere_mask_mode == "VCOL":
-                    vertex_dist = math.pow((vertex_dist / max_dist), settings.sphere_mask_falloff)
+                if data_layer.component == "X":
+                    data_loop_ids.append((loop_id, vector_to_bake.x))
+                elif data_layer.component == "Y":
+                    data_loop_ids.append((loop_id, vector_to_bake.y))
+                elif data_layer.component == "Z":
+                    data_loop_ids.append((loop_id, vector_to_bake.z))
+                else:
+                    pass
 
-                if settings.sphere_mask_clamp or settings.sphere_mask_mode == "VCOL":
-                    vertex_dist = max(min(vertex_dist, 1.0), 0.0)
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data
 
-                data_to_bake = vertex_dist
-                bake_data(mesh, data_to_bake, settings.sphere_mask_mode, settings.sphere_mask_uv_index, settings.sphere_mask_uv_channel, settings.uvmap_name, settings.sphere_mask_rgba, settings.invert_v, loop_id)
-    
-    return True
-
-def bake_linear_mask(context, meshes, empties):
+def get_bake_mask(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-
     settings = context.scene.DataBakerSettings
-    if settings.linear_mask:
-        add_bake_report("linear_mask", True)
-        add_bake_report("linear_mask_normalize", settings.linear_mask_normalize)
-        add_bake_report("linear_mask_clamp", settings.linear_mask_clamp)
-        add_bake_report("linear_mask_obj_mode", settings.linear_mask_obj_mode)
-        add_bake_report("linear_mask_obj", settings.linear_mask_obj)
-        add_bake_report("linear_mask_mode", settings.linear_mask_mode)
-        add_bake_report("linear_mask_axis", settings.linear_mask_axis)
-        add_bake_report("linear_mask_uv_index", settings.linear_mask_uv_index)
-        add_bake_report("linear_mask_uv_channel", settings.linear_mask_uv_channel)
-        add_bake_report("linear_mask_rgba", settings.linear_mask_rgba)
-        add_bake_report("linear_mask_falloff", settings.linear_mask_falloff)
+
+    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                    -1.0 if settings.invert_y else 1.0,
+                                    -1.0 if settings.invert_z else 1.0))
+    signed_scale = signed_axis * settings.scale
+
+    origin_mode = "WORLD"
+    if data_layer.origin_mode == origin_mode:
+        pass # WORLD
+    elif data_layer.origin_mode == "ORIGIN":
+        if data_layer.obj:
+            origin_mode = "ORIGIN"
+        else:
+            pass # WORLD
+    elif data_layer.origin_mode == "SELECTION":
+        origin_mode = data_layer.origin_mode
+    elif data_layer.origin_mode == "OBJECT":
+        origin_mode = data_layer.origin_mode
+    elif data_layer.origin_mode == "PARENT":
+        origin_mode = data_layer.origin_mode
+
+    if data_layer.mask_mode == "SPHERE":
+        return get_bake_mask_sphere(data_layer, meshes, empties, origin_mode, signed_scale)
+    elif data_layer.mask_mode == "LINEAR":            
+        if data_layer.axis == "X":
+            world_axis = mathutils.Vector((1.0, 0.0, 0.0))
+        elif data_layer.axis == "Y":
+            world_axis = mathutils.Vector((0.0, 1.0, 0.0))
+        elif data_layer.axis == "Z":
+            world_axis = mathutils.Vector((0.0, 0.0, 1.0))
+        else:
+            world_axis = mathutils.Vector((0.0, 0.0, 0.0))
+
+        if settings.world_obj:
+            world_axis = settings.world_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj
+
+        return get_bake_mask_linear(data_layer, meshes, empties, origin_mode, signed_scale, world_axis)
     else:
-        return False
+        return (None, None)
 
-    local_mode = (settings.linear_mask_obj_mode == "PARENT_LOCAL") or (settings.linear_mask_obj_mode == "SELF_LOCAL")
-    parent_mode = (settings.linear_mask_obj_mode == "PARENT_WORLD") or (settings.linear_mask_obj_mode == "PARENT_LOCAL")
-    
-    origin_pos = mathutils.Vector((0.0, 0.0, 0.0))
-    origin_pos_set = False
+def get_bake_mask_sphere(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0))) -> list:
+    """ """
+    # sphere mask origin may be 'global' (shared across all objects)
+    mask_global = False
+    if origin_mode == "WORLD":
+        mask_origin_pos = mathutils.Vector((0.0, 0.0, 0.0))
+        mask_global = True
+    elif origin_mode == "ORIGIN":
+        mask_origin_pos = data_layer.obj.matrix_world.to_translation()
+        mask_global = True
+    elif origin_mode == "SELECTION":
+        averaged_pos = mathutils.Vector((0.0, 0.0, 0.0))
+        for mesh in meshes:
+            averaged_pos += mesh.matrix_world.to_translation()
+        mask_origin_pos = averaged_pos / max(len(meshes), 1)
+        mask_global = True
 
-    axis_min_bound = 0.0
-    axis_min_bound_set = False
+    # if 'global', iterate all meshes to get max distance relative to sphere mask origin
+    if mask_global:
+        verts = []
+        for mesh in meshes:
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    vertex_index = mesh.data.loops[loop_id].vertex_index
 
-    axis_max_bound = 0.0
-    axis_max_bound_set = False
-    
-    axis = XYZVECTORS["X"] if settings.linear_mask_axis == "X" else XYZVECTORS["Y"] if settings.linear_mask_axis == "Y" else XYZVECTORS["Z"]
-    
-    if settings.linear_mask_obj_mode == "SELECTION" or settings.linear_mask_obj_mode == "OBJECT":
-        # first we need to loop through all selected mesh objects and find the vertex which has the greatest distance to the specified origin so we can build a normalized [0:1] gradient
-        if settings.linear_mask_obj_mode == "SELECTION":
-            for mesh in meshes:
+                    vertex_offset = (mesh.matrix_world @ mesh.data.vertices[vertex_index].co) - mask_origin_pos
+                    verts.append(vertex_offset.length)
+
+        min_dist = min(verts)
+        max_dist = max(verts)
+        length = max_dist - min_dist
+        inv_length = 1.0 / length if length > 0.0001 else 1.0 / max_dist if max_dist > 0.0001 else 1.0
+        min_dist = min_dist if length > 0.0001 else 0.0
+
+    bake_data = []
+
+    for mesh in meshes:
+        data_loop_ids = []
+
+        # if 'local', get sphere mask origin per object
+        if not mask_global:
+            verts = [] # reset per mesh
+
+            if origin_mode == "OBJECT":
+                target = mesh
+            elif origin_mode == "PARENT":
+                if mesh.parent:
+                    target = mesh.parent
+                else:
+                    target = mesh
+            else:
+                target = None
+
+            if target:
+                mask_origin_pos = target.matrix_world.to_translation()
+
+                # iterate all meshes to get max distance relative to 'local' sphere mask origin 
                 for face in mesh.data.polygons:
                     for loop_id in face.loop_indices:
-                        vertex_index = obj.data.loops[loop_id].vertex_index
+                        vertex_index = mesh.data.loops[loop_id].vertex_index
+                        vertex_offset = (mesh.matrix_world @ mesh.data.vertices[vertex_index].co) - mask_origin_pos
 
-                        vertex_loc = obj.matrix_world @ obj.data.vertices[vertex_index].co
-                        vertex_loc_projected = vertex_loc.dot(axis)
+                        verts.append(vertex_offset.length)
 
-                        if (vertex_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                            axis_min_bound = vertex_loc_projected
-                            axis_min_bound_set = True
-                        
-                        if (vertex_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                            axis_max_bound = vertex_loc_projected
-                            axis_max_bound_set = True
-        elif settings.linear_mask_obj_mode == "OBJECT":
-            if settings.linear_mask_obj is None:
-                return False
+            min_dist = min(verts)
+            max_dist = max(verts)
+            length = max_dist - min_dist
+            inv_length = 1.0 / length if length > 0.0001 else 1.0 / max_dist if max_dist > 0.0001 else 1.0
+            min_dist = min_dist if length > 0.0001 else 0.0
 
-            obj = settings.linear_mask_obj
-            obj_rot = obj.rotation_quaternion if obj.rotation_mode == "QUATERNION" else obj.rotation_euler
-            obj_rot_mat = mathutils.Matrix.LocRotScale(None, obj_rot, None)
-
-            if obj.type == "EMPTY":
-                empty_loc = obj.matrix_world.to_translation()
-                local_axis = obj_rot_mat @ axis # transform world axis to object's local space
-                
-                empty_loc_projected = empty_loc.dot(local_axis)
-                
-                if (empty_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                    axis_min_bound = empty_loc_projected
-                    axis_min_bound_set = True
-                
-                if (empty_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                    axis_max_bound = empty_loc_projected
-                    axis_max_bound_set = True
-                
-                empty_tip_offset = local_axis * obj.empty_display_size * obj.scale
-                empty_loc = obj.matrix_world.to_translation() + empty_tip_offset # compute empty 'tip' location in world space
-                empty_loc_projected = empty_loc.dot(local_axis) # project on local axis
-                
-                if (empty_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                    axis_min_bound = empty_loc_projected
-                    axis_min_bound_set = True
-                
-                if (empty_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                    axis_max_bound = empty_loc_projected
-                    axis_max_bound_set = True
-            elif obj.type == "MESH":
-                for face in obj.data.polygons:
-                    for loop_id in face.loop_indices:
-                        vertex_index = obj.data.loops[loop_id].vertex_index
-                        vertex_loc = obj.matrix_world @ obj.data.vertices[vertex_index].co
-                        local_axis = obj_rot_mat @ axis # transform world axis to object's local space
-                        vertex_loc_projected = vertex_loc.dot(local_axis) # project on local axis
-
-                        if (vertex_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                            axis_min_bound = vertex_loc_projected
-                            axis_min_bound_set = True
-                        
-                        if (vertex_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                            axis_max_bound = vertex_loc_projected
-                            axis_max_bound_set = True
-            else:
-                return False
-
-        origin_pos_set = True
-
-    for mesh in meshes:
-        ref_obj = mesh # assume 'reference' object is self at first
-
-        # self or parent mode
-        if not origin_pos_set:
-            if parent_mode and ref_obj.parent:
-                ref_obj = ref_obj.parent
-            else:
-                continue
-
-            # need to reset these per object
-            axis_min_bound = 0.0
-            axis_min_bound_set = False
-
-            axis_max_bound = 0.0
-            axis_max_bound_set = False
-
-            if ref_obj.type == "EMPTY":
-                empty_loc = ref_obj.matrix_world.to_translation()
-                empty_loc_projected = empty_loc.dot(axis) # project on world axis at first
-                empty_rot_mat = ref_obj.rotation_quaternion if ref_obj.rotation_mode == "QUATERNION" else ref_obj.rotation_euler
-                
-                # unless we're in local space
-                if local_mode:
-                    local_axis = mathutils.Matrix.LocRotScale(None, empty_rot_mat, None) @ axis
-                    empty_loc_projected = empty_loc.dot(local_axis) # project on local axis
-                
-                if (empty_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                    axis_min_bound = empty_loc_projected
-                    axis_min_bound_set = True
-                
-                if (empty_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                    axis_max_bound = empty_loc_projected
-                    axis_max_bound_set = True
-                
-                empty_tip_offset = mathutils.Matrix.LocRotScale(None, empty_rot_mat, ref_obj.empty_display_size * ref_obj.scale) @ axis
-                empty_loc = ref_obj.matrix_world.to_translation() + empty_tip_offset # compute empty 'tip' location in world space
-                empty_loc_projected = empty_loc.dot(axis)  # project on world axis
-                
-                # unless we're in local space
-                if local_mode:
-                    local_axis = mathutils.Matrix.LocRotScale(None, empty_rot_mat, None) @ axis
-                    empty_loc_projected = empty_loc.dot(local_axis) # project on local axis
-                
-                if (empty_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                    axis_min_bound = empty_loc_projected
-                    axis_min_bound_set = True
-                
-                if (empty_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                    axis_max_bound = empty_loc_projected
-                    axis_max_bound_set = True
-            elif ref_obj.type == "MESH":
-                for face in ref_obj.data.polygons:
-                    for loop_id in face.loop_indices:
-                        vertex_index = ref_obj.data.loops[loop_id].vertex_index
-                        vertex_loc = ref_obj.matrix_world @ ref_obj.data.vertices[vertex_index].co
-                        vertex_loc_projected = vertex_loc.dot(axis) # project on world axis at first
-                        
-                        # unless we're in local space
-                        if local_mode:
-                            ref_obj_rot = ref_obj.rotation_quaternion if ref_obj.rotation_mode == "QUATERNION" else ref_obj.rotation_euler
-                            ref_obj_rot_mat = mathutils.Matrix.LocRotScale(None, ref_obj_rot, None)
-                            local_axis = ref_obj_rot_mat @ axis
-                            
-                            vertex_loc_projected = vertex_loc.dot(local_axis) # project on local axis
-
-                        if (vertex_loc_projected < axis_min_bound) or not axis_min_bound_set:
-                            axis_min_bound = vertex_loc_projected
-                            axis_min_bound_set = True
-                        
-                        if (vertex_loc_projected > axis_max_bound) or not axis_max_bound_set:
-                            axis_max_bound = vertex_loc_projected
-                            axis_max_bound_set = True
-            else:
-                continue
-
-        elif settings.linear_mask_obj_mode == "OBJECT":
-            ref_obj = settings.linear_mask_obj
-
-        for face in obj.data.polygons:
+        # compute sphere mask
+        for face in mesh.data.polygons:
             for loop_id in face.loop_indices:
-                vertex_index = obj.data.loops[loop_id].vertex_index
-                vertex_loc = obj.matrix_world @ obj.data.vertices[vertex_index].co
-                vertex_loc_projected = vertex_loc.dot(axis) # project on world axis at first
+                vertex_index = mesh.data.loops[loop_id].vertex_index
+                vertex_offset = (mesh.matrix_world @ mesh.data.vertices[vertex_index].co) - mask_origin_pos
 
-                # local mode
-                if local_mode or settings.linear_mask_obj_mode == "OBJECT":
-                    ref_obj_rot = ref_obj.rotation_quaternion if ref_obj.rotation_mode == "QUATERNION" else ref_obj.rotation_euler
-                    ref_obj_rot_mat = mathutils.Matrix.LocRotScale(None, ref_obj_rot, None)
-                    local_axis = ref_obj_rot_mat @ axis
+                data_to_bake = vertex_offset.length
 
-                    vertex_loc_projected = vertex_loc.dot(local_axis) # project on local axis
+                if data_layer.normalize:
+                    data_to_bake -= min_dist
+                    data_to_bake *= inv_length
 
-                data_to_bake = (vertex_loc_projected - axis_min_bound)
-                if settings.linear_mask_normalize or settings.linear_mask_mode == "VCOL":
-                    data_to_bake = math.pow(data_to_bake / (axis_max_bound - axis_min_bound), settings.linear_mask_falloff)
+                if data_layer.clamp:
+                    data_to_bake = max(0.0, min(1.0, data_to_bake))
 
-                if settings.linear_mask_clamp or settings.linear_mask_mode == "VCOL":
-                    data_to_bake = max(min(data_to_bake, 1.0), 0.0)
+                if data_layer.normalize or data_layer.clamp:
+                    data_to_bake = math.pow(data_to_bake, data_layer.falloff)
 
-                bake_data(mesh, data_to_bake, settings.linear_mask_mode, settings.linear_mask_uv_index, settings.linear_mask_uv_channel, settings.uvmap_name, settings.linear_mask_rgba, settings.invert_v, loop_id)
+                data_loop_ids.append((loop_id, data_to_bake))
 
-    return True
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data
 
-def bake_random_value_per_collection(context, meshes, empties):
+def get_bake_mask_linear(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0)), world_axis: mathutils.Vector=mathutils.Vector((0.0, 0.0, 1.0))) -> list:
     """ """
+    # linear mask origin may be 'global' (shared across all objects)
+    mask_global = False
+    if origin_mode == "WORLD":
+        mask_origin_pos = mathutils.Vector((0.0, 0.0, 0.0))
+        mask_origin_axis = world_axis
+        mask_global = True
+    elif origin_mode == "ORIGIN":
+        mask_origin_pos = data_layer.obj.matrix_world.to_translation()
+        mask_origin_axis = world_axis
+        mask_global = True
 
-    settings = context.scene.DataBakerSettings
-    if settings.random_per_collection:
-        add_bake_report("random_per_collection", True)
-        add_bake_report("random_per_collection_mode", settings.random_per_collection_mode)
-        add_bake_report("random_per_collection_uv_index", settings.random_per_collection_uv_index)
-        add_bake_report("random_per_collection_uv_channel", settings.random_per_collection_uv_channel)
-        add_bake_report("random_per_collection_rgba", settings.random_per_collection_rgba)
-        add_bake_report("random_per_collection_uniform", settings.random_per_collection_uniform)
-    else:
-        return False
+        if data_layer.axis_mode == "CUSTOM" and data_layer.axis_obj:
+            mask_origin_axis = data_layer.axis_obj.matrix_world.to_quaternion() @ world_axis
+        elif data_layer.axis_mode == "LOCAL":
+            mask_origin_axis = data_layer.obj.matrix_world.to_quaternion() @ world_axis
+        else: 
+            pass # WORLD
+    elif origin_mode == "SELECTION":
+        averaged_pos = mathutils.Vector((0.0, 0.0, 0.0))
+        for mesh in meshes:
+            averaged_pos += mesh.matrix_world.to_translation()
+        mask_origin_pos = averaged_pos / max(len(meshes), 1)
+        mask_origin_axis = world_axis
+        mask_global = True
 
-    # initiate object ID/uniform value dictionary. Rather than generate a random value per object which may give poor randomization due to hazard, we can choose to output randomized uniform values (if 5 objects, then values would be 0.0, 0,25, 0.5, 0.75, 1.0 in a random order)
-    per_col_random_uniform_values = []
+    # if 'global', iterate all meshes to get max distance relative to linear mask origin
+    if mask_global:
+        verts = []
+        for mesh in meshes:
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    vertex_index = mesh.data.loops[loop_id].vertex_index
 
-    # gather list of collections objects are part of
-    cols = []
+                    vertex_offset = (mesh.matrix_world @ mesh.data.vertices[vertex_index].co) - mask_origin_pos
+                    verts.append(vertex_offset.dot(mask_origin_axis))
+
+        min_dist = min(verts)
+        max_dist = max(verts)
+        length = max_dist - min_dist
+        inv_length = 1.0 / length if length > 0.0001 else 1.0 / max_dist if max_dist > 0.0001 else 1.0
+        min_dist = min_dist if length > 0.0001 else 0.0
+
+    bake_data = []
+
     for mesh in meshes:
-        for col in mesh.users_collection:
-            if col not in cols:
-                cols.append(col)
+        data_loop_ids = []
 
-    unique_col = len(cols) == 1
+        # if 'local', get linear mask origin per object
+        if not mask_global:
+            verts = [] # reset per mesh
 
-    # offset object index & count if we only have one object so that uniform value is 0.5 (this is an arbitrary choice)
-    col_index = 1 if unique_col else 0
-    col_count = 2 if unique_col else (len(cols) - 1)
+            if origin_mode == "OBJECT":
+                target = mesh
+            elif origin_mode == "PARENT":
+                if mesh.parent:
+                    target = mesh.parent
+                else:
+                    target = mesh
+            else:
+                target = None
 
-    for col in cols:
-        # build uniform value
-        per_col_random_uniform_values.append(col_index / col_count)
+            if target:
+                mask_origin_pos = target.matrix_world.to_translation()
+                if data_layer.axis_mode == "CUSTOM" and data_layer.axis_obj:
+                    mask_origin_axis = data_layer.axis_obj.matrix_world.to_quaternion() @ world_axis
+                elif data_layer.axis_mode == "LOCAL":
+                    mask_origin_axis = target.matrix_world.to_quaternion() @ world_axis
+                else:
+                    mask_origin_axis = world_axis
 
-        col_index += 1
+                # iterate all meshes to get max distance relative to 'local' linear mask origin
+                for face in mesh.data.polygons:
+                    for loop_id in face.loop_indices:
+                        vertex_index = mesh.data.loops[loop_id].vertex_index
+                        vertex_offset = (mesh.matrix_world @ mesh.data.vertices[vertex_index].co) - mask_origin_pos
 
-    if col_index == 0:
-        return False
+                        verts.append(vertex_offset.dot(mask_origin_axis))
+            else:
+                if data_layer.axis_mode == "CUSTOM" and data_layer.axis_obj:
+                    mask_origin_axis = data_layer.axis_obj.matrix_world.to_quaternion() @ world_axis
+                elif data_layer.axis_mode == "LOCAL":
+                    mask_origin_axis = mesh.matrix_world.to_quaternion() @ world_axis
+                else:
+                    mask_origin_axis = world_axis
 
-    random.shuffle(per_col_random_uniform_values)
+            min_dist = min(verts)
+            max_dist = max(verts)
+            length = max_dist - min_dist
+            inv_length = 1.0 / length if length > 0.0001 else 1.0 / max_dist if max_dist > 0.0001 else 1.0
+            min_dist = min_dist if length > 0.0001 else 0.0
 
+        # compute linear mask
+        for face in mesh.data.polygons:
+            for loop_id in face.loop_indices:
+                vertex_index = mesh.data.loops[loop_id].vertex_index
+                vertex_offset = mesh.matrix_world @ mesh.data.vertices[vertex_index].co - mask_origin_pos
+
+                data_to_bake = (vertex_offset).dot(mask_origin_axis)
+
+                if data_layer.normalize:
+                    data_to_bake -= min_dist
+                    data_to_bake *= inv_length
+
+                if data_layer.clamp:
+                    data_to_bake = max(0.0, min(1.0, data_to_bake))
+
+                if data_layer.normalize or data_layer.clamp:
+                    data_to_bake = math.pow(data_to_bake, data_layer.falloff)
+
+                data_loop_ids.append((loop_id, data_to_bake))
+
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data
+
+def get_bake_random(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
+    """"""
+    if data_layer.rand_float_mode == "FLOAT":
+        return get_bake_random_float(context, data_layer, meshes, empties)
+    elif data_layer.rand_float_mode == "FLOAT2":
+        return get_bake_random_float2(context, data_layer, meshes, empties)
+    elif data_layer.rand_float_mode == "FLOAT3":
+        return get_bake_random_float3(context, data_layer, meshes, empties)
+    else:
+        return (None, None)
+
+def get_bake_random_float(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
+    """"""
+    settings = context.scene.DataBakerSettings
+
+    bake_data = []
+
+    uniform_values = []
+    uniform_length = 0
+
+    if data_layer.rand_mode == "COLLECTION":
+        cols = []
+        for mesh in meshes:
+            print(mesh.users_collection)
+            for col in mesh.users_collection:
+                if col not in cols:
+                    cols.append(col)
+
+        uniform_length = len(cols)
+        uniform_length = max(1, uniform_length - 1)
+
+        for col_index, col in enumerate(cols):
+            uniform_values.append(col_index / uniform_length)
+    elif data_layer.rand_mode == "OBJECT":
+        uniform_length = len(meshes)
+        uniform_length = max(1, uniform_length - 1)
+
+        for mesh_index, mesh in enumerate(meshes):
+            uniform_values.append(mesh_index / uniform_length)
+    elif data_layer.rand_mode == "FACE":
+        for mesh in meshes:
+            uniform_length += len(mesh.data.polygons)
+        uniform_length = max(1, uniform_length - 1)
+
+        face_offset = 0
+        for mesh in meshes:
+            for face_index, face in enumerate(mesh.data.polygons):
+                uniform_values.append((face_index + face_offset) / uniform_length)
+            face_offset += len(mesh.data.polygons)
+    else:
+        pass
+
+    if uniform_length > 0:
+        random.seed(data_layer.rand_seed)
+        random.shuffle(uniform_values)
+
+    face_offset = 0
     for mesh_index, mesh in enumerate(meshes):
-        col = mesh.users_collection[0] if mesh.users_collection else None
-        if col is None:
-            continue
+        data_loop_ids = []
 
-        col_index = cols.index(col, 0, len(cols))
-        if col_index >= 0:
-            # blend between uniform random and completely random
-            data_to_bake = per_col_random_uniform_values[col_index]
-            data_to_bake = (data_to_bake * settings.random_per_collection_uniform) + ((1 - settings.random_per_collection_uniform) * random.uniform(0,1))
+        if data_layer.rand_mode == "COLLECTION":
+            data_to_bake = 0.0
+            if mesh.users_collection:
+                col_index = -1
+                try:
+                    col_index = cols.index(mesh.users_collection[0])
+                except:
+                    pass
+                
+                if col_index >= 0:
+                    data_to_bake = (uniform_values[col_index] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
-            bake_data(mesh, data_to_bake, settings.random_per_collection_mode, settings.random_per_collection_uv_index, settings.random_per_collection_uv_channel, settings.uvmap_name, settings.random_per_collection_rgba, settings.invert_v)
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+        elif data_layer.rand_mode == "OBJECT":
+            data_to_bake = (uniform_values[mesh_index] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
-    return True
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+        elif data_layer.rand_mode == "FACE":
+            for face_index, face in enumerate(mesh.data.polygons):
+                data_to_bake = (uniform_values[face_index +face_offset] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
-def bake_random_value_per_object(context, meshes, empties):
-    """ """
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
 
-    settings = context.scene.DataBakerSettings
-    if settings.random_per_object:
-        add_bake_report("random_per_object", True)
-        add_bake_report("random_per_object_mode", settings.random_per_object_mode)
-        add_bake_report("random_per_object_uv_index", settings.random_per_object_uv_index)
-        add_bake_report("random_per_object_uv_channel", settings.random_per_object_uv_channel)
-        add_bake_report("random_per_object_rgba", settings.random_per_object_rgba)
-        add_bake_report("random_per_object_uniform", settings.random_per_object_uniform)
-    else:
-        return False
-    
-    # initiate object ID/uniform value dictionary. Rather than generate a random value per object which may give poor randomization due to hazard, we can choose to output randomized uniform values (if 5 objects, then values would be 0.0, 0,25, 0.5, 0.75, 1.0 in a random order)
-    per_obj_random_uniform_values = []
-    
-    mesh_count = len(meshes)
-    
-    # offset object index & count if we only have one object so that uniform value is 0.5 (this is an arbitrary choice)
-    obj_index = 1 if mesh_count == 1 else 0
-    obj_count = 2 if mesh_count == 1 else (mesh_count - 1)
-    
-    for mesh in meshes:
-        # build uniform value
-        per_obj_random_uniform_values.append(obj_index / obj_count)
-    
-        obj_index += 1
-    
-    if obj_index == 0:
-        return False
-    
-    random.shuffle(per_obj_random_uniform_values)
-    
-    # reset object index
-    obj_index = 0
-    
-    for mesh in meshes:
-        # blend between uniform random and completely random
-        data_to_bake = per_obj_random_uniform_values[obj_index]
-        data_to_bake = (data_to_bake * settings.random_per_object_uniform) + ((1 - settings.random_per_object_uniform) * random.uniform(0,1))
+            face_offset += len(mesh.data.polygons)
 
-        bake_data(mesh, data_to_bake, settings.random_per_object_mode, settings.random_per_object_uv_index, settings.random_per_object_uv_channel, settings.uvmap_name, settings.random_per_object_rgba, settings.invert_v)
-        
-        obj_index += 1
-    
-    return obj_index > 0
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data
 
-def bake_random_value_per_polygon(context, meshes, empties):
-    """ """
-    settings = context.scene.DataBakerSettings
-    if settings.random_per_poly:
-        add_bake_report("random_per_poly", True)
-        add_bake_report("random_per_poly_mode", settings.random_per_poly_mode)
-        add_bake_report("random_per_poly_uv_index", settings.random_per_poly_uv_index)
-        add_bake_report("random_per_poly_uv_channel", settings.random_per_poly_uv_channel)
-        add_bake_report("random_per_poly_rgba", settings.random_per_poly_rgba)
-        add_bake_report("random_per_poly_uniform", settings.random_per_poly_uniform)
-    else:
-        return False
-
-    # initiate vertex ID/uniform value dictionary. Rather than generate a random value per poly which may give poor randomization due to hazard, we can choose to output randomized uniform values (if 5 polys, then values would be 0.0, 0,25, 0.5, 0.75, 1.0 in a random order)
-    per_poly_random_uniform_values = []
-
-    poly_count = 0
-    # first, gather the total amount of polygons across all selected mesh objects
-    for mesh in meshes:
-        poly_count += len(mesh.data.polygons)
-
-    if poly_count == 0:
-        return False
-
-    # offset poly index & count if we only have one poly so that uniform value is 0.5 (this is an arbitrary choice)
-    poly_index = 1 if poly_count == 1 else 0
-    poly_count = 2 if poly_count == 1 else poly_count
-
-    for mesh in meshes:
-        for face in mesh.data.polygons:
-            # build uniform value
-            per_poly_random_uniform_values.append(poly_index / poly_count)
-
-            # increment poly index
-            poly_index += 1
-
-    random.shuffle(per_poly_random_uniform_values)
-
-    # reset poly index
-    poly_index = 0
-
-    for mesh in meshes:
-        for face in mesh.data.polygons:
-            # blend between uniform random and completely random
-            data_to_bake = per_poly_random_uniform_values[poly_index]
-            data_to_bake = (data_to_bake * settings.random_per_poly_uniform) + ((1 - settings.random_per_poly_uniform) * random.uniform(0,1))
-
-            poly_index += 1
-
-            for loop_id in face.loop_indices:
-                bake_data(mesh, data_to_bake, settings.random_per_poly_mode, settings.random_per_poly_uv_index, settings.random_per_poly_uv_channel, settings.uvmap_name, settings.random_per_poly_rgba, settings.invert_v, loop_id)
-
-    return poly_index > 0
-
-def bake_parent(context, meshes, empties):
-    """ """
-
+def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
+    """"""
     settings = context.scene.DataBakerSettings
 
-    parent_auto_mode = settings.parent_mode == "AUTOMATIC"
+    bake_data = []
 
-    if (settings.parent_position or settings.parent_axis) and settings.parent_max_depth > 0:
-        add_bake_report("parent_mode", settings.parent_mode)
-        add_bake_report("parent_depth", settings.parent_depth)
-        add_bake_report("parent_max_depth", settings.parent_max_depth)
-        add_bake_report("parent_automatic_uv_index", settings.parent_automatic_uv_index)
-        add_bake_report("parent_automatic_uv_channel", settings.parent_automatic_uv_channel)
-        if settings.parent_position:
-            add_bake_report("parent_position", True)
-            add_bake_report("parent_axis_component", settings.parent_axis_component)
-            add_bake_report("parent_position_channel_mode", settings.parent_position_channel_mode)
-            add_bake_report("parent_position_x", settings.parent_position_x)
-            add_bake_report("parent_position_x_mode", settings.parent_position_x_mode)
-            add_bake_report("parent_position_x_uv_index", settings.parent_position_x_uv_index)
-            add_bake_report("parent_position_x_uv_channel", settings.parent_position_x_uv_channel)
-            add_bake_report("parent_position_x_rgba", settings.parent_position_x_rgba)
-            add_bake_report("parent_position_y", settings.parent_position_y)
-            add_bake_report("parent_position_y_mode", settings.parent_position_y_mode)
-            add_bake_report("parent_position_y_uv_index", settings.parent_position_y_uv_index)
-            add_bake_report("parent_position_y_uv_channel", settings.parent_position_y_uv_channel)
-            add_bake_report("parent_position_y_rgba", settings.parent_position_y_rgba)
-            add_bake_report("parent_position_z", settings.parent_position_z)
-            add_bake_report("parent_position_z_mode", settings.parent_position_z_mode)
-            add_bake_report("parent_position_z_uv_index", settings.parent_position_z_uv_index)
-            add_bake_report("parent_position_z_uv_channel", settings.parent_position_z_uv_channel)
-            add_bake_report("parent_position_z_rgba", settings.parent_position_z_rgba)
-            add_bake_report("parent_position_packed_uv_index", settings.parent_position_packed_uv_index)
-            add_bake_report("parent_position_packed_uv_channel", settings.parent_position_packed_uv_channel)
-            add_bake_report("parent_position_ab_packed_a_comp", settings.parent_position_ab_packed_a_comp)
-            add_bake_report("parent_position_ab_packed_b_comp", settings.parent_position_ab_packed_b_comp)
-        if settings.parent_axis:
-            add_bake_report("parent_axis", True)
-            add_bake_report("parent_axis_component", settings.parent_axis_component)
-            add_bake_report("parent_axis_channel_mode", settings.parent_axis_channel_mode)
-            add_bake_report("parent_axis_x", settings.parent_axis_x)
-            add_bake_report("parent_axis_x_mode", settings.parent_axis_x_mode)
-            add_bake_report("parent_axis_x_uv_index", settings.parent_axis_x_uv_index)
-            add_bake_report("parent_axis_x_uv_channel", settings.parent_axis_x_uv_channel)
-            add_bake_report("parent_axis_x_rgba", settings.parent_axis_x_rgba)
-            add_bake_report("parent_axis_y", settings.parent_axis_y)
-            add_bake_report("parent_axis_y_mode", settings.parent_axis_y_mode)
-            add_bake_report("parent_axis_y_uv_index", settings.parent_axis_y_uv_index)
-            add_bake_report("parent_axis_y_uv_channel", settings.parent_axis_y_uv_channel)
-            add_bake_report("parent_axis_y_rgba", settings.parent_axis_y_rgba)
-            add_bake_report("parent_axis_z", settings.parent_axis_z)
-            add_bake_report("parent_axis_z_mode", settings.parent_axis_z_mode)
-            add_bake_report("parent_axis_z_uv_index", settings.parent_axis_z_uv_index)
-            add_bake_report("parent_axis_z_uv_channel", settings.parent_axis_z_uv_channel)
-            add_bake_report("parent_axis_z_rgba", settings.parent_axis_z_rgba)
-            add_bake_report("parent_axis_packed_uv_index", settings.parent_axis_packed_uv_index)
-            add_bake_report("parent_axis_packed_uv_channel", settings.parent_axis_packed_uv_channel)
-            add_bake_report("parent_axis_ab_packed_a_comp", settings.parent_axis_ab_packed_a_comp)
-            add_bake_report("parent_axis_ab_packed_b_comp", settings.parent_axis_ab_packed_b_comp)
+    if data_layer.rand_mode == "COLLECTION":
+        cols = []
+        for mesh in meshes:
+            for col in mesh.users_collection:
+                if col not in cols:
+                    cols.append(col)
+
+        for mesh in meshes:
+            data_loop_ids = []
+
+            if mesh.users_collection:
+                col_index = cols.index(mesh.users_collection[0])
+                if col_index >= 0:
+                    np.random.seed(data_layer.rand_seed + col_index)
+                    rand = np.random.uniform(-math.pi, math.pi)
+
+                    if data_layer.component == "X":
+                        data_to_bake = math.cos(rand)
+                    elif data_layer.component == "Y":
+                        data_to_bake = math.sin(rand)
+                    elif data_layer.component == "Z":
+                        data_to_bake = 0.0
+                    else:
+                        data_to_bake = 0.0
+            else:
+                data_to_bake = 0.0
+            
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+
+            bake_data.append((mesh, data_loop_ids))
+    elif data_layer.rand_mode == "OBJECT":
+        for mesh_index, mesh in enumerate(meshes):
+            data_loop_ids = []
+
+            np.random.seed(data_layer.rand_seed + mesh_index)
+            rand = np.random.uniform(-math.pi, math.pi)
+
+            if data_layer.component == "X":
+                data_to_bake = [math.cos(rand)]
+            elif data_layer.component == "Y":
+                data_to_bake = [math.sin(rand)]
+            elif data_layer.component == "Z":
+                data_to_bake = 0.0
+            else:
+                data_to_bake = 0.0
+
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+
+            bake_data.append((mesh, data_loop_ids))
+    elif data_layer.rand_mode == "FACE":
+        face_offset = 0
+        for mesh_index, mesh in enumerate(meshes):
+            data_loop_ids = []
+
+            for face_index, face in enumerate(mesh.data.polygons):
+                np.random.seed(data_layer.rand_seed + (face_index + face_offset))
+                rand = np.random.uniform(-math.pi, math.pi)
+
+                if data_layer.component == "X":
+                    data_to_bake = [math.cos(rand)]
+                elif data_layer.component == "Y":
+                    data_to_bake = [math.sin(rand)]
+                elif data_layer.component == "Z":
+                    data_to_bake = 0.0
+                else:
+                    data_to_bake = 0.0
+
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+                
+            face_offset += len(mesh.data.polygons)
+
+            bake_data.append((mesh, data_loop_ids))
     else:
-        return False
+        pass
 
-    manual_max_depth = max(min(settings.parent_depth, settings.parent_max_depth), 1.0)
+    return bake_data
 
-    # data might need a 'multiplier' to be normalized and packed/unpacked
-    packing_multiplier = get_parent_position_data_multiplier(context) if get_parent_position_data_needs_multiplier(context) else 1.0
-    packing_divisor = 1.0 / packing_multiplier
-    add_bake_report("parent_position_multiplier", packing_multiplier)
+def get_bake_random_float3(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
+    """"""
+    settings = context.scene.DataBakerSettings
+
+    bake_data = []
+
+    if data_layer.rand_mode == "COLLECTION":
+        cols = []
+        for mesh in meshes:
+            for col in mesh.users_collection:
+                if col not in cols:
+                    cols.append(col)
+
+        for mesh in meshes:
+            data_loop_ids = []
+
+            if mesh.users_collection:
+                col_index = cols.index(mesh.users_collection[0])
+                if col_index >= 0:
+                    # https://gist.github.com/andrewbolster/10274979
+                    np.random.seed(data_layer.rand_seed + col_index)
+                    phi = np.random.uniform(0,np.pi*2)
+                    costheta = np.random.uniform(-1,1)
+                    theta = np.arccos( costheta )
+
+                    if data_layer.component == "X":
+                        data_to_bake = np.sin( theta) * np.cos( phi )
+                    elif data_layer.component == "Y":
+                        data_to_bake = np.sin( theta) * np.sin( phi )
+                    elif data_layer.component == "Z":
+                        data_to_bake = np.cos( theta )
+                    else:
+                        data_to_bake = 0.0        
+            else:
+                data_to_bake = 0.0
+
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+
+            bake_data.append((mesh, data_loop_ids))
+    elif data_layer.rand_mode == "OBJECT":
+        for mesh_index, mesh in enumerate(meshes):
+            data_loop_ids = []
+
+            # https://gist.github.com/andrewbolster/10274979
+            np.random.seed(data_layer.rand_seed + mesh_index)
+            phi = np.random.uniform(0,np.pi*2)
+            costheta = np.random.uniform(-1,1)
+            theta = np.arccos( costheta )
+
+            if data_layer.component == "X":
+                data_to_bake = np.sin( theta) * np.cos( phi )
+            elif data_layer.component == "Y":
+                data_to_bake = np.sin( theta) * np.sin( phi )
+            elif data_layer.component == "Z":
+                data_to_bake = np.cos( theta )
+            else:
+                data_to_bake = 0.0
+
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+
+            bake_data.append((mesh, data_loop_ids))
+    elif data_layer.rand_mode == "FACE":
+        face_offset = 0
+        for mesh_index, mesh in enumerate(meshes):
+            data_loop_ids = []
+
+            for face_index, face in enumerate(mesh.data.polygons):
+                # https://gist.github.com/andrewbolster/10274979
+                np.random.seed(data_layer.rand_seed + (face_index + face_offset))
+                phi = np.random.uniform(0,np.pi*2)
+                costheta = np.random.uniform(-1,1)
+                theta = np.arccos( costheta )
+
+                if data_layer.component == "X":
+                    value_to_bake = np.sin( theta) * np.cos( phi )
+                elif data_layer.component == "Y":
+                    value_to_bake = np.sin( theta) * np.sin( phi )
+                elif data_layer.component == "Z":
+                    value_to_bake = np.cos( theta )
+                else:
+                    value_to_bake = 0.0
+
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, value_to_bake))
+
+            face_offset += len(mesh.data.polygons)
+
+            bake_data.append((mesh, data_loop_ids))
+    else:
+        pass
+
+    return bake_data
+
+def get_bake_parent_pos(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
+    """ """
+    settings = context.scene.DataBakerSettings
     
     signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
                                     -1.0 if settings.invert_y else 1.0,
                                     -1.0 if settings.invert_z else 1.0))
     signed_scale = signed_axis * settings.scale
 
+    bake_data = []
+
+    target_depth = max(1, settings.index)
     for mesh in meshes:
-        ref_obj = settings.transform_obj if settings.transform_obj else mesh
+        data_loop_ids = []
 
-        # automatic processing will loop through all parents and build used_uv_channels as needed so we need a starting point
-        uv_channel_index = (settings.parent_automatic_uv_index * 2) + (0 if settings.parent_automatic_uv_channel == "U" else 1)
-        uv_index = uv_channel_index // 2
-        uv_channel = settings.parent_automatic_uv_channel
-
-        parent_obj = ref_obj
-        parent_objs = []
-
-        # walk up the hierarchy by X levels and build the list of all parents for that object
-        for depth_index in range(settings.parent_max_depth):
-            if (parent_obj != None) and (parent_obj.parent != None) and (parent_obj.parent.type == 'MESH' or parent_obj.parent.type == 'EMPTY'):
-                parent_obj = parent_obj.parent
-                parent_objs.append(parent_obj)
+        parent = mesh                
+        for depth in range(target_depth):
+            if parent.parent and (parent.parent.type == 'MESH' or parent.parent.type == 'EMPTY'):
+                parent = parent.parent
             else:
+                parent = None
                 break
 
-        # reverse the hierarchy
-        parent_objs.reverse()
-        
-        # complete the tree will nullptrs until max depth reached
-        while(len(parent_objs) < settings.parent_max_depth):
-            parent_objs.append(None)
+        if parent:
+            parent_loc = parent.matrix_world.to_translation()
+            if data_layer.obj:
+                parent_loc -= data_layer.obj.matrix_world.to_translation() # relative to origin?
 
-        # loop through parents from root to child
-        for depth, parent_obj in enumerate(parent_objs):
-            # only process the desired depth if in manual mode
-            if settings.parent_mode == "MANUAL":
-                if depth != (manual_max_depth + 1):
-                    continue
-            
-            # if this object has no parent at this depth, we still want to make sure to write 0 that will indicate that element has no parent at this hierarchy level
-            if parent_obj == None:
-                # NULL POSITION (no parent)
-                if settings.parent_position:
-                    # INDIVIDUAL POSITION
-                    if settings.parent_position_channel_mode == "INDIVIDUAL":
-                        for xyz_comp in XYZLIST:
-                            uv_index = uv_channel_index // 2
-                            uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                            
-                            use_vcol = False
-                            if xyz_comp == "X" and settings.parent_position_x:
-                                use_vcol = settings.parent_position_x_mode == "VCOL"
-                                if parent_auto_mode:
-                                    bake_data(mesh, 0.0, settings.parent_position_x_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_position_x_rgba, settings.invert_v)
-                                else:
-                                    bake_data(mesh, 0.0, settings.parent_position_x_mode, settings.parent_position_x_uv_index, settings.parent_position_x_uv_channel, settings.uvmap_name, settings.parent_position_x_rgba, settings.invert_v)
-                            elif xyz_comp == "Y" and settings.parent_position_y:
-                                use_vcol = settings.parent_position_y_mode == "VCOL"
-                                if parent_auto_mode:
-                                    bake_data(mesh, 0.0, settings.parent_position_y_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_position_y_rgba, settings.invert_v)
-                                else:
-                                    bake_data(mesh, 0.0, settings.parent_position_y_mode, settings.parent_position_y_uv_index, settings.parent_position_y_uv_channel, settings.uvmap_name, settings.parent_position_y_rgba, settings.invert_v)
-                            elif xyz_comp == "Z" and settings.parent_position_z:
-                                use_vcol = settings.parent_position_z_mode == "VCOL"
-                                if parent_auto_mode:
-                                    bake_data(mesh, 0.0, settings.parent_position_z_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_position_z_rgba, settings.invert_v)
-                                else:
-                                    bake_data(mesh, 0.0, settings.parent_position_z_mode, settings.parent_position_z_uv_index, settings.parent_position_z_uv_channel, settings.uvmap_name, settings.parent_position_z_rgba, settings.invert_v)
-                            else:
-                                continue
-                            
-                            if parent_auto_mode and not use_vcol:
-                                uv_channel_index += 1
+            vector_to_bake = parent_loc * signed_scale
 
-                    # AB or XYZ PACKED POSITION
-                    else:
-                        uv_index = settings.parent_position_packed_uv_index
-                        uv_channel = settings.parent_position_packed_uv_channel
-                        if parent_auto_mode:
-                            uv_index = uv_channel_index // 2
-                            uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                            
-                            uv_channel_index += 1
-                        
-                        bake_data(mesh, 0.0, "UV", uv_index, uv_channel, settings.uvmap_name, 0, settings.invert_v)
-                
-                # NULL AXIS (no parent)
-                if settings.parent_axis:
-                    # INDIVIDUAL AXIS
-                    if settings.parent_axis_channel_mode == "INDIVIDUAL":
-                        for xyz_comp in XYZLIST:
-                            uv_index = uv_channel_index // 2
-                            uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-
-                            use_vcol = False
-                            if xyz_comp == "X" and settings.parent_axis_x:
-                                use_vcol = settings.parent_axis_x_mode == "VCOL"
-                                if parent_auto_mode:
-                                    bake_data(mesh, 0.0, settings.parent_axis_x_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_axis_x_rgba, settings.invert_v)
-                                else:
-                                    bake_data(mesh, 0.0, settings.parent_axis_x_mode, settings.parent_axis_x_uv_index, settings.uvmap_name, settings.parent_axis_x_uv_channel, settings.parent_axis_x_rgba, settings.invert_v)
-                            elif xyz_comp == "Y" and settings.parent_axis_y:
-                                use_vcol = settings.parent_axis_y_mode == "VCOL"
-                                if parent_auto_mode:
-                                    bake_data(mesh, 0.0, settings.parent_axis_y_mode, uv_index, settings.uvmap_name, uv_channel, settings.parent_axis_y_rgba, settings.invert_v)
-                                else:
-                                    bake_data(mesh, 0.0, settings.parent_axis_y_mode, settings.parent_axis_y_uv_index, settings.parent_axis_y_uv_channel, settings.uvmap_name, settings.parent_axis_y_rgba, settings.invert_v)
-                            elif xyz_comp == "Z" and settings.parent_axis_z:
-                                use_vcol = settings.parent_axis_z_mode == "VCOL"
-                                if parent_auto_mode:
-                                    bake_data(mesh, 0.0, settings.parent_axis_z_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_axis_z_rgba, settings.invert_v)
-                                else:
-                                    bake_data(mesh, 0.0, settings.parent_axis_z_mode, settings.parent_axis_z_uv_index, settings.parent_axis_z_uv_channel, settings.uvmap_name, settings.parent_axis_z_rgba, settings.invert_v)
-                            else:
-                                continue
-
-                            if parent_auto_mode and not use_vcol:
-                                uv_channel_index += 1
-
-                    # AB or XYZ PACKED AXIS
-                    elif settings.parent_axis_channel_mode != "POSITION_PACKED":
-                        uv_index = settings.parent_position_packed_uv_index
-                        uv_channel = settings.parent_position_packed_uv_channel
-                        if parent_auto_mode:
-                            uv_index = uv_channel_index // 2
-                            uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-
-                            uv_channel_index += 1
-
-                        bake_data(mesh, 0.0, "UV", uv_index, uv_channel, settings.uvmap_name, 0, settings.invert_v)
-                # no parent means we move onto the next object
-                continue
-
-            # parent object is valid here
-            parent_obj = parent_objs[depth]
-            if parent_obj == None:
-                continue
-
-            parent_obj_quat = parent_obj.matrix_world.to_quaternion()
-            parent_axis_to_bake = get_bake_axis(parent_obj_quat, settings.parent_axis_component, signed_axis, False)
-
-            # POSITION
-            if settings.parent_position:
-                # get parent's position in world space, to scale
-                parent_location_to_bake = parent_obj.matrix_world.to_translation() * signed_scale
-
-                if settings.parent_position_channel_mode == "INDIVIDUAL":
-                    # prevent parent pivot to be exactly at 0,0,0 in case the parent is indeed at origin because then we couldn't mask it in-engine based on pivot's distance from origin so we need to shift it by at least some amount to indicate there's indeed a valid parent here
-                    if parent_location_to_bake.length < 1:
-                        parent_location_to_bake = mathutils.Vector((1.001,1.001,1.001))
-
-                    # packing axis is only available if we pack X/Y/Z components individually
-                    if settings.parent_axis_channel_mode == "POSITION_PACKED":
-                        parent_axis_to_bake = (parent_axis_to_bake + XYZUNITVECTOR) * 0.5
-
-                        # round position & pack axis in the fractional part
-                        parent_location_to_bake.x = math.floor(parent_location_to_bake.x) + parent_axis_to_bake.x
-                        parent_location_to_bake.y = math.floor(parent_location_to_bake.y) + parent_axis_to_bake.y
-                        parent_location_to_bake.z = math.floor(parent_location_to_bake.z) + parent_axis_to_bake.z
-
-                    for xyz_comp in XYZLIST:
-                        uv_index = uv_channel_index // 2
-                        uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-
-                        use_vcol = False
-                        if xyz_comp == "X" and settings.parent_position_x:
-                            data_to_bake = parent_location_to_bake.x
-
-                            use_vcol = settings.parent_position_x_mode == "VCOL"
-                            if use_vcol:
-                                data_to_bake = data_to_bake * packing_divisor
-                                data_to_bake = (data_to_bake + 1) * 0.5
-                            
-                            if parent_auto_mode:
-                                bake_data(mesh, data_to_bake, settings.parent_position_x_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_position_x_rgba, settings.invert_v)
-                            else:
-                                bake_data(mesh, data_to_bake, settings.parent_position_x_mode, settings.parent_position_x_uv_index, settings.parent_position_x_uv_channel, settings.uvmap_name, settings.parent_position_x_rgba, settings.invert_v)
-                        elif xyz_comp == "Y" and settings.parent_position_y:
-                            data_to_bake = parent_location_to_bake.y
-                            
-                            use_vcol = settings.parent_position_y_mode == "VCOL"
-                            if use_vcol:
-                                data_to_bake = data_to_bake * packing_divisor
-                                data_to_bake = (data_to_bake + 1) * 0.5
-                            
-                            if parent_auto_mode:
-                                bake_data(mesh, data_to_bake, settings.parent_position_y_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_position_y_rgba, settings.invert_v)
-                            else:
-                                bake_data(mesh, data_to_bake, settings.parent_position_y_mode, settings.parent_position_y_uv_index, settings.parent_position_y_uv_channel, settings.uvmap_name, settings.parent_position_y_rgba, settings.invert_v)
-                        elif xyz_comp == "Z" and settings.parent_position_z:
-                            data_to_bake = parent_location_to_bake.z
-
-                            use_vcol = settings.parent_position_z_mode == "VCOL"
-                            if use_vcol:
-                                data_to_bake = data_to_bake * packing_divisor
-                                data_to_bake = (data_to_bake + 1) * 0.5
-                            
-                            if parent_auto_mode:
-                                bake_data(mesh, data_to_bake, settings.parent_position_z_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_position_z_rgba, settings.invert_v)
-                            else:
-                                bake_data(mesh, data_to_bake, settings.parent_position_z_mode, settings.parent_position_z_uv_index, settings.parent_position_z_uv_channel, settings.uvmap_name, settings.parent_position_z_rgba, settings.invert_v)
-                        else:
-                            continue
-                          
-                        if parent_auto_mode and not use_vcol:
-                            uv_channel_index += 1
-                        
-                # PACKED
-                else:
-                    # prevent parent pivot to be exactly at 0,0,0 in case the parent is indeed at origin because then we couldn't mask it in-engine based on pivot's distance from origin so we need to shift it by at least some amount to indicate there's indeed a valid parent here
-                    if parent_location_to_bake.length < 1:
-                        precision_offset = (1.0 / 65536.0) * packing_multiplier # 16bits precision?
-                        if settings.parent_position_channel_mode == "XYZ_PACKED":
-                            precision_offset = (1.0 / 256.0) * packing_multiplier # 8bits precision?
-                        parent_location_to_bake = mathutils.Vector((precision_offset, precision_offset, precision_offset))
-                    
-                    parent_location_to_bake = mathutils.Vector((
-                        max(min(parent_location_to_bake.x * packing_divisor, 1.0), -1.0),
-                        max(min(parent_location_to_bake.y * packing_divisor, 1.0), -1.0),
-                        max(min(parent_location_to_bake.z * packing_divisor, 1.0), -1.0)
-                        ))
-
-                    parent_location_to_bake = (parent_location_to_bake + XYZUNITVECTOR) * 0.5
-                    
-                    # X/Y or X/Z or Y/Z POSITION
-                    if settings.parent_position_channel_mode == "AB_PACKED":
-                        data_to_bake = get_packed_ab_vector(parent_location_to_bake, settings.parent_position_ab_packed_a_comp, settings.parent_position_ab_packed_b_comp)
-                    # XYZ POSITION
-                    elif settings.parent_position_channel_mode == "XYZ_PACKED":
-                        data_to_bake = get_packed_xyz_vector(parent_location_to_bake)
-                    
-                    uv_index = settings.parent_position_packed_uv_index
-                    uv_channel = settings.parent_position_packed_uv_channel
-                    if parent_auto_mode:
-                        uv_index = uv_channel_index // 2
-                        uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                        
-                        uv_channel_index += 1
-                    
-                    bake_data(mesh, data_to_bake, "UV", uv_index, uv_channel, settings.uvmap_name, 0, settings.invert_v)
-
-            # AXIS
-            if settings.parent_axis and settings.parent_axis_channel_mode != "POSITION_PACKED":
-                if settings.parent_axis_channel_mode == "INDIVIDUAL":
-                    for xyz_comp in XYZLIST:
-                        uv_index = uv_channel_index // 2
-                        uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                        
-                        use_vcol = False
-                        if xyz_comp == "X" and settings.parent_axis_x:
-                            data_to_bake = parent_axis_to_bake.x
-                            
-                            use_vcol = settings.parent_axis_x_mode == "VCOL"
-                            if use_vcol:
-                                data_to_bake = (data_to_bake + 1) * 0.5
-                            
-                            if parent_auto_mode:
-                                bake_data(mesh, data_to_bake, settings.parent_axis_x_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_axis_x_rgba, settings.invert_v)
-                            else:
-                                bake_data(mesh, data_to_bake, settings.parent_axis_x_mode, settings.parent_axis_x_uv_index, settings.parent_axis_x_uv_channel, settings.uvmap_name, settings.parent_axis_x_rgba, settings.invert_v)
-                        elif xyz_comp == "Y" and settings.parent_axis_y:
-                            data_to_bake = parent_axis_to_bake.y
-                            
-                            use_vcol = settings.parent_axis_y_mode == "VCOL"
-                            if use_vcol:
-                                data_to_bake = (data_to_bake + 1) * 0.5
-                            
-                            if parent_auto_mode:
-                                bake_data(mesh, data_to_bake, settings.parent_axis_y_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_axis_z_rgba, settings.invert_v)
-                            else:
-                                bake_data(mesh, data_to_bake, settings.parent_axis_y_mode, settings.parent_axis_y_uv_index, settings.parent_axis_y_uv_channel, settings.uvmap_name, settings.parent_axis_y_rgba, settings.invert_v)
-                        elif xyz_comp == "Z" and settings.parent_axis_z:
-                            data_to_bake = parent_axis_to_bake.z
-                            
-                            use_vcol = settings.parent_axis_z_mode == "VCOL"
-                            if use_vcol:
-                                data_to_bake = (data_to_bake + 1) * 0.5
-                            
-                            if parent_auto_mode:
-                                bake_data(mesh, data_to_bake, settings.parent_axis_z_mode, uv_index, uv_channel, settings.uvmap_name, settings.parent_axis_z_rgba, settings.invert_v)
-                            else:
-                                bake_data(mesh, data_to_bake, settings.parent_axis_z_mode, settings.parent_axis_z_uv_index, settings.parent_axis_z_uv_channel, settings.parent_axis_z_rgba, settings.invert_v)
-                        else:
-                            continue
-                        
-                        if parent_auto_mode and not use_vcol:
-                            uv_channel_index += 1
-                # PACKED
-                else:
-                    parent_axis_to_bake = (parent_axis_to_bake + XYZUNITVECTOR) * 0.5
-                
-                    # X/Y or X/Z or Y/Z AXIS
-                    if settings.parent_axis_channel_mode == "AB_PACKED":
-                        data_to_bake = get_packed_ab_vector(parent_axis_to_bake, settings.parent_axis_ab_packed_a_comp, settings.parent_axis_ab_packed_b_comp)
-                    # XYZ AXIS
-                    else:
-                        data_to_bake = get_packed_xyz_vector(parent_axis_to_bake)
-                    
-                    uv_index = settings.parent_axis_packed_uv_index
-                    uv_channel = settings.parent_axis_packed_uv_channel
-                    if parent_auto_mode:
-                        uv_index = uv_channel_index // 2
-                        uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                        
-                        uv_channel_index += 1
-                    
-                    bake_data(mesh, data_to_bake, "UV", uv_index, uv_channel, settings.uvmap_name, 0, settings.invert_v)
-            
-    return True
-
-def bake_fixed_value(context, meshes, empties):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-    if settings.fixed_value:
-        add_bake_report("fixed_value", True)
-        add_bake_report("fixed_value_data", settings.fixed_value_data)
-        add_bake_report("fixed_value_mode", settings.fixed_value_mode)
-        add_bake_report("fixed_value_uv_index", settings.fixed_value_uv_index)
-        add_bake_report("fixed_value_uv_channel", settings.fixed_value_uv_channel)
-        add_bake_report("fixed_value_rgba", settings.fixed_value_rgba)
-    else:
-        return False
-    
-    for mesh in meshes:
-        bake_data(mesh, settings.fixed_value_data, settings.fixed_value_mode, settings.fixed_value_uv_index, settings.fixed_value_uv_channel, settings.uvmap_name, settings.fixed_value_rgba, settings.invert_v)
-    
-    return True
-
-def bake_direction(context, meshes, empties):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-    if settings.direction:
-        add_bake_report("direction", True)
-        add_bake_report("direction_mode", settings.direction_mode)
-        add_bake_report("direction_vector_x", settings.direction_vector_x)
-        add_bake_report("direction_vector_y", settings.direction_vector_y)
-        add_bake_report("direction_vector_z", settings.direction_vector_z)
-        add_bake_report("direction_pack_mode", settings.direction_pack_mode)
-    else:
-        return False
-
-    direction = mathutils.Vector((0.0, 0.0, 0.0))
-    
-    # shared for all meshes
-    if settings.direction_mode == "3DVECTOR":
-        normalized_direction = mathutils.Vector((settings.direction_vector_x, settings.direction_vector_y, settings.direction_vector_z)).normalized()
-
-        Direction = normalized_direction
-    elif settings.direction_mode == "2DVECTOR":
-        normalized_direction = mathutils.Vector((settings.direction_vector_x, settings.direction_vector_y, 0.0)).normalized() # nullify Z
-
-        direction = normalized_direction
-    
-    for mesh in meshes:
-        if settings.direction_mode == "3DRAND":
-            # https://gist.github.com/andrewbolster/10274979
-            phi = np.random.uniform(0,np.pi*2)
-            costheta = np.random.uniform(-1,1)
-
-            theta = np.arccos( costheta )
-            x = np.sin( theta) * np.cos( phi )
-            y = np.sin( theta) * np.sin( phi )
-            z = np.cos( theta )
-
-            direction = mathutils.Vector((x,y,z))
-        elif settings.direction_mode == "2DRAND":
-            x = np.random.uniform(-math.pi, math.pi)
-            cosx = math.cos(x)
-            sinx = math.sin(x)
-
-            direction = mathutils.Vector((cosx,sinx,0.0))
-
-        if settings.direction_pack_mode == "VCOL":
-            direction = (direction * HALFXYZVECTOR) + HALFXYZVECTOR
-
-            if (settings.direction_mode == "3DVECTOR" or settings.direction_mode == "3DRAND"):
-                bake_data(mesh, direction, settings.direction_pack_mode, 0, 0, settings.uvmap_name, 'RGB', settings.invert_v)
+            if data_layer.component == "X":
+                data_to_bake = vector_to_bake.x
+            elif data_layer.component == "Y":
+                data_to_bake = vector_to_bake.y
+            elif data_layer.component == "Z":
+                data_to_bake = vector_to_bake.z
             else:
-                bake_data(mesh, direction, settings.direction_pack_mode, 0, 0, settings.uvmap_name, 'RG', settings.invert_v)
-        else:
-            bake_data(mesh, direction, settings.direction_pack_mode, 0, 0, settings.uvmap_name, '', settings.invert_v)
+                data_to_bake = 0.0
 
-    return True
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+            bake_data.append((mesh, data_loop_ids))
+    return bake_data
 
-#################
-### BAKE INFO ###
-def get_bake_info(context):
+def get_bake_parent_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-
-    info_uv   = []
-    info_vcol = []
-    info_normal  = []
-
-    for bake_info_function in get_bake_info_functions():
-        bake_info, bake_info_uv, bake_info_vcol, bake_info_normal = bake_info_function(context)
-
-        if bake_info:
-            info_uv.extend(bake_info_uv)
-            info_vcol.extend(bake_info_vcol)
-            info_normal.extend(bake_info_normal)
-
-    return (info_uv, info_vcol, info_normal)
-
-def get_bake_info_functions():
-    """ """
-    return [
-        get_bake_position_info,
-        get_bake_axis_info,
-        get_bake_shapekey_offset_info,
-        get_bake_shapekey_normal_info,
-        get_bake_linear_mask_info,
-        get_bake_sphere_mask_info,
-        get_bake_per_collection_random_info,
-        get_bake_per_object_random_info,
-        get_bake_per_poly_random_info,
-        get_bake_parent_info,
-        get_bake_fixed_value_info,
-        get_bake_direction_info
-    ]
-
-def get_bake_position_info(context):
-    """ """
-
     settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.position:
-        if settings.position_channel_mode == "INDIVIDUAL":
-            axis_packed = settings.axis and settings.axis_channel_mode == "POSITION_PACKED" # requires 32 bits if true
-
-            if settings.position_x:
-                ID = "Position X"
-                if settings.position_x_mode == "UV":
-                    if axis_packed:
-                        ID = "Position And Axis X"
-
-                    info_uv.append((ID, settings.position_x_uv_index, settings.position_x_uv_channel, axis_packed, axis_packed, False, settings.position_channel_mode))
-                elif settings.position_x_mode == "VCOL":
-                    info_vcol.append((ID, settings.position_x_rgba, True))
-
-            if settings.position_y:
-                ID = "Position Y"
-                if settings.position_y_mode == "UV":
-                    if axis_packed:
-                        ID = "Position And Axis Y"
-
-                    info_uv.append((ID, settings.position_y_uv_index, settings.position_y_uv_channel, axis_packed, axis_packed, False, settings.position_channel_mode))
-                elif settings.position_y_mode == "VCOL":
-                    info_vcol.append((ID, settings.position_y_rgba, True))
-
-            if settings.position_z:
-                ID = "Position Z"
-                if settings.position_z_mode == "UV":
-                    if axis_packed:
-                        ID = "Position And Axis Z"
-
-                    info_uv.append((ID, settings.position_z_uv_index, settings.position_z_uv_channel, axis_packed, axis_packed, False, settings.position_channel_mode))
-                elif settings.position_z_mode == "VCOL":
-                    info_vcol.append((ID, settings.position_z_rgba, True))
-        else:
-            if settings.position_channel_mode == "XYZ_PACKED":
-                ID = "Position XYZ"
-            elif settings.position_channel_mode == "AB_PACKED":
-                ID = "Position " + settings.position_ab_packed_a_comp + settings.position_ab_packed_b_comp
-
-            info_uv.append((ID, settings.position_packed_uv_index, settings.position_packed_uv_channel, False, True, True, settings.position_channel_mode))
-
-    return (settings.position, info_uv, info_vcol, info_normal)
-
-def get_bake_axis_info(context):
-    """ """
     
-    settings = context.scene.DataBakerSettings
+    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                    -1.0 if settings.invert_y else 1.0,
+                                    -1.0 if settings.invert_z else 1.0))
 
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
+    bake_data = []
 
-    if settings.axis:
-        if settings.axis_channel_mode == "INDIVIDUAL":
-            if settings.axis_x:
-                ID = "Axis X"
-                if settings.axis_x_mode == "UV":
-                    info_uv.append((ID, settings.axis_x_uv_index, settings.axis_x_uv_channel, False, False, False, settings.axis_channel_mode))
-                elif settings.axis_x_mode == "VCOL":
-                    info_vcol.append((ID, settings.axis_x_rgba, False))
+    target_depth = max(1, settings.index)
+    for mesh in meshes:
+        data_loop_ids = []
 
-            if settings.axis_y:
-                ID = "Axis Y"
-                if settings.axis_y_mode == "UV":
-                    info_uv.append((ID, settings.axis_y_uv_index, settings.axis_y_uv_channel, False, False, False, settings.axis_channel_mode))
-                elif settings.axis_y_mode == "VCOL":
-                    info_vcol.append((ID, settings.axis_y_rgba, False)) 
-
-            if settings.axis_z:
-                ID = "Axis Z"
-                if settings.axis_z_mode == "UV":
-                    info_uv.append((ID, settings.axis_z_uv_index, settings.axis_z_uv_channel, False, False, False, settings.axis_channel_mode))
-                elif settings.axis_z_mode == "VCOL":
-                    info_vcol.append((ID, settings.axis_z_rgba, False)) 
-        elif settings.axis_channel_mode != "POSITION_PACKED":
-            if settings.axis_channel_mode == "XYZ_PACKED":
-                ID = "Axis XYZ"
-            elif settings.axis_channel_mode == "AB_PACKED":
-                ID = "Axis " + settings.axis_ab_packed_a_comp + settings.axis_ab_packed_b_comp
-
-            info_uv.append((ID, settings.axis_packed_uv_index, settings.axis_packed_uv_channel, False, True, False, settings.axis_channel_mode))
-    
-    return (settings.axis, info_uv, info_vcol, info_normal)
-
-def get_bake_shapekey_offset_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.shapekey_offset:
-        if settings.shapekey_offset_channel_mode == "INDIVIDUAL":
-            normal_packed = settings.shapekey_normal and settings.shapekey_normal_channel_mode == "POSITION_PACKED" # requires 32 bits if True
-            
-            if settings.shapekey_offset_x:
-                ID = "Shapekey Offset X"
-                if settings.shapekey_offset_x_mode == "UV":
-                    if normal_packed:
-                        ID = "Shapekey Offset & Normal X"
-
-                    info_uv.append((ID, settings.shapekey_offset_x_uv_index, settings.shapekey_offset_x_uv_channel, normal_packed, normal_packed, False, settings.shapekey_offset_channel_mode))
-                elif settings.shapekey_offset_x_mode == "VCOL":
-                    info_vcol.append((ID, settings.shapekey_offset_x_rgba, True)) 
-
-            if settings.shapekey_offset_y:
-                ID = "Shapekey Offset Y"
-                if settings.shapekey_offset_y_mode == "UV":
-                    if normal_packed:
-                        ID = "Shapekey Offset & Normal Y"
-                    
-                    info_uv.append((ID, settings.shapekey_offset_y_uv_index, settings.shapekey_offset_y_uv_channel, normal_packed, normal_packed, False, settings.shapekey_offset_channel_mode))
-                elif settings.shapekey_offset_y_mode == "VCOL":
-                    info_vcol.append((ID, settings.shapekey_offset_y_rgba, True)) 
-
-            if settings.shapekey_offset_z:
-                ID = "Shapekey Offset Z"
-                if settings.shapekey_offset_z_mode == "UV":
-                    if normal_packed:
-                        ID = "Shapekey Offset & Normal Z"
-
-                    info_uv.append((ID, settings.shapekey_offset_z_uv_index, settings.shapekey_offset_z_uv_channel, normal_packed, normal_packed, False, settings.shapekey_offset_channel_mode))
-                elif settings.shapekey_offset_z_mode == "VCOL":
-                    info_vcol.append((ID, settings.shapekey_offset_z_rgba, True)) 
-        else:
-            if settings.shapekey_offset_channel_mode == "XYZ_PACKED":
-                ID = "Shapekey Offset XYZ"
-                
-            elif settings.shapekey_offset_channel_mode == "AB_PACKED":
-                ID = "Shapekey Offset " + settings.shapekey_offset_ab_packed_a_comp + settings.shapekey_offset_ab_packed_b_comp
-
-            info_uv.append((ID, settings.shapekey_offset_packed_uv_index, settings.shapekey_offset_packed_uv_channel, False, True, True, settings.shapekey_offset_channel_mode))
-
-    return (settings.shapekey_offset, info_uv, info_vcol, info_normal)
+        parent = mesh                
+        for depth in range(target_depth):
+            if parent.parent and (parent.parent.type == 'MESH' or parent.parent.type == 'EMPTY'):
+                parent = parent.parent
+            else:
+                parent = None
         
-def get_bake_shapekey_normal_info(context):
-    """ """
+        if parent:
+            parent_quat = parent.matrix_world.to_quaternion()
 
+            if data_layer.axis == "X":
+                axis = mathutils.Vector((1.0, 0.0, 0.0))
+            elif data_layer.axis == "Y":
+                axis = mathutils.Vector((0.0, 1.0, 0.0))
+            elif data_layer.axis == "Z":
+                axis = mathutils.Vector((0.0, 0.0, 1.0))
+            else:
+                axis = mathutils.Vector((0.0, 0.0, 0.0))
+
+            vector_to_bake = (parent_quat @ (axis * signed_axis))
+
+            if data_layer.component == "X":
+                data_to_bake = vector_to_bake.x
+            elif data_layer.component == "Y":
+                data_to_bake = vector_to_bake.y
+            elif data_layer.component == "Z":
+                data_to_bake = vector_to_bake.z
+            else:
+                data_to_bake = 0.0
+
+            for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+            bake_data.append((mesh, data_loop_ids))
+    return bake_data
+
+def get_bake_value(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
+    """ """
     settings = context.scene.DataBakerSettings
 
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
+    bake_data = []
 
-    if settings.shapekey_normal:
-        if settings.shapekey_normal_channel_mode == "INDIVIDUAL":
-            if settings.shapekey_normal_x:
-                ID = "Shapekey Normal X"
-                if settings.shapekey_normal_x_mode == "UV":
-                    info_uv.append((ID, settings.shapekey_normal_x_uv_index, settings.shapekey_normal_x_uv_channel, False, False, False, settings.shapekey_normal_channel_mode))
-                elif settings.shapekey_normal_x_mode == "VCOL":
-                    info_vcol.append((ID, settings.shapekey_normal_x_rgba, False))
+    for mesh in meshes:
+        data_loop_ids = []
+        for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_layer.x))
+        bake_data.append((mesh, data_loop_ids))
 
-            if settings.shapekey_normal_y:
-                ID = "Shapekey Normal Y"
-                if settings.shapekey_normal_y_mode == "UV":
-                    info_uv.append((ID, settings.shapekey_normal_y_uv_index, settings.shapekey_normal_y_uv_channel, False, False, False, settings.shapekey_normal_channel_mode))
-                elif settings.shapekey_normal_y_mode == "VCOL":
-                    info_vcol.append((ID, settings.shapekey_normal_y_rgba, False))
-                    
-            if settings.shapekey_normal_z:
-                ID = "Shapekey Normal Z"
-                if settings.shapekey_normal_z_mode == "UV":
-                    info_uv.append((ID, settings.shapekey_normal_z_uv_index, settings.shapekey_normal_z_uv_channel, False, False, False, settings.shapekey_normal_channel_mode))
-                elif settings.shapekey_normal_z_mode == "VCOL":
-                    info_vcol.append((ID, settings.shapekey_normal_z_rgba, False))
-        elif settings.shapekey_normal_channel_mode != "OFFSET_PACKED":
-            if settings.shapekey_normal_channel_mode == "XYZ_PACKED":
-                ID = "Shapekey Normal XYZ"
-            
-            elif settings.shapekey_normal_channel_mode == "AB_PACKED":
-                ID = "Shapekey Normal " + settings.shapekey_normal_ab_packed_a_comp + settings.shapekey_normal_ab_packed_b_comp
+    return bake_data
 
-            info_uv.append((ID, settings.shapekey_normal_xyz_uv_index, settings.shapekey_normal_xyz_uv_channel, False, True, False, settings.shapekey_normal_channel_mode))
-
-    return (settings.shapekey_normal, info_uv, info_vcol, info_normal)
-           
-def get_bake_linear_mask_info(context):
+def get_bake_custom_prop(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-
     settings = context.scene.DataBakerSettings
 
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
+    bake_data = []
 
-    if settings.linear_mask:
-        ID = "Linear Mask"
-        if settings.linear_mask_mode == "UV":
-            info_uv.append((ID, settings.linear_mask_uv_index, settings.linear_mask_uv_channel, False, False, False, ""))
-        elif settings.linear_mask_mode == "VCOL":
-            info_vcol.append((ID, settings.linear_mask_rgba, False))
+    for mesh in meshes:
+        data_loop_ids = []
 
-    return (settings.linear_mask, info_uv, info_vcol, info_normal)
+        prop = mesh.get(data_layer.custom_prop_name, None)
+        if prop and ((type(prop) is int) or (type(prop) is float)):
+            data_to_bake = prop
+        else:
+            data_to_bake = 0.0
 
-def get_bake_sphere_mask_info(context):
+        for face in mesh.data.polygons:
+                for loop_id in face.loop_indices:
+                    data_loop_ids.append((loop_id, data_to_bake))
+        bake_data.append((mesh, data_loop_ids))
+
+    return bake_data
+
+def get_bake_none(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-     
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.sphere_mask:
-        ID = "Sphere Mask"
-        if settings.sphere_mask_mode == "UV":
-            info_uv.append((ID, settings.sphere_mask_uv_index, settings.sphere_mask_uv_channel, False, False, False, ""))
-        elif settings.sphere_mask_mode == "VCOL":
-            info_vcol.append((ID, settings.sphere_mask_rgba, False))
-
-    return (settings.sphere_mask, info_uv, info_vcol, info_normal)
-
-def get_bake_per_collection_random_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.random_per_collection:
-        ID = "Per Collection Random"
-        if settings.random_per_collection_mode == "UV":
-            info_uv.append((ID, settings.random_per_collection_uv_index, settings.random_per_collection_uv_channel, False, False, False, ""))
-        elif settings.random_per_collection_mode == "VCOL":
-            info_vcol.append((ID, settings.random_per_collection_rgba, False))
-
-    return (settings.random_per_collection, info_uv, info_vcol, info_normal)
-
-def get_bake_per_object_random_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.random_per_object:
-        ID = "Per Object Random"
-        if settings.random_per_object_mode == "UV":
-            info_uv.append((ID, settings.random_per_object_uv_index, settings.random_per_object_uv_channel, False, False, False, ""))
-        elif settings.random_per_object_mode == "VCOL":
-            info_vcol.append((ID, settings.random_per_object_rgba, False))
-
-    return (settings.random_per_object, info_uv, info_vcol, info_normal)
-
-def get_bake_per_poly_random_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.random_per_poly:
-        ID = "Per Poly Random"
-        if settings.random_per_poly_mode == "UV":
-            info_uv.append((ID, settings.random_per_poly_uv_index, settings.random_per_poly_uv_channel, False, False, False, ""))
-        elif settings.random_per_poly_mode == "VCOL":
-            info_vcol.append((ID, settings.random_per_poly_rgba, False))
-
-    return (settings.random_per_poly, info_uv, info_vcol, info_normal)
-
-def get_bake_parent_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.parent_position or settings.parent_axis:
-        # AUTOMATIC
-        parent_auto_mode = settings.parent_mode == "AUTOMATIC"
-
-        uv_channel_index = (settings.parent_automatic_uv_index * 2) + (0 if settings.parent_automatic_uv_channel == "U" else 1)
-        uv_index = uv_channel_index // 2
-        uv_channel = 0 if uv_channel_index % 2 == 0 else 1
-
-        manual_max_depth = max(min(settings.parent_depth, settings.parent_max_depth), 1.0)
-
-        ID = ""
-
-        for depth in range(settings.parent_max_depth):
-            if parent_auto_mode:
-                # only process the desired depth if in manual mode
-                if settings.parent_mode == "MANUAL":
-                    if depth != (manual_max_depth + 1):
-                        continue
-            
-            hierarchy_index = settings.parent_max_depth - (depth + 1)
-            
-            # parent position
-            if settings.parent_position:
-                if settings.parent_position_channel_mode == "INDIVIDUAL":
-                    axis_packed = settings.parent_axis and settings.parent_axis_channel_mode == "POSITION_PACKED" # requires 32 bits if True
-                    
-                    for xyz_comp in XYZLIST:
-                        uv_index = uv_channel_index // 2
-                        uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                        
-                        # X position?
-                        if xyz_comp == "X" and settings.parent_position_x:
-                            ID = "Parent " + str(hierarchy_index) + " Position X"
-                            if settings.parent_position_x_mode == "UV":
-                                if axis_packed:
-                                    ID = "Parent " + str(hierarchy_index) + " Position And Axis X"
-
-                                uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_position_x_uv_index
-                                uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_position_x_uv_channel
-
-                                info_uv.append((ID, uv_channel_index_to_use, uv_channel_channel_to_use, axis_packed, axis_packed, False, settings.parent_position_channel_mode))
-                            elif settings.parent_position_x_mode == "VCOL":
-                                info_vcol.append((ID, settings.parent_position_x_rgba, True))
-                        # Y position?
-                        elif xyz_comp == "Y" and settings.parent_position_y:                    
-                            ID = "Parent " + str(hierarchy_index) + " Position Y"
-                            if settings.parent_position_y_mode == "UV":
-                                if axis_packed:
-                                    ID = "Parent " + str(hierarchy_index) + " Position And Axis Y"
-                                
-                                uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_position_y_uv_index
-                                uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_position_y_uv_channel
-
-                                info_uv.append((ID, uv_channel_index_to_use, uv_channel_channel_to_use, axis_packed, axis_packed, False, settings.parent_position_channel_mode))
-                            elif settings.parent_position_y_mode == "VCOL":
-                                info_vcol.append((ID, settings.parent_position_y_rgba, True))
-                        # Z position?
-                        elif xyz_comp == "Z" and settings.parent_position_z:
-                            ID = "Parent " + str(hierarchy_index) + " Position Z"
-                            if settings.parent_position_z_mode == "UV":
-                                if axis_packed:
-                                    ID = "Parent " + str(hierarchy_index) + " Position And Axis Z"
-                                
-                                uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_position_z_uv_index
-                                uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_position_z_uv_channel
-
-                                info_uv.append((ID, uv_channel_index_to_use, uv_channel_channel_to_use, axis_packed, axis_packed, False, settings.parent_position_channel_mode))
-                            elif settings.parent_position_z_mode == "VCOL":
-                                info_vcol.append((ID, settings.parent_position_z_rgba, True))
-                        else:
-                            continue
-                        
-                        uv_channel_index += 1
-                else:
-                    if settings.parent_position_channel_mode == "XYZ_PACKED":
-                        ID = "Parent " + str(hierarchy_index) + " Position XYZ"
-                    elif settings.parent_position_channel_mode == "AB_PACKED":
-                        ID = "Parent " + str(hierarchy_index) + " Position " + settings.parent_position_ab_packed_a_comp + settings.parent_position_ab_packed_b_comp
-
-                    uv_index = uv_channel_index // 2
-                    uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-
-                    uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_position_packed_uv_index
-                    uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_position_packed_uv_channel
-
-                    info_uv.append((ID, uv_channel_index_to_use, uv_channel_channel_to_use, False, True, True, settings.parent_position_channel_mode))
-
-                    uv_channel_index += 1
-            # parent axis
-            if settings.parent_axis:
-                if settings.parent_axis_channel_mode == "INDIVIDUAL":
-                    for xyz_comp in XYZLIST:
-                        uv_index = uv_channel_index // 2
-                        uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                        
-                        # X component?
-                        if xyz_comp == "X" and settings.parent_axis_x:
-                            ID = "Parent " + str(hierarchy_index) + " Axis X"
-                            if settings.parent_axis_x_mode == "UV":
-                                uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_axis_x_uv_index
-                                uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_axis_x_uv_channel
-                                
-                                info_uv.append((ID, uv_index, uv_channel_index, False, False, False, settings.parent_axis_channel_mode))
-                            elif settings.parent_axis_x_mode == "VCOL":
-                                info_vcol.append((ID, settings.parent_axis_x_rgba, False))
-                        # Y component?
-                        elif xyz_comp == "Y" and settings.parent_axis_y:
-                            ID = "Parent " + str(hierarchy_index) + " Axis Y"
-                            if settings.parent_axis_y_mode == "UV":
-                                uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_axis_y_uv_index
-                                uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_axis_y_uv_channel
-                                
-                                info_uv.append((ID, uv_index, uv_channel_index, False, False, False, settings.parent_axis_channel_mode))
-                            elif settings.parent_axis_y_mode == "VCOL":
-                                info_vcol.append((ID, settings.parent_axis_y_rgba, False))
-                        # Z component?
-                        elif xyz_comp == "Z" and settings.parent_axis_z:
-                            ID = "Parent " + str(hierarchy_index) + " Axis Z"
-                            if settings.parent_axis_z_mode == "UV":
-                                uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_axis_z_uv_index
-                                uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_axis_z_uv_channel
-                                
-                                info_uv.append((ID, uv_index, uv_channel_index, False, False, False, settings.parent_axis_channel_mode))
-                            elif settings.parent_axis_z_mode == "VCOL":
-                                info_vcol.append((ID, settings.parent_axis_z_rgba, False))
-                        else:
-                            continue
-
-                        uv_channel_index += 1
-                elif settings.parent_axis_channel_mode != "POSITION_PACKED":
-                    if settings.parent_axis_channel_mode == "XYZ_PACKED":
-                        ID = "Parent " + str(hierarchy_index) + " Axis XYZ"
-                    elif settings.parent_axis_channel_mode == "AB_PACKED":
-                        ID = "Parent " + str(hierarchy_index) + " Axis " + settings.parent_axis_ab_packed_a_comp + settings.parent_axis_ab_packed_b_comp
-                    else:
-                        continue
-                    
-                    uv_index = uv_channel_index // 2
-                    uv_channel = "U" if uv_channel_index % 2 == 0 else "V"
-                    
-                    uv_channel_index_to_use = uv_index if parent_auto_mode else settings.parent_axis_packed_uv_index
-                    uv_channel_channel_to_use = uv_channel if parent_auto_mode else settings.parent_axis_packed_uv_channel
-
-                    info_uv.append((ID, uv_index, uv_channel, False, True, False, settings.parent_axis_channel_mode))
-
-                    uv_channel_index += 1
-
-    return (settings.parent_position or settings.parent_axis, info_uv, info_vcol, info_normal)
-
-def get_bake_fixed_value_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.fixed_value:
-        ID = "Fixed Value"
-        if settings.fixed_value_mode == "UV":
-            info_uv.append((ID, settings.fixed_value_uv_index, settings.fixed_value_uv_channel, False, False, False, ""))
-        elif settings.fixed_value_mode == "VCOL":
-            info_vcol.append((ID, settings.fixed_value_rgba, False))
-
-    return (settings.fixed_value, info_uv, info_vcol, info_normal)
-
-def get_bake_direction_info(context):
-    """ """
-
-    settings = context.scene.DataBakerSettings
-
-    info_uv   = [] # ID, uv_index, uv_channel, unit axis or normal packed in position?, requires 32 bits?, requires multiplier?, channel mode
-    info_vcol = [] # ID, rgba_channel, requires multiplier?
-    info_normal  = [] # normal_component
-
-    if settings.direction:
-        ID = "Direction"
-        if settings.direction_pack_mode == "VCOL":
-            info_vcol.append((ID + " X", 'R', False))
-            info_vcol.append((ID + " Y", 'G', False))
-            
-            if settings.direction_mode == "3DVECTOR" or settings.direction_mode == "3DRAND":
-                info_vcol.append((ID + " Z", 'B', False))
-        elif settings.direction_pack_mode == "NORMALS":
-            info_normal.append(ID + " X")
-            info_normal.append(ID + " Y")
-
-            if settings.direction_mode == "3DVECTOR" or settings.direction_mode == "3DRAND":
-                info_normal.append(ID + " Z")
-
-    return (settings.direction, info_uv, info_vcol, info_normal)
+    return []
 
 ##############
 ### MESHES ###
-def export_mesh(context, bake_name, objs_to_export):
+def export_mesh(context: bpy.types.Context, bake_name: str, objs_to_export: list) -> tuple[bool, str, str]:
     """
     Export the given object to FBX
 
@@ -2742,13 +1976,13 @@ def export_mesh(context, bake_name, objs_to_export):
         bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
         #bpy.ops.object.select_all(action='DESELECT') # keep selection for feedback
     else:
-        return (False, msg, None, -1)
+        return (False, msg, None)
 
     return (True, "", export_path)
 
 ###########
 ### XML ###
-def export_xml(context):
+def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     """ """
 
     settings = context.scene.DataBakerSettings
@@ -2798,7 +2032,7 @@ def export_xml(context):
 
 #########################
 ### PATHS & FILENAMES ###
-def get_path(path, file_name, file_ext, tags, override_file):
+def get_path(path: str, file_name: str, file_ext: str, tags: list, override_file: bool) -> tuple[bool, str, str]:
     """ Compiles file path/name/extension into a path and performs a couples of safety checks """
     
     file_exts = [".png", ".exr", ".fbx"]
@@ -2811,7 +2045,7 @@ def get_path(path, file_name, file_ext, tags, override_file):
     
     return (success, msg, export_path)
 
-def replace_tags(name, tags):
+def replace_tags(name: str, tags: list) -> str:
     # check tags
     for tag_key, tag_value in tags.items():
         tag = "<"+tag_key+">"
@@ -2820,7 +2054,7 @@ def replace_tags(name, tags):
 
     return name
 
-def check_path(path, override_file):
+def check_path(path: str, override_file: str) -> tuple[bool, str]:
     """ """
     dir = os.path.dirname(path)
     if not os.path.isdir(dir):
