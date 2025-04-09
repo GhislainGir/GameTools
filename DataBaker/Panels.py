@@ -16,7 +16,7 @@ import bpy
 from bl_ui.utils import PresetPanel
 
 from . import Functions
-from .Functions import get_data_layer_name, get_data_layer_storage_mode_icon, get_data_layer_packing_mode_icon, get_data_layer_sanity
+from .Functions import get_data_layer_name, get_data_layer_storage_mode_icon, get_data_layer_packing_mode_icon, get_data_layer_info
 
 ####################################################################################
 ###################################### PANELS ######################################
@@ -60,18 +60,18 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
                 row.label(text=get_data_layer_name(item), translate=False, icon=get_data_layer_storage_mode_icon(item))
                 row = layout.row(align=True)
                 row.alignment = "RIGHT"
-                if item.storage_mode == "UV":    
+                if item.packing_mode == "UV":    
                     row.label(text=str(item.uv_index))
                     row.label(text=item.uv_channel)
-                elif item.storage_mode == "VCOL":
+                elif item.packing_mode == "VCOL":
                     row.label(text=item.vcol_rgba)
-                elif item.storage_mode == "NORMAL":
+                elif item.packing_mode == "NORMAL":
                     row.label(text=item.normal_xyz)
                 else:
                     pass
 
                 row.label(text="", translate=False, icon=get_data_layer_packing_mode_icon(context.scene.DataBakerSettings.data_layers, item))
-                success, msg, _ = get_data_layer_sanity(item, data.data_layers)
+                success, msg, _ = get_data_layer_info(item, data.data_layers) # @TODO
                 row.label(text="", translate=False, icon="CHECKMARK" if success else "ERROR")
             else:
                 layout.label(text="", translate=False, icon="X")
@@ -223,29 +223,29 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                     else:
                         pass
 
-                panel_header, panel_body = layout.panel("storage_mode")
+                panel_header, panel_body = layout.panel("packing_mode")
                 if panel_header:
-                    panel_header.prop(data, "storage_mode", text="Storage")
+                    panel_header.prop(data, "packing_mode", text="Storage")
                 if panel_body:
-                    if data.storage_mode == "UV":
+                    if data.packing_mode == "UV":
                         row = panel_body.row()
                         row.prop(data, "uv_index")
                         row = panel_body.row()
                         row.prop(data, "uv_channel")
-                    elif data.storage_mode == "VCOL":
+                    elif data.packing_mode == "VCOL":
                         row = panel_body.row()
                         row.prop(data, "vcol_rgba")
-                    elif data.storage_mode == "NORMAL":
+                    elif data.packing_mode == "NORMAL":
                         row = panel_body.row()
                         row.prop(data, "normal_xyz")
                     else:
-                        if data.storage_mode == "AB":
+                        if data.packing_mode == "XY":
                             row = panel_body.row()
-                            row.prop(data, "pack_ab", text="")
-                        elif data.storage_mode == "XYZ":
+                            row.prop(data, "pack_xy", text="")
+                        elif data.packing_mode == "XYZ":
                             row = panel_body.row()
                             row.prop(data, "pack_xyz", text="")
-                        elif data.storage_mode == "FRACTION":
+                        elif data.packing_mode == "FRACTION":
                             pass
                         else:
                             pass

@@ -72,15 +72,15 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     ]
     component: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Component to bake")
 
-    storage_modes = [
+    packing_modes = [
         ("UV", "UV Map", "Bake data into a UV map"),
         ("VCOL", "Vertex Color", "Bake data into vertex colors"),
         ("NORMAL", "Normal", "Bake data in mesh normals"),
-        ("AB", "AB", "Pack the value with another value with moderate precision loss"),
+        ("XY", "XY", "Pack the value with another value with moderate precision loss"),
         ("XYZ", "XYZ", "Pack the value with two other values with high precision loss"),
         ("FRACTION", "Fraction", "Pack the value in the fractional part of another value"),
     ]
-    storage_mode: EnumProperty(name="Mode", items=storage_modes, default="UV", description="How to bake the value")
+    packing_mode: EnumProperty(name="Mode", items=packing_modes, default="UV", description="How to bake the value")
 
     uv_u_v = [
         ("U", "U", "U channel of UV map"),
@@ -99,11 +99,11 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
 
     normal_xyz: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Normal component to store value in")
 
-    pack_a_b = [
-        ("A", "A", "Pack the data in the 'A' component"),
-        ("B", "B", "Pack the data in the 'B' component"),
+    pack_x_y = [
+        ("X", "X", "Pack the data in the 'X' component"),
+        ("Y", "Y", "Pack the data in the 'Y' component"),
     ]
-    pack_ab: EnumProperty(name="AB Mode", items=pack_a_b, default="A", description="Method for baking data")
+    pack_xy: EnumProperty(name="AB Mode", items=pack_x_y, default="X", description="Method for baking data")
     pack_x_y_z = [
         ("X", "X", "Pack the data in the 'X' component"),
         ("Y", "Y", "Pack the data in the 'Y' component"),
@@ -187,7 +187,7 @@ def settings_data_layers_selected_index_updated(self, context):
         data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
 
         # is the selected data layer supposed to target another layer?
-        if data_layer_selected.storage_mode == "FRACTION" or data_layer_selected.storage_mode == "AB" or data_layer_selected.storage_mode == "XYZ":
+        if data_layer_selected.packing_mode == "FRACTION" or data_layer_selected.packing_mode == "XY" or data_layer_selected.packing_mode == "XYZ":
             # attempt to find target
             for data_layer_index, data_layer in enumerate(settings.data_layers):
                 # target found!

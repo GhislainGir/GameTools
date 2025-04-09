@@ -372,21 +372,26 @@ def get_packed_11_11_10_xyz(xyz: mathutils.Vector, multiplier: mathutils.Vector 
 
     cp = pointer(c_int(bits))
     fp = cast(cp, POINTER(c_float))
-    return (True, "", fp.contents.value)
+    return fp.contents.value
 
-def get_packed_16_16_ab(xyz: mathutils.Vector, a_component: float, b_component: float, multiplier: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float]:
+def get_packed_16_16_ab(xyz: mathutils.Vector, a_component: str, b_component: str, multiplier: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float]:
     """ """ 
 
-    if multiplier <= 0:
-        return (False, "Invalid multiplier", 0.0)
+    a_mul = multiplier.x if a_component == "X" else multiplier.y if a_component == "Y" else multiplier.z
+    if a_mul <= 0:
+        a_mul = 1
 
     a = xyz.x if a_component == "X" else xyz.y if a_component == "Y" else xyz.z
-    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, a / multiplier))) + 1) * 0.5) * (1<<15))))
+    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, a / a_mul))) + 1) * 0.5) * (1<<15))))
     bitstring_a = bitstring_a[2:] # get rid of 0b
     bitstring_a = bitstring_a.zfill(16) # ensure it's 11 char long
 
+    b_mul = multiplier.x if b_component == "X" else multiplier.y if b_component == "Y" else multiplier.z
+    if b_mul <= 0:
+        b_mul = 1
+
     b = xyz.x if b_component == "X" else xyz.y if b_component == "Y" else xyz.z
-    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, b / multiplier))) + 1) * 0.5) * (1<<15))))
+    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, b / b_mul))) + 1) * 0.5) * (1<<15))))
     bitstring_b = bitstring_b[2:] # get rid of 0b
     bitstring_b = bitstring_b.zfill(16) # ensure it's 11 char long
 
@@ -394,7 +399,7 @@ def get_packed_16_16_ab(xyz: mathutils.Vector, a_component: float, b_component: 
 
     cp = pointer(c_int(bits))
     fp = cast(cp, POINTER(c_float))
-    return (True, "", fp.contents.value)
+    return fp.contents.value
 
 def get_packed_xyz_vector_legacy(unit_vector: mathutils.Vector) -> float:
     """ Algorithm to pack three normalized floats into one. Results in *severe* precision loss and probably isn't practical to encode data like positions """
@@ -414,6 +419,34 @@ def get_packed_ab_vector_legacy(unit_vector: mathutils.Vector, a_component: floa
 
 ############
 ### BAKE ###
+def get_bake_data_layers_info(context: bpy.types.Context) -> tuple[bool, str, DATABAKER_PG_DataLayerPropertyGroup]:
+    """
+
+    """
+    settings = context.scene.DataBakerSettings
+
+    ids = []
+    layers_info = []
+    for data_layer in settings.data_layers:
+        if data_layer.ID == "":
+            return (False, "Empty ID", None)
+        elif data_layer.ID in ids:
+            return (False, "Duplicated IDs", None)
+        else:
+            ids.append(data_layer.ID)
+
+            success, msg, layer_info = get_data_layer_info(data_layer, settings.data_layers)
+            if not success:
+                return (False, msg)
+
+            to_bake, packing_mode, packing = layer_info
+            if to_bake:
+                layers_info.append((data_layer, packing_mode, packing))
+            else:
+                continue
+
+    return (True, "", layers_info)
+
 def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy.types.Object]:
     """
     Modify & ensure the active & selected objects can lead to a valid bake and return the list of objects to include in the bake.
@@ -491,7 +524,7 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
 
     if settings.duplicate_mesh or settings.make_single_user:
         bpy.ops.object.select_all(action='DESELECT')
-        for obj in reversed(objs_to_bake): # @NOTE why reversed?
+        for obj in objs_to_bake:
             obj.select_set(True)
             context.view_layer.objects.active = obj
 
@@ -556,7 +589,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :rtype: tuple
     """
     bpy.ops.object.mode_set(mode="OBJECT")
-    
+
     settings = context.scene.DataBakerSettings
     new_bake_report(context)
 
@@ -565,7 +598,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     bake_start_time = time.time()
 
-    success, msg = get_data_layers_sanity(context)
+    success, msg, layers_info = get_bake_data_layers_info(context)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -583,72 +616,17 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
-
     bake_name = get_bake_name(context, active_object)
     add_bake_report("name", bake_name)
 
     ########
     # BAKE #
 
-    for data_layer_index, data_layer in enumerate(settings.data_layers):
-        if not get_data_layer_sanity_ask_for_packing(data_layer):
-            success, msg, packing = get_data_layer_sanity_packing(data_layer, settings.data_layers)
-            if not success:
-                return (False, msg, packing)
-
-            data_to_bake = 0.0
-            if packing:
-                layers_to_bake = []
-                if len(packing[0]) == 0:
-                    layers_to_bake.append(data_layer)
-                    if len(packing[1]) != 0:
-                        layers_to_bake.append(packing[1][0])
-                    if len(packing[2]) != 0:
-                        layers_to_bake.append(packing[2][0])
-                elif len(packing[1]) == 0:
-                    if len(packing[0]) != 0:
-                        layers_to_bake.append(packing[0][0])
-                    layers_to_bake.append(data_layer)
-                    if len(packing[2]) != 0:
-                        layers_to_bake.append(packing[2][0])
-                elif len(packing[2]) == 0:
-                    if len(packing[0]) != 0:
-                        layers_to_bake.append(packing[0][0])
-                    if len(packing[1]) != 0:
-                        layers_to_bake.append(packing[1][0])
-                    layers_to_bake.append(data_layer)
-                print("=====")
-                print(layers_to_bake)
-                print("=====")
-
-                t = []
-                for l in layers_to_bake:
-                    t.append(get_data_layer_bake_function(l)(context, data_layer, meshes, empties))
-
-                u = {}
-                for i in t:
-                    for m, d in i:
-                        if m not in u:
-                            u[m] = [d]
-                        else:
-                            i = u[m]
-                            i.append(d)
-
-                print(u)
-
-                if data_layer.storage_mode == "UV":
-                    for mesh_to_bake, data_array in u.items():
-                        bake_data_uv(mesh_to_bake, data_array, data_layer.uv_index, data_layer.uv_channel, settings.uvmap_name, settings.invert_v)
-                elif data_layer.storage_mode == "VCOL":
-                    for mesh_to_bake, data_array in u.items():
-                        bake_data_vcol(mesh_to_bake, data_array, data_layer.vcol_rgba)
-                elif data_layer.storage_mode == "NORMAL":
-                    for mesh_to_bake, data_array in u.items():
-                        bake_data_normal(mesh_to_bake, data_array)
-                else:
-                    pass
-
-    # handle packing...
+    success, msg = bake_data(context, layers_info, meshes, empties)
+    if not success:
+        add_bake_report("success", False)
+        add_bake_report("msg", msg)
+        return (False, 'ERROR', msg)
 
     ########
     # MESH #
@@ -680,284 +658,350 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
 
-def bake_data_uv(obj: bpy.types.Object, data_array: float, uv_index: int, uv_channel: str, uv_name: str, invert_v: bool = True) -> bool:
-    """ Writes a float (data) to a specific UVMap at a specific channel of a given object, or to its vertex color at a specific color channel """
+def bake_data(context, layers_info, meshes, empties):
+    """ """
+    settings = context.scene.DataBakerSettings
 
-    if uv_index < 0 or uv_index > 7:
-        return False
+    for layer_info in layers_info:
+        print(layer_info)
+        # extract info
+        data_layer, packing_mode, packing = layer_info
+        layer_packed_in_a, layer_packed_in_b, layer_packed_in_c = packing
 
-    if not data_array:
-        return False
-
-    # create & zero uvmap(s) if needed @TODO ensure this works correctly
-    while (uv_index > (len(obj.data.uv_layers) - 1)):
-        obj.data.uv_layers.new()
-        uvmap_index = len(obj.data.uv_layers) - 1
-
-        for face in obj.data.polygons:
-            for loop_id in face.loop_indices:
-                obj.data.uv_layers[uvmap_index].data[loop_id].uv = (0.0, 1.0 if invert_v else 0.0)
-
-    uv_name = uv_name if uv_name != "" else "UVMap.BakedData"
-    uv_name += "." + str(uv_index)
-    obj.data.uv_layers[uv_index].name = uv_name
-
-    if uv_channel == "U":
-        index = 0
-        invert_v = False
-    else:
-        index = 1
-
-    for loop_id in data_array:
-        print(loop_id)
-        if len(data_array) == 1:
-            data_to_bake = data_array[0]
-        elif len(data_array) == 2:
-            data_to_bake = get_packed_16_16_ab(data_array[0], data_array[1])
+        # get bake function & data for 'first' layer
+        if layer_packed_in_a:
+            layer_a_bake_func = get_data_layer_bake_function(layer_packed_in_a)
+            if layer_a_bake_func:
+                layer_a_bake_data = layer_a_bake_func(context, layer_packed_in_a, meshes, empties) # data is [(mesh, [data_to_bake])]
+                num_meshes = len(layer_a_bake_data)
+            else:
+                return (False, "Function for data layer '" + get_data_layer_name(layer_packed_in_a) + "' couldn't be found")
         else:
-            data_to_bake = get_packed_16_16_ab(data_array[0], data_array[1], data_array[2])
-        
-        obj.data.uv_layers[uv_index].data[loop_id].uv[index] = (1.0 - data_to_bake) if invert_v else data_to_bake
-    
-    return True
+            layer_a_bake_data = None
+            num_meshes = 0
 
-def bake_data_vcol(obj: bpy.types.Object, data_array: float, rgba: str) -> bool:
-    """ Writes a float (data) to a specific UVMap at a specific channel of a given object, or to its vertex color at a specific color channel """
+        # get bake function & data for 'second' layer- if any
+        if layer_packed_in_b:
+            layer_b_bake_func = get_data_layer_bake_function(layer_packed_in_b)
+            if layer_b_bake_func:
+                layer_b_bake_data = layer_b_bake_func(context, layer_packed_in_b, meshes, empties) # data is [(mesh, [data_to_bake])]
+                if num_meshes != len(layer_b_bake_data):
+                    return (False, "Inconsistent amount of baked meshes for data layer '" + get_data_layer_name(layer_packed_in_b) + "'")
+            else:
+                return (False, "Function for data layer '" + get_data_layer_name(layer_packed_in_b) + "' couldn't be found")
+        else:
+            layer_b_bake_data = None
 
-    if not data_to_bake:
-        return False
+        # get bake function & data for 'third' layer- if any
+        if layer_packed_in_c:
+            layer_c_bake_func = get_data_layer_bake_function(layer_packed_in_c)
+            if layer_c_bake_func:
+                layer_c_bake_data = layer_c_bake_func(context, layer_packed_in_c, meshes, empties) # data is [(mesh, [data_to_bake])]
+                if num_meshes != len(layer_c_bake_data):
+                    return (False, "Inconsistent amount of baked meshes for data layer '" + get_data_layer_name(layer_packed_in_c) + "'")
+            else:
+                return (False, "Function for data layer '" + get_data_layer_name(layer_packed_in_c) + "' couldn't be found")
+        else:
+            layer_c_bake_data = None
 
-    if obj.data.vertex_colors:
-        vcol = obj.data.vertex_colors.active
-    else:
-        vcol = obj.data.vertex_colors.new()
-    
-        for face in obj.data.polygons:
-            for loop_id in face.loop_indices:
-                vcol.data[loop_id].color = [0.0, 0.0, 0.0, 0.0]
+        if not layer_a_bake_data and not layer_b_bake_data and not layer_c_bake_data:
+            return (False, "Couldn't compute list of layers to bake for data layer '" + get_data_layer_name(data_layer) + "'")    
 
-    for loop_id, data in data_to_bake:
-        if rgba == "R":
-            vcol.data[loop_id].color[0] = data # @TODO need to remap
-        elif rgba == "G":
-            vcol.data[loop_id].color[1] = data
-        elif rgba == "B":
-            vcol.data[loop_id].color[2] = data
-        elif rgba == "A":
-            vcol.data[loop_id].color[3] = data
+        # for each mesh
+        for mesh_index in range(num_meshes):
+            num_data = -1
 
-    return True
+            if layer_a_bake_data:
+                mesh_a, data_to_bake_a = layer_a_bake_data[mesh_index]
+                num_data = len(data_to_bake_a)
+                max_a = abs(max(data_to_bake_a, key=abs))
+            else:
+                mesh_a = None
+                data_to_bake_a = None
+                max_a = 0.0
 
-def bake_data_normal(obj: bpy.types.Object, data_array: float) -> bool:
-    """ Writes a float (data) to a specific UVMap at a specific channel of a given object, or to its vertex color at a specific color channel """
+            if layer_b_bake_data:
+                mesh_b, data_to_bake_b = layer_b_bake_data[mesh_index]
+                if len(data_to_bake_b) != num_data:
+                    return (False, "Inconsistent amount of loop indices registered for data layer '" + get_data_layer_name(layer_packed_in_b) + "'")
+                if mesh_a != mesh_b:
+                    return (False, "Mesh list differs for data layer '" + get_data_layer_name(layer_packed_in_b) + "'")
+                max_b = abs(max(data_to_bake_b, key=abs))
+            else:
+                mesh_b = None
+                data_to_bake_b = None
+                max_b = 0.0
 
-    #obj.data.use_auto_smooth = True # @DEPRECATED in 4.1, used to be required to use custom normals
+            if layer_c_bake_data:
+                mesh_c, data_to_bake_c = layer_c_bake_data[mesh_index]
+                if len(data_to_bake_c) != num_data:
+                    return (False, "Inconsistent amount of loop indices registered for data layer '" + get_data_layer_name(layer_packed_in_c) + "'")
+                if mesh_b != mesh_c:
+                    return (False, "Mesh list differs for data layer '" + get_data_layer_name(layer_packed_in_c) + "'")
+                max_c = abs(max(data_to_bake_c, key=abs))
+            else:
+                mesh_c = None
+                data_to_bake_c = None
+                max_c = 0.0
 
-    for face in obj.data.polygons:
-        face.use_smooth = True
+            if not data_to_bake_a and not data_to_bake_b and not data_to_bake_c:
+                return (False, "Couldn't compute list of data to bake for data layer '" + get_data_layer_name(data_layer) + "'")
 
-    # create and assign normal buffer
-    normals = []
-    for vertex in obj.data.vertices: # @TODO we might need to duplicate verts? (rand per face)
-        normals.append(data_to_bake)
+            multiplier = mathutils.Vector((max_a, max_b, max_c))
+            mesh_to_bake = mesh_a
 
-    obj.data.normals_split_custom_set_from_vertices(normals)
-    return True
+            if data_layer.packing_mode == "UV":
+                if data_layer.uv_channel == "U":
+                    index = 0
+                    invert_v = False
+                else:
+                    index = 1
+
+                # create & zero uvmap(s) if needed @TODO ensure this works correctly
+                while (data_layer.uv_index > (len(mesh_to_bake.data.uv_layers) - 1)):
+                    mesh_to_bake.data.uv_layers.new()
+                    uvmap_index = len(mesh_to_bake.data.uv_layers) - 1
+
+                    for face in mesh_to_bake.data.polygons:
+                        for loop_id in face.loop_indices:
+                            mesh_to_bake.data.uv_layers[uvmap_index].data[loop_id].uv = (0.0, 1.0 if invert_v else 0.0)
+
+                uv_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
+                uv_name += "." + str(data_layer.uv_index)
+                mesh_to_bake.data.uv_layers[data_layer.uv_index].name = uv_name
+
+                for face in mesh_to_bake.data.polygons:
+                    for loop_id in face.loop_indices:
+                        x = 0.0
+                        if packing_mode == "XYZ":
+                            if data_to_bake_a:
+                                if data_to_bake_b:
+                                    if data_to_bake_c:
+                                        vector_to_bake = mathutils.Vector((data_to_bake_a[loop_id], data_to_bake_b[loop_id], data_to_bake_c[loop_id]))
+                                        x = get_packed_11_11_10_xyz(vector_to_bake, multiplier)
+                        elif packing_mode == "XY":
+                            if data_to_bake_a:
+                                if data_to_bake_b:
+                                    vector_to_bake = mathutils.Vector((data_to_bake_a[loop_id], data_to_bake_b[loop_id], 0.0))
+                                    x = get_packed_16_16_ab(vector_to_bake, "X", "Y", multiplier)
+                        elif packing_mode == "FACTION":
+                            if data_to_bake_a:
+                                if data_to_bake_b:
+                                    x = math.floor(data_to_bake_a[loop_id]) + (data_to_bake_b[loop_id] - math.floor(data_to_bake_b[loop_id])) # @TODO need remapping [0:<1]
+                        else:
+                            if data_to_bake_a:
+                                x = data_to_bake_a[loop_id]
+
+                        mesh_to_bake.data.uv_layers[data_layer.uv_index].data[loop_id].uv[index] = (1.0 - x) if invert_v else x
+            elif data_layer.packing_mode == "VCOL":
+                if mesh_to_bake.data.vertex_colors:
+                    vcol = mesh_to_bake.data.vertex_colors.active
+                else:
+                    vcol = mesh_to_bake.data.vertex_colors.new()
+
+                    for face in mesh_to_bake.data.polygons:
+                        for loop_id in face.loop_indices:
+                            vcol.data[loop_id].color = [0.0, 0.0, 0.0, 0.0]
+
+                for face in mesh_to_bake.data.polygons:
+                    for loop_id in face.loop_indices:
+                        if data_layer.vcol_rgba == "R":
+                            vcol.data[loop_id].color[0] = data_to_bake_a[loop_id] # @TODO need to remap
+                        elif data_layer.vcol_rgba == "G":
+                            vcol.data[loop_id].color[1] = data_to_bake_a[loop_id]
+                        elif data_layer.vcol_rgba == "B":
+                            vcol.data[loop_id].color[2] = data_to_bake_a[loop_id]
+                        elif data_layer.vcol_rgba == "A":
+                            vcol.data[loop_id].color[3] = data_to_bake_a[loop_id]
+            elif data_layer.packing_mode == "NORMAL":
+                continue
+                # need to convert loop_id to vertex index :(
+                for face in mesh_to_bake.data.polygons:
+                    face.use_smooth = True
+
+                normals = []
+                for vertex in obj.data.vertices: # @TODO we might need to duplicate verts? (rand per face)
+                    normals.append(data_array)
+
+                mesh_to_bake.data.normals_split_custom_set_from_vertices(normals)
+            else:
+                pass
+
+    return (True, "")
 
 ##################
 ### DATA LAYER ###
-def get_data_layer_sanity_disallow_packing(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
-    """
-    Return true if the data_layer's storage_mode doesn't allow other layers to be bit-packed into it, false else
-    """
-    if get_data_layer_sanity_ask_for_packing(data_layer):
-        return False
+def get_data_layer_info(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list):
+    """ """
+    if not data_layer:
+        err_msg = "Invalid data layer"
+        return (False, err_msg, None)
 
-    return data_layer.storage_mode == "VCOL"
+    err_base_msg = "Packing error with " + get_data_layer_name(data_layer) + ": "
 
-def get_data_layer_sanity_ask_for_packing(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
-    """
-    Return true if the data_layer's storage_mode indicates that the layer should be packed into another layer,  false else
-    """
-    return data_layer.storage_mode == "FRACTION" or data_layer.storage_mode == "AB" or data_layer.storage_mode == "XYZ"
+    if not data_layers or len(data_layers) == 0:
+        err_msg = err_base_msg + "data layers list is empty"
+        return (False, err_msg, None)
 
-def get_data_layer_sanity_empty_ptr_id(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
-    """
-    Return true if the data_layer's ptr_ID is empty, false else
-    """
-    return data_layer.ptr_ID == ""
+    #################################################
+    # DATA LAYER MIGHT BE PACKED INTO ANOTHER LAYER #
+    targeting = data_layer.packing_mode == "FRACTION" or data_layer.packing_mode == "XY" or data_layer.packing_mode == "XYZ"
+    if targeting:
+        success, msg, data_layer_target = get_data_layer_targeting_info(data_layer, data_layers)
+        if not success:
+            return (False, err_base_msg + msg, None)
 
-def get_data_layer_sanity_self_ptr_id(data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
-    """
-    Return true if the data_layer's ptr_ID is the same as it's ID, false else
-    """
-    return data_layer.ptr_ID == data_layer.ID
+        # gather sibling(s) (aka, all layers that have the same target than us, including us)
+        layers_sharing_target = [layer for layer in data_layers if layer.ptr_ID == data_layer_target.ID]
+        if layers_sharing_target:
+            # check sibling(s) and build packing info
+            success, msg, packing_mode, packing_info = get_data_layer_packing_info(data_layer_target, layers_sharing_target)
+            if not success:
+                return (False, err_base_msg + msg, None)
 
-def get_data_layer_sanity_packing_target(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> DATABAKER_PG_DataLayerPropertyGroup:
-    """
-    Return the first data_layer in the data_layers list which ID matches the given data_layer's ptr_ID
-    """
-    return next(target_data_layer for target_data_layer in data_layers if target_data_layer.ID == data_layer.ptr_ID)
+            return (True, "", (False, packing_mode, packing_info))
+        else: # no sibling(s), not even ourself! critical fail (shouldn't happen but check still)
+            return (False, err_base_msg + "error searching for siblings", None)
+    ############################################
+    # DATA LAYER MIGHT BE PACKING OTHER LAYERS #
+    else:
+        success, msg, layer_info = get_data_layer_non_targeting_info(data_layer, data_layers)
+        if not success:
+            return (False, err_base_msg + msg, None)
 
-def get_data_layer_sanity_is_self(data_layer: DATABAKER_PG_DataLayerPropertyGroup, other_data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
-    """ 
-    Return true if the data_layer ptr and other_data_layer ptr point to the same object
-    """
-    return data_layer == other_data_layer
+        # gather child(s) (aka, all layers that *may* target us)
+        layers_targeting_self = [layer for layer in data_layers if layer.ptr_ID == data_layer.ID]
+        if layers_targeting_self:
+            # check childs(s) and build packing info
+            success, msg, packing_mode, packing_info = get_data_layer_packing_info(data_layer, layers_targeting_self)
+            if not success:
+                return (False, err_base_msg + msg, None)
 
-def get_data_layer_sanity_packing(target_data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> tuple[bool, str, list]:
-    """
-    Find all layers targeting the given data_layer and see if all use the same packing mode and that all ask to be bit-packed in different components
-    """
-    layers_sharing_target = [layer for layer in data_layers if layer.ptr_ID == target_data_layer.ID]
+            return (True, "",  (True, packing_mode, packing_info))
+        else: # data_layer is on its own, all good!
+            return (True, "", (True, data_layer.packing_mode, [data_layer, None, None])) # @TODO
 
-    if not layers_sharing_target:
-        (True, get_data_layer_name(target_data_layer) + " isn't asked to pack other layers", None)
+def get_data_layer_targeting_info(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list):
+    """ """
+    # check ptr ID isn't empty
+    if data_layer.ptr_ID == "":
+        return (False, "no target specified", None)
+    # make sure ptr ID isn't self ID
+    if data_layer.ptr_ID == data_layer.ID:
+        return (False, "targeting itself (ID)", None)
 
-    layers_packed_in_a = []
-    layers_packed_in_b = []
-    layers_packed_in_c = []
+    # gather target(s)
+    data_layer_targets = [target_data_layer for target_data_layer in data_layers if target_data_layer.ID == data_layer.ptr_ID]
+    if data_layer_targets:
+        # finding multiple targets is wrong!
+        if len(data_layer_targets) > 1:
+            return (False, "multiple targets found", None)
+        data_layer_target = data_layer_targets[0]
+        # make sure we haven't found self
+        if data_layer == data_layer_target:
+            return (False, "targeting itself (Layer)", None)
+        # make sure target's storage mode allow bit-packing
+        mode = data_layer_target.packing_mode
+        if mode == "FRACTION" or mode == "XY" or mode == "XYZ" or mode == "VCOL":
+            return (False, "is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
 
-    # ignore potential packing errors and just build lists first
-    for sibling_data_layer in layers_sharing_target:
-        if sibling_data_layer.storage_mode == "FRACTION" or (sibling_data_layer.storage_mode == "AB" and sibling_data_layer.pack_ab == "A") or (sibling_data_layer.storage_mode == "XYZ" and sibling_data_layer.pack_xyz == "X"):
-            layers_packed_in_a.append(sibling_data_layer)
-        elif (sibling_data_layer.storage_mode == "AB" and sibling_data_layer.pack_ab == "B") or (sibling_data_layer.storage_mode == "XYZ" and sibling_data_layer.pack_xyz == "Y"):
-            layers_packed_in_b.append(sibling_data_layer)
-        elif (sibling_data_layer.storage_mode == "XYZ" and sibling_data_layer.pack_xyz == "Z"):
-            layers_packed_in_c.append(sibling_data_layer)
-        else:
-            pass
+        return (True, "", data_layer_target)
+    else:
+        return (False, "target specified couldn't be found", None)
 
-    packing = [layers_packed_in_a, layers_packed_in_b, layers_packed_in_c]
-
-    # check for potential packing errors
-    for packed_layers_component, packed_layers in enumerate([layers_packed_in_a, layers_packed_in_b, layers_packed_in_c]):
-        packed_layers_names = [layer.ID for layer in packed_layers]
-        packed_layers_component_name = "A" if packed_layers_component == 0 else "B" if packed_layers_component == 1 else "C"
-
-        # can't pack more than one layer per component
-        if len(packed_layers) > 1:
-            return (False, "Packing error with " + get_data_layer_name(target_data_layer) + ": multiple layers packed in component " + packed_layers_component_name + ": " + ','.join(packed_layers_names), packing)
-
-        # ensure packing mode is consistent
-        for packed_layer in packed_layers:
-            if packed_layer.storage_mode != packed_layer.storage_mode:
-                return (False, "Packing error with " + get_data_layer_name(target_data_layer) + ": target " + get_data_layer_name(packed_layer) + " don't share the packing mode", packing)
-
-    packed_layers_names = [layer.ID for layer in packed_layers for packed_layers in packing]
-
-    return (True, get_data_layer_name(target_data_layer) + "successfully packing other layers: " + ','.join(packed_layers_names), packing)
-
-def get_data_layer_sanity_channel(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> tuple[bool, str]:
-    """
-    Check if the data_layer's storage_mode don't conflict with other layers: UV index & U/V channel, VCOL R/G/B/A channel, NORMAL X/Y/Z component
-    """
-    if data_layer.storage_mode == "UV":
+def get_data_layer_non_targeting_info(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list):
+    """ """
+    # check if targeted UV channel/index is free
+    if data_layer.packing_mode == "UV":
         if data_layer.uv_index > 7:
-            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": can't have " + str(data_layer.uv_index + 1) + " UVMaps")
+            return (False, "can't have " + str(data_layer.uv_index + 1) + " UVMaps", None)
 
         uv_components = []
         for data_layer in data_layers:
             layer_index = data_layer.uv_index * 2 + (0 if data_layer.uv_channel == "U" else 1)
-            if data_layer.storage_mode == "UV" and (layer_index in uv_components):
-                return (False, "Packing error with " + get_data_layer_name(data_layer) + ": UVMap " + str(data_layer.uv_index) + " channel " + data_layer.uv_channel + " is already used")
+            if data_layer.packing_mode == "UV" and (layer_index in uv_components):
+                return (False, "UVMap " + str(data_layer.uv_index) + " channel " + data_layer.uv_channel + " is already targeted", None)
             else:
                 uv_components.append(layer_index)
-    elif data_layer.storage_mode == "VCOL":
+    # check if targeted VCOL RGBA channel is free                    
+    elif data_layer.packing_mode == "VCOL":
         vcol_components = []
         for data_layer in data_layers:
-            if data_layer.storage_mode == "VCOL" and (data_layer.vcol_rgba in vcol_components):
-                return (False, "Packing error with " + get_data_layer_name(data_layer) + ": " + data_layer.vcol_rgba + " already targeted")
+            if data_layer.packing_mode == "VCOL" and (data_layer.vcol_rgba in vcol_components):
+                return (False, data_layer.vcol_rgba + " already targeted", None)
             else:
                 vcol_components.append(data_layer.vcol_rgba)
-    elif data_layer.storage_mode == "NORMAL":
+    # check if targeted NORMAL XYZ component is free
+    elif data_layer.packing_mode == "NORMAL":
         normal_components = []
         for data_layer in data_layers:
-            if data_layer.storage_mode == "NORMAL" and (data_layer.normal_xyz in normal_components):
-                return (False, "Packing error with " + get_data_layer_name(data_layer) + ": Normal " + str(data_layer.normal_xyz) + " is already used")
+            if data_layer.packing_mode == "NORMAL" and (data_layer.normal_xyz in normal_components):
+                return (False, "Normal " + str(data_layer.normal_xyz) + " is already targeted", None)
             else:
                 normal_components.append(data_layer.normal_xyz)
+
+    return (True, "", None)
+
+def get_data_layer_packing_info(data_layer_target, data_layers_to_pack: list):
+    """ """
+    layers_packed_in_x = []
+    layers_packed_in_y = []
+    layers_packed_in_z = []
+
+    packing_mode = ""
+    for data_layer_to_pack in data_layers_to_pack:
+        if packing_mode == "":
+                packing_mode = data_layer_to_pack.packing_mode
+        elif packing_mode != data_layer_to_pack.packing_mode:
+            return (False, "divergent packing mode", "", None)
+
+        if packing_mode == "FRACTION" or (packing_mode == "XY" and data_layer_to_pack.pack_xy == "X") or (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "X"):
+            if len(layers_packed_in_x) > 0:
+                return (False, "multiple layers targeting component X", "", None)
+            else:
+                layers_packed_in_x.append(data_layer_to_pack)
+        elif (packing_mode == "XY" and data_layer_to_pack.pack_xy == "Y") or (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "Y"):
+            if len(layers_packed_in_y) > 0:
+                return (False, "multiple layers targeting component Y", "", None)
+            else:
+                layers_packed_in_y.append(data_layer_to_pack)
+        elif (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "Z"):
+            if len(layers_packed_in_z) > 0:
+                return (False, "multiple layers targeting component Z", "", None)
+            else:
+                layers_packed_in_z.append(data_layer_to_pack)
+        else:
+            pass
+
+    if packing_mode == "":
+        packing_mode = data_layer_target.packing_mode
+
+    # make sure to include targeted data_layer itself
+    if len(layers_packed_in_x) == 0:
+        layers_packed_in_x.append(data_layer_target)
+    elif len(layers_packed_in_y) == 0:
+        layers_packed_in_y.append(data_layer_target)
+    elif len(layers_packed_in_z) == 0:
+        layers_packed_in_z.append(data_layer_target)
     else:
-        return (True, "")
+        return (False, "layer is asked to pack too many layers and can't contain itself anymore", "", None)
 
-    return (True, "")
+    # fill empty list(s) with None
+    if len(layers_packed_in_x) == 0:
+        layers_packed_in_x.append(None)
+    if len(layers_packed_in_y) == 0:
+        layers_packed_in_y.append(None)
+    if len(layers_packed_in_z) == 0:
+        layers_packed_in_z.append(None)
 
-def get_data_layer_sanity(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list) -> tuple[bool, str, list]:
-    """ 
-    If layer is meant to be 'packed', the layer itself will be 'discarded', because included in the bake process
-    when the targeted layer itself is baked. So we just need to check the validity of this data layer's target.
-    """
-    if not data_layer:
-        return (False, "Invalid data layer", None)
-
-    # data layer might "be packed into another layer"
-    if get_data_layer_sanity_ask_for_packing(data_layer): # FRACTION, AB, XYZ?
-        if get_data_layer_sanity_empty_ptr_id(data_layer): # null ptr_ID?
-            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": no target specified", None)
-        if get_data_layer_sanity_self_ptr_id(data_layer): # ptr_ID == ID?
-            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": targeting itself (ID)", None)
-
-        # get target!
-        data_layer_target = get_data_layer_sanity_packing_target(data_layer, data_layers) # ptr_ID -> target
-        if data_layer_target:
-            if get_data_layer_sanity_is_self(data_layer, data_layer_target): # target == self?
-                return (False, "Packing error with " + get_data_layer_name(data_layer_target) + ": targeting itself (Layer)", None)
-            if get_data_layer_sanity_disallow_packing(data_layer_target): # target FRACTION, AB, XYZ or VCOL?
-                return (False, "Packing error with " + get_data_layer_name(data_layer_target) + ": is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
-
-            return get_data_layer_sanity_packing(data_layer_target, data_layers)
-        else:
-            return (False, "Packing error with " + get_data_layer_name(data_layer) + ": target specified couldn't be found", None)
-    else: # data layer might "pack other layers"
-        success, msg, packing = get_data_layer_sanity_packing(data_layer, data_layers)
-        if not success:
-            return (False, msg, packing)
-
-        success, msg = get_data_layer_sanity_channel(data_layer, data_layers)
-        if not success:
-            return (False, msg, None)
-
-        return (True, "", None)
-
-def get_data_layers_sanity_ids_sane(data_layers: list) -> bool:
-    """
-    Return true if layers all have unique IDs, false else
-    """
-    ids = []
-    for data_layer in data_layers:
-        if data_layer.ID == "":
-            return (False, "Empty ID")
-        elif data_layer.ID not in ids:
-            ids.append(data_layer.ID)
-        else:
-            return (False, "Duplicated IDs")
-    
-    return (True, "")
-
-def get_data_layers_sanity(context: bpy.types.Context) -> tuple[bool, str, DATABAKER_PG_DataLayerPropertyGroup]:
-    """
-
-    """
-    settings = context.scene.DataBakerSettings
-
-    success, msg = get_data_layers_sanity_ids_sane(settings.data_layers)
-    if not success:
-        return (False, msg)
-
-    for data_layer in settings.data_layers:
-        success, msg, _ = get_data_layer_sanity(data_layer, settings.data_layers)
-        if not success:
-            return (False, msg)
-
-    return (True, "")
+    return (True, "", packing_mode, (layers_packed_in_x[0], layers_packed_in_y[0], layers_packed_in_z[0]))
 
 def get_data_layers_uv_maps(context: bpy.types.Context) -> tuple[list, list]:
     """ """
     settings = context.scene.DataBakerSettings
     uvmap_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
 
-    data_layers_uv = [d for d in settings.data_layers if d.storage_mode == "UV"]
+    data_layers_uv = [d for d in settings.data_layers if d.packing_mode == "UV"]
     uv_layers = []
     uv_maps = []
     for data_layer_uv in data_layers_uv:
@@ -1017,11 +1061,11 @@ def get_data_layer_name(item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
 def get_data_layer_storage_mode_icon(item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
     """ """
     if item:
-        if item.storage_mode == "UV":
+        if item.packing_mode == "UV":
             return "UV"
-        elif item.storage_mode == "VCOL":
+        elif item.packing_mode == "VCOL":
             return "GROUP_VCOL"
-        elif item.storage_mode == "NORMAL":
+        elif item.packing_mode == "NORMAL":
             return "NORMALS_FACE"
         else:
             return "DOT"
@@ -1031,17 +1075,17 @@ def get_data_layer_storage_mode_icon(item: DATABAKER_PG_DataLayerPropertyGroup) 
 def get_data_layer_packing_mode_icon(data: list, item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
     """ """
     if item:
-        if item.storage_mode == "AB" or item.storage_mode == "XYZ" or item.storage_mode == "FRACTION":
+        if item.packing_mode == "XY" or item.packing_mode == "XYZ" or item.packing_mode == "FRACTION":
             if item.ptr_ID == "":
                 return "QUESTION"
             else: # packed in target data
                 return "COPYDOWN"
         else:
-            if item.storage_mode == "AB":
+            if item.packing_mode == "XY":
                 return "OVERLAY"
-            elif item.storage_mode == "XYZ":
+            elif item.packing_mode == "XYZ":
                 return "THREE_DOTS"
-            elif item.storage_mode == "FRACTION":
+            elif item.packing_mode == "FRACTION":
                 return "PIVOT_ACTIVE"
             else:
                 pass
@@ -1057,18 +1101,18 @@ def copy_data_layer(to_data_layer: DATABAKER_PG_DataLayerPropertyGroup, from_dat
         to_data_layer.component = "X" if from_data_layer.component == "Z" else "Y" if from_data_layer.component == "X" else "Z"
         
         # automatically wrap uv/vcol rgba/normal xyz
-        to_data_layer.storage_mode = from_data_layer.storage_mode
-        if from_data_layer.storage_mode == "UV":
+        to_data_layer.packing_mode = from_data_layer.packing_mode
+        if from_data_layer.packing_mode == "UV":
             to_data_layer.uv_channel = "U" if from_data_layer.uv_channel == "V" else "V"
             to_data_layer.uv_index = from_data_layer.uv_index + 1 if from_data_layer.uv_channel == "V" else from_data_layer.uv_index
-        elif from_data_layer.storage_mode == "VCOL":
+        elif from_data_layer.packing_mode == "VCOL":
             to_data_layer.vcol_rgba = "A" if from_data_layer.vcol_rgba == "B" else "B" if from_data_layer.vcol_rgba == "G" else "G" if from_data_layer.vcol_rgba == "R" else "R"
-        elif from_data_layer.storage_mode == "NORMAL":
+        elif from_data_layer.packing_mode == "NORMAL":
             to_data_layer.normal_xyz = "Z" if from_data_layer.normal_xyz == "Y" else "Y" if from_data_layer.normal_xyz == "X" else "X"
         else:
             pass
 
-        to_data_layer.pack_a_b = from_data_layer.pack_a_b
+        to_data_layer.pack_x_y = from_data_layer.pack_x_y
         to_data_layer.pack_x_y_z = from_data_layer.pack_x_y_z
         to_data_layer.pack_only_if_non_null = from_data_layer.pack_only_if_non_null
 
@@ -1142,7 +1186,7 @@ def get_bake_position(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
     signed_scale = signed_axis * settings.scale
     
     bake_data = []
-
+    
     for mesh in meshes:
         data_loop_ids = []
 
@@ -1165,7 +1209,7 @@ def get_bake_position(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
 
         for face in mesh.data.polygons:
             for loop_id in face.loop_indices:
-                data_loop_ids.append((loop_id, data_to_bake))
+                data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
     return bake_data
 
@@ -1211,7 +1255,7 @@ def get_bake_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayer
 
         for face in mesh.data.polygons:
             for loop_id in face.loop_indices:
-                data_loop_ids.append((loop_id, data_to_bake))
+                data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
     return bake_data
 
@@ -1275,14 +1319,15 @@ def get_bake_shapekey(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
                     vector_to_bake = mathutils.Vector((0.0, 0.0, 0.0))
 
                 if data_layer.component == "X":
-                    data_loop_ids.append((loop_id, vector_to_bake.x))
+                    data_to_bake = vector_to_bake.x
                 elif data_layer.component == "Y":
-                    data_loop_ids.append((loop_id, vector_to_bake.y))
+                    data_to_bake = vector_to_bake.y
                 elif data_layer.component == "Z":
-                    data_loop_ids.append((loop_id, vector_to_bake.z))
+                    data_to_bake = vector_to_bake.z
                 else:
                     pass
 
+                data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
     return bake_data
 
@@ -1417,7 +1462,7 @@ def get_bake_mask_sphere(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes
                 if data_layer.normalize or data_layer.clamp:
                     data_to_bake = math.pow(data_to_bake, data_layer.falloff)
 
-                data_loop_ids.append((loop_id, data_to_bake))
+                data_loop_ids.append(data_to_bake)
 
         bake_data.append((mesh, data_loop_ids))
     return bake_data
@@ -1533,7 +1578,7 @@ def get_bake_mask_linear(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes
                 if data_layer.normalize or data_layer.clamp:
                     data_to_bake = math.pow(data_to_bake, data_layer.falloff)
 
-                data_loop_ids.append((loop_id, data_to_bake))
+                data_loop_ids.append(data_to_bake)
 
         bake_data.append((mesh, data_loop_ids))
     return bake_data
@@ -1612,19 +1657,19 @@ def get_bake_random_float(context: bpy.types.Context, data_layer: DATABAKER_PG_D
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
         elif data_layer.rand_mode == "OBJECT":
             data_to_bake = (uniform_values[mesh_index] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
         elif data_layer.rand_mode == "FACE":
             for face_index, face in enumerate(mesh.data.polygons):
                 data_to_bake = (uniform_values[face_index +face_offset] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
 
             face_offset += len(mesh.data.polygons)
 
@@ -1666,7 +1711,7 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
             
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
 
             bake_data.append((mesh, data_loop_ids))
     elif data_layer.rand_mode == "OBJECT":
@@ -1687,7 +1732,7 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
 
             bake_data.append((mesh, data_loop_ids))
     elif data_layer.rand_mode == "FACE":
@@ -1709,7 +1754,7 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
                     data_to_bake = 0.0
 
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
                 
             face_offset += len(mesh.data.polygons)
 
@@ -1757,7 +1802,7 @@ def get_bake_random_float3(context: bpy.types.Context, data_layer: DATABAKER_PG_
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
 
             bake_data.append((mesh, data_loop_ids))
     elif data_layer.rand_mode == "OBJECT":
@@ -1781,7 +1826,7 @@ def get_bake_random_float3(context: bpy.types.Context, data_layer: DATABAKER_PG_
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
 
             bake_data.append((mesh, data_loop_ids))
     elif data_layer.rand_mode == "FACE":
@@ -1797,16 +1842,16 @@ def get_bake_random_float3(context: bpy.types.Context, data_layer: DATABAKER_PG_
                 theta = np.arccos( costheta )
 
                 if data_layer.component == "X":
-                    value_to_bake = np.sin( theta) * np.cos( phi )
+                    data_to_bake = np.sin( theta) * np.cos( phi )
                 elif data_layer.component == "Y":
-                    value_to_bake = np.sin( theta) * np.sin( phi )
+                    data_to_bake = np.sin( theta) * np.sin( phi )
                 elif data_layer.component == "Z":
-                    value_to_bake = np.cos( theta )
+                    data_to_bake = np.cos( theta )
                 else:
-                    value_to_bake = 0.0
+                    data_to_bake = 0.0
 
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, value_to_bake))
+                    data_loop_ids.append(data_to_bake)
 
             face_offset += len(mesh.data.polygons)
 
@@ -1857,7 +1902,7 @@ def get_bake_parent_pos(context: bpy.types.Context, data_layer: DATABAKER_PG_Dat
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
             bake_data.append((mesh, data_loop_ids))
     return bake_data
 
@@ -1907,7 +1952,7 @@ def get_bake_parent_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_Da
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
             bake_data.append((mesh, data_loop_ids))
     return bake_data
 
@@ -1921,7 +1966,8 @@ def get_bake_value(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLaye
         data_loop_ids = []
         for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_layer.x))
+                    data_to_bake = data_layer.x
+                    data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
 
     return bake_data
@@ -1943,7 +1989,7 @@ def get_bake_custom_prop(context: bpy.types.Context, data_layer: DATABAKER_PG_Da
 
         for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
-                    data_loop_ids.append((loop_id, data_to_bake))
+                    data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
 
     return bake_data
