@@ -151,7 +151,6 @@ def reset_bake_report():
     report.invert_y = False
     report.invert_z = False
     report.origin = None
-    report.precision_offset = 0.0
 
     report.export_mesh = False
     report.export_mesh_file_name = ""

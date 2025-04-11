@@ -90,10 +90,6 @@ class PIVOTPAINTERR_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
 
-    position_multiplier: FloatProperty(name="Position Multiplier", default=0.0, description="")
-    parent_position_multiplier: FloatProperty(name="Parent Position Multiplier", default=0.0, description="")
-    shapekey_offset_multiplier: FloatProperty(name="Shape Key Offset Multiplier", default=0.0, description="")
-
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
@@ -118,7 +114,6 @@ class PIVOTPAINTERR_PG_ReportPropertyGroup(PropertyGroup):
     invert_y: BoolProperty(name="Invert Y", default=True, description="")
     invert_z: BoolProperty(name="Invert Z", default=False, description="")
     origin: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
-    precision_offset: FloatProperty(name="Precision Offset", min=1.0, default=1.0, description="")
 
     export_mesh: BoolProperty(name="Export", default=True, description="")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="")

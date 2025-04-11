@@ -599,6 +599,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     settings = context.scene.VATBakerSettings
     new_bake_report(context)
 
+    wm = bpy.context.window_manager
+    wm.progress_begin(0, 99)
+
     #############
     # BAKE INFO #
     
@@ -609,6 +612,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
+    
+    wm.progress_update(1)
 
     success, msg, bake_frames_info = get_bake_frames(context, objs_to_bake)
     frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
@@ -616,6 +621,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
+    
+    wm.progress_update(3)
 
     num_frames = len(frames_to_bake)
     num_objs = len(objs_to_bake)
@@ -628,10 +635,14 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
+    wm.progress_update(7)
+
     bake_name = get_bake_name(context, active_object)
     add_bake_report("name", bake_name)
 
     get_bake_nla_strips(objs_to_bake)
+
+    wm.progress_update(10)
 
     ###########
     # BUFFERS #
@@ -662,6 +673,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         vertices_offsets, vertices_normals = get_inverted_buffers(vertices_offsets, vertices_normals, tex_width, tex_height)
         add_bake_report("mesh_uvmap_invert_v", True)
 
+    wm.progress_update(92)
+
     ############
     # TEXTURES #
 
@@ -676,7 +689,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("tex_offset_mode", settings.offset_tex_mode)
 
         img_offset_path = ""
-        if settings.export_tex:
+        if settings.export_tex and bpy.data.is_saved:
             success, msg, img_offset_path = export_texture(context, img_offset, settings.export_tex_file_path, settings.offset_tex_file_name, bake_name, settings.export_tex_override)
             if not success:
                 add_bake_report("success", False)
@@ -704,6 +717,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
             add_bake_report("tex_normal_export", True)
             add_bake_report("tex_normal_path", image_nor_path)
 
+    wm.progress_update(94)
+
     ########
     # MESH #
 
@@ -715,7 +730,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     add_bake_report("mesh", obj_to_export)
     add_bake_report("mesh_uvmap_index", bake_uvmap_index)
 
-    if settings.export_mesh:
+    if settings.export_mesh and bpy.data.is_saved:
         success, msg, mesh_path = export_mesh(context, bake_name, obj_to_export)
         if not success:
             add_bake_report("success", False)
@@ -728,13 +743,17 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         success, msg = generate_mesh_geonodes(context, obj_to_export, num_verts, tex_width, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, image_nor)
         #success, msg = display_bounds(Name + ".bounds", (RefMinBounds, RefMaxBounds, MinBounds, MaxBounds))
 
+    wm.progress_update(96)
+
     #######
     # XML #
 
-    if settings.export_xml:
+    if settings.export_xml and bpy.data.is_saved:
         success, msg, path = export_xml(context)
         add_bake_report("xml", True)
         add_bake_report("xml_path", path)
+
+    wm.progress_update(98)
 
     ######
     # UX #
@@ -745,6 +764,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     context.scene.frame_end = bake_end_frame
 
     add_bake_report("success", True)
+    wm.progress_update(99)
+    wm.progress_end()
 
     return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
 
@@ -3314,6 +3335,9 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
         signed_scale = signed_axis * settings.scale
 
         for frame_index, frame_to_bake in enumerate(frames_to_bake): # @NOTE performance
+            progress = (obj_index * (len(frames_to_bake) - 1) + frame_index / (len(objs_to_bake) + len(frames_to_bake) - 2)) 
+            bpy.context.window_manager.progress_update((progress * 80) + 10)
+
             context.scene.frame_set(frame_to_bake) # advance to frame
             #context.view_layer.update()
 
@@ -3460,6 +3484,9 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
     vertices_normals = [0.0] * (tex_width * tex_height * 4)
 
     for frame_index, frame_to_bake in enumerate(frames_to_bake):
+        progress = (frame_index / (len(frames_to_bake) - 1)) 
+        bpy.context.window_manager.progress_update((progress * 80) + 10)
+
         # no need to advance to frame, our list of objects act as a 'frame sequence'
         eval_obj = objs_to_bake[frame_index].evaluated_get(dgraph)
         eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
@@ -3499,6 +3526,8 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
             vertices_normals[buffer_vertex_index + 1] = y
             vertices_normals[buffer_vertex_index + 2] = z
             vertices_normals[buffer_vertex_index + 3] = 1.0
+
+        settings.progress += 1 / len(frames_to_bake)
 
         eval_obj.to_mesh_clear()
 

@@ -62,6 +62,8 @@ class VATBAKER_PT_VertexAnimation(bpy.types.Panel):
         row.scale_y = 2.0
         row.enabled = settings.offset_tex or settings.normal_tex
 
+        #layout.progress(factor = settings.progress) # @TODO
+
 #############
 ### SCENE ###
 class VATBAKER_PT_FramePanel(bpy.types.Panel):
@@ -210,9 +212,6 @@ class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "mesh_target_prop")
 
-            row = layout.row()
-            row.prop(settings, "mesh_target_mode")
-
 class VATBAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_meshuvpanel"
     bl_parent_id = "VATBAKER_PT_meshmainpanel"
@@ -252,13 +251,14 @@ class VATBAKER_PT_MeshExportPanel(bpy.types.Panel):
         settings = scene.VATBakerSettings
 
         layout.prop(settings, "export_mesh", text="")
+        layout.enabled = bpy.data.is_saved
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         settings = scene.VATBakerSettings
 
-        layout.enabled = settings.export_mesh
+        layout.enabled = settings.export_mesh and bpy.data.is_saved
 
         row = layout.row()
         row.prop(settings, "export_mesh_file_name")
@@ -401,13 +401,14 @@ class VATBAKER_PT_TexExportPanel(bpy.types.Panel):
         settings = scene.VATBakerSettings
 
         layout.prop(settings, "export_tex", text="")
+        layout.enabled = bpy.data.is_saved
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         settings = scene.VATBakerSettings
         
-        layout.enabled = settings.export_tex
+        layout.enabled = settings.export_tex and bpy.data.is_saved
     
         row = layout.row()
         row.prop(settings, "export_tex_file_path")
@@ -466,6 +467,7 @@ class VATBAKER_PT_XMLExportPanel(bpy.types.Panel):
         settings = scene.VATBakerSettings
 
         layout.prop(settings, "export_xml", text="")
+        layout.enabled = bpy.data.is_saved
 
     def draw(self, context):
         layout = self.layout
@@ -474,7 +476,7 @@ class VATBAKER_PT_XMLExportPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "export_xml_mode")
-        row.enabled = settings.export_mesh
+        row.enabled = settings.export_mesh and bpy.data.is_saved
 
         if (settings.export_xml_mode == "CUSTOMPATH" or not settings.export_mesh):
             row = layout.row()

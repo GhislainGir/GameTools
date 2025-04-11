@@ -54,6 +54,10 @@ def new_bake_report(context: bpy.types.Context):
 def reset_bake_report():
     """ """
     report = bpy.context.scene.DataBakerReport
+
+    report.data_layers.clear()
+    report.data_layers_selected_index = 0
+
     report.baked = False
     report.success = False
     report.msg = ""
@@ -68,16 +72,11 @@ def reset_bake_report():
     report.unit_invert_y = False
     report.unit_invert_z = False
 
-    report.position_multiplier = 1.0
-    report.parent_position_multiplier = 1.0
-    report.shapekey_offset_multiplier = 1.0
-
     report.mesh = None
     report.mesh_export = False
     report.mesh_path = ""
-    report.mesh_uvmaps.clear()
-    report.select_mesh_uvmap = 0
     report.mesh_uvmap_invert_v = False
+    report.mesh_uvmap_count = 0
 
     report.meshes_count = 0
     report.empties_count = 0
@@ -87,233 +86,6 @@ def reset_bake_report():
 
     report.world_obj = None
 
-    # position
-    report.position = False
-    report.position_channel_mode = ""
-    report.position_x = False
-    report.position_x_mode = ""
-    report.position_x_uv_index = 0
-    report.position_x_uv_channel = ""
-    report.position_x_rgba = ""
-    report.position_y = False
-    report.position_y_mode = ""
-    report.position_y_uv_index = 0
-    report.position_y_uv_channel = ""
-    report.position_y_rgba = ""
-    report.position_z = False
-    report.position_z_mode = ""
-    report.position_z_uv_index = 0
-    report.position_z_uv_channel = ""
-    report.position_z_rgba = ""
-    report.position_packed_uv_index = 0
-    report.position_packed_uv_channel = ""
-    report.position_pack_only_if_non_null = False
-    report.position_ab_packed_a_comp = ""
-    report.position_ab_packed_b_comp = ""
-
-    # axis
-    report.axis = False
-    report.axis_component = ""
-    report.axis_channel_mode = ""
-    report.axis_x = False
-    report.axis_x_mode = ""
-    report.axis_x_uv_index = 0
-    report.axis_x_uv_channel = ""
-    report.axis_x_rgba = ""
-    report.axis_y = False
-    report.axis_y_mode = ""
-    report.axis_y_uv_index = 0
-    report.axis_y_uv_channel = ""
-    report.axis_y_rgba = ""
-    report.axis_z = False
-    report.axis_z_mode = ""
-    report.axis_z_uv_index = 0
-    report.axis_z_uv_channel = ""
-    report.axis_z_rgba = ""
-    report.axis_packed_uv_index = 0
-    report.axis_packed_uv_channel = ""
-    report.axis_ab_packed_a_comp = ""
-    report.axis_ab_packed_b_comp = ""
-    
-    # shapekey
-    report.shapekey_name = ""
-    report.shapekey_rest_name = ""
-    
-    # shapekey offset
-    report.shapekey_offset = False
-    report.shapekey_offset_channel_mode = ""
-    report.shapekey_offset_x = False
-    report.shapekey_offset_x_mode = ""
-    report.shapekey_offset_x_uv_index = 0
-    report.shapekey_offset_x_uv_channel = ""
-    report.shapekey_offset_x_rgba = ""
-    report.shapekey_offset_y = False
-    report.shapekey_offset_y_mode = ""
-    report.shapekey_offset_y_uv_index = 0
-    report.shapekey_offset_y_uv_channel = ""
-    report.shapekey_offset_y_rgba = ""
-    report.shapekey_offset_z = False
-    report.shapekey_offset_z_mode = ""
-    report.shapekey_offset_z_uv_index = 0
-    report.shapekey_offset_z_uv_channel = ""
-    report.shapekey_offset_z_rgba = ""
-    report.shapekey_offset_packed_uv_index = 0
-    report.shapekey_offset_packed_uv_channel = ""
-    report.shapekey_offset_pack_only_if_non_null = False
-    report.shapekey_offset_ab_packed_a_comp = ""
-    report.shapekey_offset_ab_packed_b_comp = ""
-
-    # shapekey normal
-    report.shapekey_normal = False
-    report.shapekey_normal_channel_mode = ""
-    report.shapekey_normal_x = False
-    report.shapekey_normal_x_mode = ""
-    report.shapekey_normal_x_uv_index = 0
-    report.shapekey_normal_x_uv_channel = ""
-    report.shapekey_normal_x_rgba = ""
-    report.shapekey_normal_y = False
-    report.shapekey_normal_y_mode = ""
-    report.shapekey_normal_y_uv_index = 0
-    report.shapekey_normal_y_uv_channel = ""
-    report.shapekey_normal_y_rgba = ""
-    report.shapekey_normal_z = False
-    report.shapekey_normal_z_mode = ""
-    report.shapekey_normal_z_uv_index = 0
-    report.shapekey_normal_z_uv_channel = ""
-    report.shapekey_normal_z_rgba = ""
-    report.shapekey_normal_xyz_uv_index = 0
-    report.shapekey_normal_xyz_uv_channel = ""
-    report.shapekey_normal_ab_packed_a_comp = ""
-    report.shapekey_normal_ab_packed_b_comp = ""
-
-    # sphere mask
-    report.sphere_mask = False
-    report.sphere_mask_normalize = False
-    report.sphere_mask_clamp = False
-    report.sphere_mask_origin_mode = ""
-    report.sphere_mask_origin = None
-    report.sphere_mask_mode = ""
-    report.sphere_mask_uv_index = 0
-    report.sphere_mask_uv_channel = ""
-    report.sphere_mask_rgba = ""
-    report.sphere_mask_falloff = 0.0
-
-    # linear mask
-    report.linear_mask = False
-    report.linear_mask_normalize = False
-    report.linear_mask_clamp = False
-    report.linear_mask_obj_mode = ""
-    report.linear_mask_obj = None
-    report.linear_mask_mode = ""
-    report.linear_mask_axis = ""
-    report.linear_mask_uv_index = 0
-    report.linear_mask_uv_channel = ""
-    report.linear_mask_rgba = ""
-    report.linear_mask_falloff = 0.0
-    
-    # random per collection
-    report.random_per_collection = False
-    report.random_per_collection_mode = ""
-    report.random_per_collection_uv_index = 0
-    report.random_per_collection_uv_channel = ""
-    report.random_per_collection_rgba = ""
-    report.random_per_collection_uniform = 0.0
-    
-    # random per object
-    report.random_per_object = False
-    report.random_per_object_mode = ""
-    report.random_per_object_uv_index = 0
-    report.random_per_object_uv_channel = ""
-    report.random_per_object_rgba = ""
-    report.random_per_object_uniform = 0.0
-    
-    # random per poly
-    report.random_per_poly = False
-    report.random_per_poly_mode = ""
-    report.random_per_poly_uv_index = 0
-    report.random_per_poly_uv_channel = ""
-    report.random_per_poly_rgba = ""
-    report.random_per_poly_uniform = 0.0
-
-    # parent
-    report.parent_mode = ""
-    report.parent_depth = 0
-    report.parent_max_depth = 0
-    report.parent_automatic_uv_index = 0
-    report.parent_automatic_uv_channel = ""
-
-    # parent position
-    report.parent_position = False
-    report.parent_position_channel_mode = ""
-    report.parent_position_x = False
-    report.parent_position_x_mode = ""
-    report.parent_position_x_uv_index = 0
-    report.parent_position_x_uv_channel = ""
-    report.parent_position_x_rgba = ""
-    report.parent_position_y = False
-    report.parent_position_y_mode = ""
-    report.parent_position_y_uv_index = 0
-    report.parent_position_y_uv_channel = ""
-    report.parent_position_y_rgba = ""
-    report.parent_position_z = False
-    report.parent_position_z_mode = ""
-    report.parent_position_z_uv_index = 0
-    report.parent_position_z_uv_channel = ""
-    report.parent_position_z_rgba = ""
-    report.parent_position_packed_uv_index = 0
-    report.parent_position_packed_uv_channel = ""
-    report.parent_position_ab_packed_a_comp = ""
-    report.parent_position_ab_packed_b_comp = ""
-    
-    # parent axis
-    report.parent_axis = False
-    report.parent_axis_component = ""
-    report.parent_axis_channel_mode = ""
-    report.parent_axis_x = False
-    report.parent_axis_x_mode = ""
-    report.parent_axis_x_uv_index = 0
-    report.parent_axis_x_uv_channel = ""
-    report.parent_axis_x_rgba = ""
-    report.parent_axis_y = False
-    report.parent_axis_y_mode = ""
-    report.parent_axis_y_uv_index = 0
-    report.parent_axis_y_uv_channel = ""
-    report.parent_axis_y_rgba = ""
-    report.parent_axis_z = False
-    report.parent_axis_z_mode = ""
-    report.parent_axis_z_uv_index = 0
-    report.parent_axis_z_uv_channel = ""
-    report.parent_axis_z_rgba = ""
-    report.parent_axis_packed_uv_index = 0
-    report.parent_axis_packed_uv_channel = ""
-    report.parent_axis_ab_packed_a_comp = ""
-    report.parent_axis_ab_packed_b_comp = ""
-
-    # fixed value
-    report.fixed_value = False
-    report.fixed_value_data = 0.0
-    report.fixed_value_mode = ""
-    report.fixed_value_uv_index = 0
-    report.fixed_value_uv_channel = ""
-    report.fixed_value_rgba = ""
-
-    # direction
-    report.direction = False
-    report.direction_mode = ""
-    report.direction_vector_x = 0.0
-    report.direction_vector_y = 0.0
-    report.direction_vector_z = 0.0
-    report.direction_pack_mode = ""
-
-    # custom prop
-    report.custom_prop = False
-    report.custom_prop_name = ""
-    report.custom_prop_mode = ""
-    report.custom_prop_uv_index = 0
-    report.custom_prop_uv_channel = ""
-    report.custom_prop_rgba = ""
-
-    # mesh
     report.duplicate_mesh = False
     report.make_single_user = False
     report.merge_mesh = False
@@ -323,8 +95,6 @@ def reset_bake_report():
     report.invert_x = False
     report.invert_y = False
     report.invert_z = False
-    report.origin = None
-    report.precision_offset = 0.0
 
     report.export_mesh = False
     report.export_mesh_file_name = ""
@@ -335,14 +105,30 @@ def add_bake_report(prop_name: str, prop_value: float|int|str):
     """ """
     setattr(bpy.context.scene.DataBakerReport, prop_name, prop_value)
 
-def add_bake_report_uv(ID: str, name: str):
+def add_bake_layer_report(data_layer, packing, pack_range):
     """ """
-    settings = bpy.context.scene.DataBakerSettings
     report = bpy.context.scene.DataBakerReport
 
-    report_uvmap = report.mesh_uvmaps.add()
-    report_uvmap.ID = ID
-    report_uvmap.name = name
+    report_data_layer = report.data_layers.add()
+
+    pack_min, pack_max = pack_range
+
+    for layer_packed_index, layer_packed in enumerate(packing):
+        if layer_packed:
+            if layer_packed == data_layer:
+                report_data_layer.active_layer_ID = data_layer.ID
+            packed_layer = report_data_layer.packed_layers.add()
+
+            # copy all attributes
+            if hasattr(layer_packed, "__annotations__"):
+                for prop_name in layer_packed.__annotations__.keys():
+                    try:
+                        setattr(packed_layer, prop_name, getattr(layer_packed, prop_name))
+                    except (AttributeError, TypeError):
+                        pass
+    
+    report_data_layer.range_min = pack_min
+    report_data_layer.range_max = pack_max
 
 def export_bake_report(context: bpy.types.Context):
     """ """
@@ -350,56 +136,120 @@ def export_bake_report(context: bpy.types.Context):
 
 ###############
 ### PACKING ###
-def get_packed_11_11_10_xyz(xyz: mathutils.Vector, multiplier: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float]:  
-    """ """
+def get_packed_11_10_10_xyz(x: float, y: float, z:float, range_min: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0)), range_max: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> float:  
+    """ 
+    Algorithm to pack three floats into one, using 11, 10 and 10 bits of precision while preventing NaNs.
 
-    if multiplier <= 0:
-        return (False, "Invalid multiplier", 0.0)
+    32bit float NaNs are encoded with the exponent field filled with ones (like infinity values).
+      SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
+    > S11111111MMMMMMMMMMMMMMMMMMMMMMM = NAN
 
-    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, xyz.x / multiplier))) + 1) * 0.5) * (1<<10))))
+    We'd like to pack the three floats ideally using 11, 11 and 10 bits of precision, totalling 32 bits.
+    We may however only use 31 bits and split the bits of the first float into two groups of bits, as to
+    ensure the exponent field isn't filled with ones, thus using 11, 10 and 10 bits of precision.
+    
+      XXXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ
+    > XXXXXXX0XXXXYYYYYYYYYYZZZZZZZZZZ
+
+    range_max - range_min is assumed to be non-zero
+    """
+
+    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, (x-range_min.x) / (range_max.x - range_min.x)))) + 1) * 0.5) * (1<<10))))
     bitstring_a = bitstring_a[2:] # get rid of 0b
     bitstring_a = bitstring_a.zfill(11) # ensure it's 11 char long
 
-    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, xyz.y / multiplier))) + 1) * 0.5) * (1<<10))))
-    bitstring_b = bitstring_b[2:] # get rid of 0b
-    bitstring_b = bitstring_b.zfill(11) # ensure it's 11 char long
+    bitstring_a_a = bitstring_a[:8] # get first 8 characters
+    bitstring_a_b = bitstring_a[-3:] # get last 3 characters
+    bitstring_a = bitstring_a_a + "0" + bitstring_a_b # reconstruct 10 bits integer with last exponent bit as 0 to prevent NaNs
 
-    bitstring_c = str(bin(math.floor((((min(1.0, max(0.0, xyz.z / multiplier))) + 1) * 0.5) * (1<<9))))
+    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, (y-range_min.y) / (range_max.y - range_min.y)))) + 1) * 0.5) * (1<<10))))
+    bitstring_b = bitstring_b[2:] # get rid of 0b
+    bitstring_b = bitstring_b.zfill(10) # ensure it's 11 char long
+
+    bitstring_c = str(bin(math.floor((((min(1.0, max(0.0, (z-range_min.z) / (range_max.z - range_min.z)))) + 1) * 0.5) * (1<<9))))
     bitstring_c = bitstring_c[2:] # get rid of 0b
     bitstring_c = bitstring_c.zfill(10) # ensure it's 10 char long
 
-    bits = int((bitstring_a + bitstring_b + bitstring_c), 2)
+    bits_string = "0b" + bitstring_a + bitstring_b + bitstring_c
 
-    cp = pointer(c_int(bits))
+    cp = pointer(c_int(int(bits_string, 0)))
     fp = cast(cp, POINTER(c_float))
     return fp.contents.value
 
-def get_packed_16_16_ab(xyz: mathutils.Vector, a_component: str, b_component: str, multiplier: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float]:
-    """ """ 
+def get_packed_15_16_xy(x: float, y: float, range_min: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0)), range_max: mathutils.Vector = mathutils.Vector((1.0, 1.0, 1.0))) -> float:
+    """ 
+    Algorithm to pack two floats into one, using 15 and 16 bits of precision while preventing NaNs.
 
-    a_mul = multiplier.x if a_component == "X" else multiplier.y if a_component == "Y" else multiplier.z
-    if a_mul <= 0:
-        a_mul = 1
+    32bit float NaNs are encoded with the exponent field filled with ones (like infinity values).
+      SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
+    > S11111111MMMMMMMMMMMMMMMMMMMMMMM = NAN
 
-    a = xyz.x if a_component == "X" else xyz.y if a_component == "Y" else xyz.z
-    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, a / a_mul))) + 1) * 0.5) * (1<<15))))
-    bitstring_a = bitstring_a[2:] # get rid of 0b
-    bitstring_a = bitstring_a.zfill(16) # ensure it's 11 char long
+    We'd like to pack too 16 bits value (x,y) into the 32 bits of the float but we may only pack a
+    15-bit and 16-bit values and split the first 15 bits into two groups of bits, as to ensure the
+    exponent field isn't filled with ones.
+    
+      XXXXXXXXXXXXXXXXYYYYYYYYYYYYYYYY
+    > XXXXXXX0XXXXXXXXYYYYYYYYYYYYYYYY
 
-    b_mul = multiplier.x if b_component == "X" else multiplier.y if b_component == "Y" else multiplier.z
-    if b_mul <= 0:
-        b_mul = 1
+    range_max - range_min is assumed to be non-zero
+    """
+    a = min(1.0, max(0.0, (x - range_min.x) / (range_max.x - range_min.x)))
+    bitstring_a = str(bin(math.floor(a * ((1 << 15) - 1))))
+    bitstring_a = bitstring_a[2:] # get rid of '0b'
+    bitstring_a = bitstring_a.zfill(15) # ensure it's 15 char long
 
-    b = xyz.x if b_component == "X" else xyz.y if b_component == "Y" else xyz.z
-    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, b / b_mul))) + 1) * 0.5) * (1<<15))))
-    bitstring_b = bitstring_b[2:] # get rid of 0b
-    bitstring_b = bitstring_b.zfill(16) # ensure it's 11 char long
+    bitstring_a_a = bitstring_a[:8] # get first 8 characters
+    bitstring_a_b = bitstring_a[-7:] # get last 7 characters
+    bitstring_a = bitstring_a_a + "0" + bitstring_a_b # reconstruct 16 bits integer with last exponent bit as 0 to prevent NaNs
 
-    bits = int((bitstring_a + bitstring_b), 2)
+    b = min(1.0, max(0.0, (y - range_min.y) / (range_max.y - range_min.y)))
+    bitstring_b = str(bin(math.floor(b * ((1 << 16) - 1))))
+    bitstring_b = bitstring_b[2:] # get rid of '0b'
+    bitstring_b = bitstring_b.zfill(16) # ensure it's 16 char long
 
-    cp = pointer(c_int(bits))
+    bits_string = "0b" + bitstring_a + bitstring_b
+
+    cp = pointer(c_int(int(bits_string, 0)))
     fp = cast(cp, POINTER(c_float))
     return fp.contents.value
+
+def get_packed_frac(x: float, y: float, y_range_min: float = 0.0, y_range_max: float = 1.0, precision: float = 0.99) -> float:
+    """ """
+
+    y = (y - y_range_min) / (y_range_max - y_range_min)
+    y = min(1.0, max(0.0, y * precision)) # remap frac to [0:<1]
+    return  math.floor(x) + y
+
+def get_normalized(x: float, range_min: float, range_max: float):
+    """ """
+    return ((x - range_min)/ (range_max - range_min) if abs(range_max - range_min) > 0.0001 else 1.0)
+
+def octahedron_normal_octwrap(v):
+#     """ https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/ """
+
+#     return (1.0 - abs(v.yx)) * (1.0 if v.xy >= 0.0 else -1.0)
+    pass
+
+def octahedron_normal_encode(n):
+#     """ https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/ """
+
+#     n /= (abs(n.x) + abs(n.y) + abs(n.z))
+#     n.xy = n.xy if n.z >= 0.0 else octahedron_normal_octwrap(n.xy)
+#     n.xy = (n.xy * 0.5) + mathutils.Vector((0.5, 0.5))
+#     return n.xy
+    pass
+ 
+def octahedron_normal_decode(f):
+#     """ https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/ """
+#     f = f * 2.0 - mathutils.Vector((1.0, 1.0))
+ 
+#     # https://twitter.com/Stubbesaurus/status/937994790553227264
+#     n = mathutils.Vector((f.x, f.y, 1.0 - abs(f.x) - abs(f.y)))
+#     t = min(1.0, max(0.0, -n.z))
+#     tv = mathutils.Vector((t,t))
+#     n.xy += -tv if n.xy >= 0.0 else tv
+#     return n.normalized()
+    pass
 
 def get_packed_xyz_vector_legacy(unit_vector: mathutils.Vector) -> float:
     """ Algorithm to pack three normalized floats into one. Results in *severe* precision loss and probably isn't practical to encode data like positions """
@@ -439,11 +289,7 @@ def get_bake_data_layers_info(context: bpy.types.Context) -> tuple[bool, str, DA
             if not success:
                 return (False, msg)
 
-            to_bake, packing_mode, packing = layer_info
-            if to_bake:
-                layers_info.append((data_layer, packing_mode, packing))
-            else:
-                continue
+            layers_info.append((data_layer, layer_info))
 
     return (True, "", layers_info)
 
@@ -477,6 +323,8 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
     Bake will probably need to do a lot of UV processing so ensure the required UVMaps can be accessed or else, created
     """
     uv_layers, uv_maps = get_data_layers_uv_maps(context) # @TODO check
+
+    add_bake_report("mesh_uvmap_count", 0) # @TODO
 
     if settings.invert_v:
         add_bake_report("mesh_uvmap_invert_v", True)
@@ -593,6 +441,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     settings = context.scene.DataBakerSettings
     new_bake_report(context)
 
+    wm = bpy.context.window_manager
+    wm.progress_begin(0, 99)
+
     #############
     # BAKE INFO #
 
@@ -604,11 +455,15 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
+    wm.progress_update(1)
+
     success, msg, objs_to_bake, active_object = get_bake_selection(context)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
+
+    wm.progress_update(3)
 
     success, msg, meshes, empties = pre_process_bake_selection(context, objs_to_bake)
     if not success:
@@ -616,8 +471,12 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
+    wm.progress_update(7)
+
     bake_name = get_bake_name(context, active_object)
     add_bake_report("name", bake_name)
+
+    wm.progress_update(10)
 
     ########
     # BAKE #
@@ -637,7 +496,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
-    if settings.export_mesh:
+    wm.progress_update(93)
+
+    if settings.export_mesh and bpy.data.is_saved:
         success, msg, mesh_path = export_mesh(context, bake_name, objs_to_export)
         if not success:
             add_bake_report("success", False)
@@ -646,109 +507,140 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("mesh_export", True)
         add_bake_report("mesh_path", mesh_path)
 
+    wm.progress_update(97)
+
     #######
     # XML #
 
-    if settings.export_xml:
+    if settings.export_xml and bpy.data.is_saved:
         success, msg, path = export_xml(context)
         add_bake_report("xml", True)
         add_bake_report("xml_path", path)
 
     add_bake_report("success", True)
+    wm.progress_update(99)
+    wm.progress_end()
 
     return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
 
 def bake_data(context, layers_info, meshes, empties):
     """ """
     settings = context.scene.DataBakerSettings
+    
+    for data_layer, layer_info in layers_info:
+        """
+        First, we unpack layer_info and see if we should continue.
 
-    for layer_info in layers_info:
-        print(layer_info)
-        # extract info
-        data_layer, packing_mode, packing = layer_info
-        layer_packed_in_a, layer_packed_in_b, layer_packed_in_c = packing
+        to_bake: layer might be packed into another layer. If so, we just skip and wait for said layer to be processed
 
-        # get bake function & data for 'first' layer
-        if layer_packed_in_a:
-            layer_a_bake_func = get_data_layer_bake_function(layer_packed_in_a)
-            if layer_a_bake_func:
-                layer_a_bake_data = layer_a_bake_func(context, layer_packed_in_a, meshes, empties) # data is [(mesh, [data_to_bake])]
-                num_meshes = len(layer_a_bake_data)
+        packing_mode: layer might be baked in say, UVs, but might be required to pack other layers using FRACTION, XY
+        or XYZ packing mode which is what this value tells
+
+        packing: layer tuple (a, b, c). These are the layers to be baked and packed within one of them three. We don't
+        know which one to pack into and we don't care, at least in this function. At least one data_layer should be
+        valid, the rest may be None and possibly not in order: b could be None whereas c could be valid.
+        """
+        to_bake, packing_mode, packing = layer_info
+        if not to_bake:
+            continue
+
+        """ 
+        Bit-packing might be used to pack multiple layers into one. This requires to remap values to the range [0:1]
+        using the min & max values to bake, per component, need to be known. This is computed further below and has
+        to be shared across all meshes.
+        """
+        pack_min = mathutils.Vector((0.0, 0.0, 0.0))
+        pack_max = mathutils.Vector((0.0, 0.0, 0.0))
+
+        """
+        Second, the goal is to call the appropriate bake function for each valid layer and gather the list values to
+        bake for each loop_id for each polygon for each mesh, as well as the min-max range of values. While doing so
+        we double check that each layer processed the same amount of meshes. Order is *assumed* to be identical since
+        there's no reason for it to be different except if a bake function was wrongly implemented. While iterating
+        layers, we also gather the min & values values to bake, per component. A position's X component might be
+        packed along with a linear gradient already in a [0:1] range, so each component may benefit from using their
+        own min-max range to be brought back into a [0:1] range
+
+        layer_data: tuple (mesh, [values])
+        layer_data_range: tuple (min, max)
+        """
+        layers_data = [] # assuming packing is a tuple of three layers, this list *will* contain three tuples as well
+        num_meshes = -1
+        meshes_to_bake = []
+        for layer_packed_index, layer_packed in enumerate(packing):
+            if layer_packed:
+                layer_func = get_data_layer_bake_function(layer_packed)
+                if layer_func:
+                    print(get_data_layer_name(layer_packed))
+                    layer_data, layer_data_range = layer_func(context, layer_packed, meshes, empties) # @NOTE performance bottleneck
+
+                    if num_meshes < 0:
+                        num_meshes = len(layer_data)
+                    elif num_meshes != len(layer_data):
+                        return (False, "Inconsistent amount of baked meshes for data layer '" + get_data_layer_name(layer_packed) + "'")
+
+                    if layer_packed_index == 0: # x
+                        pack_min.x = layer_data_range[0]
+                        pack_max.x = layer_data_range[1]
+                    elif layer_packed_index == 1: # y
+                        pack_min.y = layer_data_range[0]
+                        pack_max.y = layer_data_range[1]
+                    else: # 2 or z
+                        pack_min.z = layer_data_range[0]
+                        pack_max.z = layer_data_range[1]
+
+                    for data_index, data in enumerate(layer_data):
+                        """ """
+                        mesh, values = data
+                        if data_index < len(meshes_to_bake):
+                            if mesh != meshes_to_bake[data_index][0]:
+                                return (False, "Mesh list differs for data layer '" + get_data_layer_name(layer_data) + "'")
+                            elif len(values) != meshes_to_bake[data_index][1]:
+                                return (False, "Inconsistent amount of loop indices registered for data layer '" + get_data_layer_name(layer_data) + "'")
+                        else:
+                            meshes_to_bake.append((mesh, len(values)))
+                else:
+                    return (False, "Function for data layer '" + get_data_layer_name(layer_packed) + "' couldn't be found")
             else:
-                return (False, "Function for data layer '" + get_data_layer_name(layer_packed_in_a) + "' couldn't be found")
-        else:
-            layer_a_bake_data = None
-            num_meshes = 0
+                layer_data = None
 
-        # get bake function & data for 'second' layer- if any
-        if layer_packed_in_b:
-            layer_b_bake_func = get_data_layer_bake_function(layer_packed_in_b)
-            if layer_b_bake_func:
-                layer_b_bake_data = layer_b_bake_func(context, layer_packed_in_b, meshes, empties) # data is [(mesh, [data_to_bake])]
-                if num_meshes != len(layer_b_bake_data):
-                    return (False, "Inconsistent amount of baked meshes for data layer '" + get_data_layer_name(layer_packed_in_b) + "'")
-            else:
-                return (False, "Function for data layer '" + get_data_layer_name(layer_packed_in_b) + "' couldn't be found")
-        else:
-            layer_b_bake_data = None
+            layers_data.append(layer_data)
 
-        # get bake function & data for 'third' layer- if any
-        if layer_packed_in_c:
-            layer_c_bake_func = get_data_layer_bake_function(layer_packed_in_c)
-            if layer_c_bake_func:
-                layer_c_bake_data = layer_c_bake_func(context, layer_packed_in_c, meshes, empties) # data is [(mesh, [data_to_bake])]
-                if num_meshes != len(layer_c_bake_data):
-                    return (False, "Inconsistent amount of baked meshes for data layer '" + get_data_layer_name(layer_packed_in_c) + "'")
-            else:
-                return (False, "Function for data layer '" + get_data_layer_name(layer_packed_in_c) + "' couldn't be found")
-        else:
-            layer_c_bake_data = None
+        """
+        We want to prevent a potential div by zero further below (we might bake a single object's position, making min == max)
+        @NOTE find a more elegant solution that don't rely on arbitrary precision?
+        """
+        if abs(pack_max.x - pack_min.x) < 0.00001:
+            pack_max.x = 1.0
+            pack_min.x = 0.0
+        if abs(pack_max.y - pack_min.y) < 0.00001:
+            pack_max.y = 1.0
+            pack_min.y = 0.0
+        if abs(pack_max.z - pack_min.z) < 0.00001:
+            pack_max.z = 1.0
+            pack_min.z = 0.0
 
-        if not layer_a_bake_data and not layer_b_bake_data and not layer_c_bake_data:
-            return (False, "Couldn't compute list of layers to bake for data layer '" + get_data_layer_name(data_layer) + "'")    
+        """
+        We ensured that each layer processed the same amount of meshes, so we simply iterate meshes by index. For each, we gather
+        the values to bake per layer. While doing so, we also double check that the number of values to bake is similar for all
+        layers, as well as the object to bake at that index.
 
-        # for each mesh
-        for mesh_index in range(num_meshes):
-            num_data = -1
+        There might only be one layer, thus one single list of values to bake, but layers might be asked to pack other layers so we may need to stack lists.
+        """
+        for mesh_index, mesh_info in enumerate(meshes_to_bake):
+            progress = mesh_index / (len(meshes_to_bake) - 1)
+            bpy.context.window_manager.progress_update((progress * 80) + 10)
 
-            if layer_a_bake_data:
-                mesh_a, data_to_bake_a = layer_a_bake_data[mesh_index]
-                num_data = len(data_to_bake_a)
-                max_a = abs(max(data_to_bake_a, key=abs))
-            else:
-                mesh_a = None
-                data_to_bake_a = None
-                max_a = 0.0
+            mesh, num_values = mesh_info
+            print("----")
+            print(mesh)
+            values_to_pack = np.stack((
+                np.array(np.zeros(num_values, dtype=float) if layers_data[0] is None else layers_data[0][mesh_index][1]),
+                np.array(np.zeros(num_values, dtype=float) if layers_data[1] is None else layers_data[1][mesh_index][1]),
+                np.array(np.zeros(num_values, dtype=float) if layers_data[2] is None else layers_data[2][mesh_index][1])),
+                axis=-1)
 
-            if layer_b_bake_data:
-                mesh_b, data_to_bake_b = layer_b_bake_data[mesh_index]
-                if len(data_to_bake_b) != num_data:
-                    return (False, "Inconsistent amount of loop indices registered for data layer '" + get_data_layer_name(layer_packed_in_b) + "'")
-                if mesh_a != mesh_b:
-                    return (False, "Mesh list differs for data layer '" + get_data_layer_name(layer_packed_in_b) + "'")
-                max_b = abs(max(data_to_bake_b, key=abs))
-            else:
-                mesh_b = None
-                data_to_bake_b = None
-                max_b = 0.0
-
-            if layer_c_bake_data:
-                mesh_c, data_to_bake_c = layer_c_bake_data[mesh_index]
-                if len(data_to_bake_c) != num_data:
-                    return (False, "Inconsistent amount of loop indices registered for data layer '" + get_data_layer_name(layer_packed_in_c) + "'")
-                if mesh_b != mesh_c:
-                    return (False, "Mesh list differs for data layer '" + get_data_layer_name(layer_packed_in_c) + "'")
-                max_c = abs(max(data_to_bake_c, key=abs))
-            else:
-                mesh_c = None
-                data_to_bake_c = None
-                max_c = 0.0
-
-            if not data_to_bake_a and not data_to_bake_b and not data_to_bake_c:
-                return (False, "Couldn't compute list of data to bake for data layer '" + get_data_layer_name(data_layer) + "'")
-
-            multiplier = mathutils.Vector((max_a, max_b, max_c))
-            mesh_to_bake = mesh_a
+            print(values_to_pack)
 
             if data_layer.packing_mode == "UV":
                 if data_layer.uv_channel == "U":
@@ -756,76 +648,68 @@ def bake_data(context, layers_info, meshes, empties):
                     invert_v = False
                 else:
                     index = 1
+                    invert_v = settings.invert_v
 
-                # create & zero uvmap(s) if needed @TODO ensure this works correctly
-                while (data_layer.uv_index > (len(mesh_to_bake.data.uv_layers) - 1)):
-                    mesh_to_bake.data.uv_layers.new()
-                    uvmap_index = len(mesh_to_bake.data.uv_layers) - 1
+                while (data_layer.uv_index > (len(mesh.data.uv_layers) - 1)):
+                    mesh.data.uv_layers.new()
 
-                    for face in mesh_to_bake.data.polygons:
+                    zero_uv = (0.0, 1.0 if invert_v else 0.0)
+                    for face in mesh.data.polygons:
                         for loop_id in face.loop_indices:
-                            mesh_to_bake.data.uv_layers[uvmap_index].data[loop_id].uv = (0.0, 1.0 if invert_v else 0.0)
+                            mesh.data.uv_layers[data_layer.uv_index].data[loop_id].uv = zero_uv
 
                 uv_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
                 uv_name += "." + str(data_layer.uv_index)
-                mesh_to_bake.data.uv_layers[data_layer.uv_index].name = uv_name
+                mesh.data.uv_layers[data_layer.uv_index].name = uv_name
 
-                for face in mesh_to_bake.data.polygons:
+                for face in mesh.data.polygons: # @NOTE performance bottleneck
                     for loop_id in face.loop_indices:
                         x = 0.0
                         if packing_mode == "XYZ":
-                            if data_to_bake_a:
-                                if data_to_bake_b:
-                                    if data_to_bake_c:
-                                        vector_to_bake = mathutils.Vector((data_to_bake_a[loop_id], data_to_bake_b[loop_id], data_to_bake_c[loop_id]))
-                                        x = get_packed_11_11_10_xyz(vector_to_bake, multiplier)
+                            x = get_packed_11_10_10_xyz(values_to_pack[loop_id][0], values_to_pack[loop_id][1], values_to_pack[loop_id][2], pack_min, pack_max)
                         elif packing_mode == "XY":
-                            if data_to_bake_a:
-                                if data_to_bake_b:
-                                    vector_to_bake = mathutils.Vector((data_to_bake_a[loop_id], data_to_bake_b[loop_id], 0.0))
-                                    x = get_packed_16_16_ab(vector_to_bake, "X", "Y", multiplier)
-                        elif packing_mode == "FACTION":
-                            if data_to_bake_a:
-                                if data_to_bake_b:
-                                    x = math.floor(data_to_bake_a[loop_id]) + (data_to_bake_b[loop_id] - math.floor(data_to_bake_b[loop_id])) # @TODO need remapping [0:<1]
+                            x = get_packed_15_16_xy(values_to_pack[loop_id][0], values_to_pack[loop_id][1], pack_min, pack_max)
+                        elif packing_mode == "FRACTION":
+                            x = get_packed_frac(values_to_pack[loop_id][0], values_to_pack[loop_id][1], pack_min.x, pack_max.x, settings.packing_precision)
                         else:
-                            if data_to_bake_a:
-                                x = data_to_bake_a[loop_id]
+                            x = values_to_pack[loop_id][0]
 
-                        mesh_to_bake.data.uv_layers[data_layer.uv_index].data[loop_id].uv[index] = (1.0 - x) if invert_v else x
+                        mesh.data.uv_layers[data_layer.uv_index].data[loop_id].uv[index] = (1.0 - x) if invert_v else x
             elif data_layer.packing_mode == "VCOL":
-                if mesh_to_bake.data.vertex_colors:
-                    vcol = mesh_to_bake.data.vertex_colors.active
+                if mesh.data.vertex_colors:
+                    vcol = mesh.data.vertex_colors.active
                 else:
-                    vcol = mesh_to_bake.data.vertex_colors.new()
+                    vcol = mesh.data.vertex_colors.new()
 
-                    for face in mesh_to_bake.data.polygons:
+                    for face in mesh.data.polygons:
                         for loop_id in face.loop_indices:
                             vcol.data[loop_id].color = [0.0, 0.0, 0.0, 0.0]
 
-                for face in mesh_to_bake.data.polygons:
+                for face in mesh.data.polygons: # @NOTE performance bottleneck
                     for loop_id in face.loop_indices:
                         if data_layer.vcol_rgba == "R":
-                            vcol.data[loop_id].color[0] = data_to_bake_a[loop_id] # @TODO need to remap
+                            vcol.data[loop_id].color[0] = get_normalized(values_to_pack[loop_id][0], pack_min, pack_max)
                         elif data_layer.vcol_rgba == "G":
-                            vcol.data[loop_id].color[1] = data_to_bake_a[loop_id]
+                            vcol.data[loop_id].color[1] = get_normalized(values_to_pack[loop_id][0], pack_min, pack_max)
                         elif data_layer.vcol_rgba == "B":
-                            vcol.data[loop_id].color[2] = data_to_bake_a[loop_id]
+                            vcol.data[loop_id].color[2] = get_normalized(values_to_pack[loop_id][0], pack_min, pack_max)
                         elif data_layer.vcol_rgba == "A":
-                            vcol.data[loop_id].color[3] = data_to_bake_a[loop_id]
+                            vcol.data[loop_id].color[3] = get_normalized(values_to_pack[loop_id][0], pack_min, pack_max)
             elif data_layer.packing_mode == "NORMAL":
                 continue
-                # need to convert loop_id to vertex index :(
-                for face in mesh_to_bake.data.polygons:
+                # @TODO need to convert loop_id to vertex index :(
+                for face in mesh.data.polygons:
                     face.use_smooth = True
 
                 normals = []
                 for vertex in obj.data.vertices: # @TODO we might need to duplicate verts? (rand per face)
                     normals.append(data_array)
 
-                mesh_to_bake.data.normals_split_custom_set_from_vertices(normals)
+                mesh.data.normals_split_custom_set_from_vertices(normals)
             else:
                 pass
+
+        add_bake_layer_report(data_layer, packing, (pack_min, pack_max))
 
     return (True, "")
 
@@ -879,7 +763,7 @@ def get_data_layer_info(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_la
 
             return (True, "",  (True, packing_mode, packing_info))
         else: # data_layer is on its own, all good!
-            return (True, "", (True, data_layer.packing_mode, [data_layer, None, None])) # @TODO
+            return (True, "", (True, data_layer.packing_mode, [data_layer, None, None]))
 
 def get_data_layer_targeting_info(data_layer: DATABAKER_PG_DataLayerPropertyGroup, data_layers: list):
     """ """
@@ -919,26 +803,29 @@ def get_data_layer_non_targeting_info(data_layer: DATABAKER_PG_DataLayerProperty
         uv_components = []
         for data_layer in data_layers:
             layer_index = data_layer.uv_index * 2 + (0 if data_layer.uv_channel == "U" else 1)
-            if data_layer.packing_mode == "UV" and (layer_index in uv_components):
-                return (False, "UVMap " + str(data_layer.uv_index) + " channel " + data_layer.uv_channel + " is already targeted", None)
-            else:
-                uv_components.append(layer_index)
+            if data_layer.packing_mode == "UV":
+                if (layer_index in uv_components):
+                    return (False, "UVMap " + str(data_layer.uv_index) + " channel " + data_layer.uv_channel + " is already targeted", None)
+                else:
+                    uv_components.append(layer_index)
     # check if targeted VCOL RGBA channel is free                    
     elif data_layer.packing_mode == "VCOL":
         vcol_components = []
         for data_layer in data_layers:
-            if data_layer.packing_mode == "VCOL" and (data_layer.vcol_rgba in vcol_components):
-                return (False, data_layer.vcol_rgba + " already targeted", None)
-            else:
-                vcol_components.append(data_layer.vcol_rgba)
+            if data_layer.packing_mode == "VCOL":
+                if (data_layer.vcol_rgba in vcol_components):
+                    return (False, data_layer.vcol_rgba + " already targeted", None)
+                else:
+                    vcol_components.append(data_layer.vcol_rgba)
     # check if targeted NORMAL XYZ component is free
     elif data_layer.packing_mode == "NORMAL":
         normal_components = []
         for data_layer in data_layers:
-            if data_layer.packing_mode == "NORMAL" and (data_layer.normal_xyz in normal_components):
-                return (False, "Normal " + str(data_layer.normal_xyz) + " is already targeted", None)
-            else:
-                normal_components.append(data_layer.normal_xyz)
+            if data_layer.packing_mode == "NORMAL":
+                if (data_layer.normal_xyz in normal_components):
+                    return (False, "Normal " + str(data_layer.normal_xyz) + " is already targeted", None)
+                else:
+                    normal_components.append(data_layer.normal_xyz)
 
     return (True, "", None)
 
@@ -1058,94 +945,32 @@ def get_data_layer_name(item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
 
     return "UNKNOWN"
 
-def get_data_layer_storage_mode_icon(item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
+def get_data_layer_storage_mode_icon(item: DATABAKER_PG_DataLayerPropertyGroup, details: bool = False) -> str:
     """ """
     if item:
         if item.packing_mode == "UV":
-            return "UV"
+            return (True, "UV")
         elif item.packing_mode == "VCOL":
-            return "GROUP_VCOL"
+            return (True, "GROUP_VCOL")
         elif item.packing_mode == "NORMAL":
-            return "NORMALS_FACE"
+            return (True, "NORMALS_FACE")
         else:
-            return "DOT"
+            if details:
+                if item.ptr_ID == "":
+                    return (False, "QUESTION")
 
-    return "X"
+                if item.packing_mode == "XY":
+                    return (False, "OVERLAY")
+                elif item.packing_mode == "XYZ":
+                    return (False, "THREE_DOTS")
+                elif item.packing_mode == "FRACTION":
+                    return (False, "PIVOT_ACTIVE")
+                else:
+                    pass
 
-def get_data_layer_packing_mode_icon(data: list, item: DATABAKER_PG_DataLayerPropertyGroup) -> str:
-    """ """
-    if item:
-        if item.packing_mode == "XY" or item.packing_mode == "XYZ" or item.packing_mode == "FRACTION":
-            if item.ptr_ID == "":
-                return "QUESTION"
-            else: # packed in target data
-                return "COPYDOWN"
-        else:
-            if item.packing_mode == "XY":
-                return "OVERLAY"
-            elif item.packing_mode == "XYZ":
-                return "THREE_DOTS"
-            elif item.packing_mode == "FRACTION":
-                return "PIVOT_ACTIVE"
-            else:
-                pass
+            return (False, "COPYDOWN")
 
-    return "DOT"
-
-def copy_data_layer(to_data_layer: DATABAKER_PG_DataLayerPropertyGroup, from_data_layer: DATABAKER_PG_DataLayerPropertyGroup) -> bool:
-    """ """
-    if to_data_layer and from_data_layer:
-        to_data_layer.data = from_data_layer.data
-        
-        # automatically wrap XYZ component
-        to_data_layer.component = "X" if from_data_layer.component == "Z" else "Y" if from_data_layer.component == "X" else "Z"
-        
-        # automatically wrap uv/vcol rgba/normal xyz
-        to_data_layer.packing_mode = from_data_layer.packing_mode
-        if from_data_layer.packing_mode == "UV":
-            to_data_layer.uv_channel = "U" if from_data_layer.uv_channel == "V" else "V"
-            to_data_layer.uv_index = from_data_layer.uv_index + 1 if from_data_layer.uv_channel == "V" else from_data_layer.uv_index
-        elif from_data_layer.packing_mode == "VCOL":
-            to_data_layer.vcol_rgba = "A" if from_data_layer.vcol_rgba == "B" else "B" if from_data_layer.vcol_rgba == "G" else "G" if from_data_layer.vcol_rgba == "R" else "R"
-        elif from_data_layer.packing_mode == "NORMAL":
-            to_data_layer.normal_xyz = "Z" if from_data_layer.normal_xyz == "Y" else "Y" if from_data_layer.normal_xyz == "X" else "X"
-        else:
-            pass
-
-        to_data_layer.pack_x_y = from_data_layer.pack_x_y
-        to_data_layer.pack_x_y_z = from_data_layer.pack_x_y_z
-        to_data_layer.pack_only_if_non_null = from_data_layer.pack_only_if_non_null
-
-        to_data_layer.axis = from_data_layer.axis
-        to_data_layer.axis_mode = from_data_layer.axis_mode
-        to_data_layer.axis_obj = from_data_layer.obj
-
-        to_data_layer.name = from_data_layer.name
-
-        to_data_layer.obj = from_data_layer.obj
-
-        to_data_layer.shapekey_mode = from_data_layer.shapekey_mode
-        
-        to_data_layer.mask_mode = from_data_layer.mask_mode
-
-        to_data_layer.normalize = from_data_layer.normalize
-        to_data_layer.clamp = from_data_layer.clamp
-        to_data_layer.falloff = from_data_layer.falloff
-        to_data_layer.uniform = from_data_layer.uniform
-
-        to_data_layer.origin_mode = from_data_layer.origin_mode
-
-        to_data_layer.rand_mode = from_data_layer.rand_mode
-        to_data_layer.rand_seed = from_data_layer.rand_seed
-        to_data_layer.rand_float_mode = from_data_layer.rand_float_mode
-
-        to_data_layer.x = from_data_layer.x
-        to_data_layer.y = from_data_layer.y
-        to_data_layer.z = from_data_layer.z
-        to_data_layer.index = from_data_layer.index
-
-        return True
-    return False
+    return (False, "X")
 
 def get_data_layer_bake_function(data_layer: DATABAKER_PG_DataLayerPropertyGroup):
     """ """
@@ -1175,7 +1000,6 @@ def get_data_layer_bake_function(data_layer: DATABAKER_PG_DataLayerPropertyGroup
 
 ######################
 ### BAKE FUNCTIONS ###
-
 def get_bake_position(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
     settings = context.scene.DataBakerSettings
@@ -1186,7 +1010,11 @@ def get_bake_position(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
     signed_scale = signed_axis * settings.scale
     
     bake_data = []
-    
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
+
     for mesh in meshes:
         data_loop_ids = []
 
@@ -1207,11 +1035,24 @@ def get_bake_position(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
         else:
             data_to_bake = 0.0
 
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, data_to_bake)
+        else:
+            bake_data_min_set = True
+            bake_data_min = data_to_bake
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, data_to_bake)
+        else:
+            bake_data_max_set = True
+            bake_data_max = data_to_bake
+
         for face in mesh.data.polygons:
             for loop_id in face.loop_indices:
                 data_loop_ids.append(data_to_bake)
+
         bake_data.append((mesh, data_loop_ids))
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
@@ -1222,6 +1063,10 @@ def get_bake_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayer
                                     -1.0 if settings.invert_z else 1.0))
     
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     for mesh in meshes:
         data_loop_ids = []
@@ -1253,11 +1098,23 @@ def get_bake_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayer
         else:
             data_to_bake = 0.0
 
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, data_to_bake)
+        else:
+            bake_data_min_set = True
+            bake_data_min = data_to_bake
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, data_to_bake)
+        else:
+            bake_data_max_set = True
+            bake_data_max = data_to_bake
+
         for face in mesh.data.polygons:
             for loop_id in face.loop_indices:
                 data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_shapekey(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
@@ -1270,7 +1127,11 @@ def get_bake_shapekey(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
     signed_scale = signed_axis * settings.scale
 
     bake_data = []
-
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
+    
     for mesh in meshes:
         data_loop_ids = []
 
@@ -1328,8 +1189,21 @@ def get_bake_shapekey(context: bpy.types.Context, data_layer: DATABAKER_PG_DataL
                     pass
 
                 data_loop_ids.append(data_to_bake)
+
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, min(data_loop_ids))
+        else:
+            bake_data_min_set = True
+            bake_data_min = min(data_loop_ids)
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, max(data_loop_ids))
+        else:
+            bake_data_max_set = True
+            bake_data_max = max(data_loop_ids)
+        
         bake_data.append((mesh, data_loop_ids))
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_mask(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
@@ -1372,7 +1246,7 @@ def get_bake_mask(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayer
 
         return get_bake_mask_linear(data_layer, meshes, empties, origin_mode, signed_scale, world_axis)
     else:
-        return (None, None)
+        return (None, (0.0, 0.0))
 
 def get_bake_mask_sphere(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0))) -> list:
     """ """
@@ -1409,6 +1283,10 @@ def get_bake_mask_sphere(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes
         min_dist = min_dist if length > 0.0001 else 0.0
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     for mesh in meshes:
         data_loop_ids = []
@@ -1464,8 +1342,20 @@ def get_bake_mask_sphere(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes
 
                 data_loop_ids.append(data_to_bake)
 
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, min(data_loop_ids))
+        else:
+            bake_data_min_set = True
+            bake_data_min = min(data_loop_ids)
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, max(data_loop_ids))
+        else:
+            bake_data_max_set = True
+            bake_data_max = max(data_loop_ids)
+
         bake_data.append((mesh, data_loop_ids))
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_mask_linear(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0)), world_axis: mathutils.Vector=mathutils.Vector((0.0, 0.0, 1.0))) -> list:
     """ """
@@ -1512,6 +1402,10 @@ def get_bake_mask_linear(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes
         min_dist = min_dist if length > 0.0001 else 0.0
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     for mesh in meshes:
         data_loop_ids = []
@@ -1579,9 +1473,21 @@ def get_bake_mask_linear(data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes
                     data_to_bake = math.pow(data_to_bake, data_layer.falloff)
 
                 data_loop_ids.append(data_to_bake)
+    
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, min(data_loop_ids))
+        else:
+            bake_data_min_set = True
+            bake_data_min = min(data_loop_ids)
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, max(data_loop_ids))
+        else:
+            bake_data_max_set = True
+            bake_data_max = max(data_loop_ids)
 
         bake_data.append((mesh, data_loop_ids))
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_random(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """"""
@@ -1592,13 +1498,17 @@ def get_bake_random(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLay
     elif data_layer.rand_float_mode == "FLOAT3":
         return get_bake_random_float3(context, data_layer, meshes, empties)
     else:
-        return (None, None)
+        return (None, (0.0, 0.0))
 
 def get_bake_random_float(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """"""
     settings = context.scene.DataBakerSettings
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     uniform_values = []
     uniform_length = 0
@@ -1606,7 +1516,6 @@ def get_bake_random_float(context: bpy.types.Context, data_layer: DATABAKER_PG_D
     if data_layer.rand_mode == "COLLECTION":
         cols = []
         for mesh in meshes:
-            print(mesh.users_collection)
             for col in mesh.users_collection:
                 if col not in cols:
                     cols.append(col)
@@ -1658,12 +1567,36 @@ def get_bake_random_float(context: bpy.types.Context, data_layer: DATABAKER_PG_D
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
+
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, data_to_bake)
+            else:
+                bake_data_min_set = True
+                bake_data_min = data_to_bake
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, data_to_bake)
+            else:
+                bake_data_max_set = True
+                bake_data_max = data_to_bake
         elif data_layer.rand_mode == "OBJECT":
             data_to_bake = (uniform_values[mesh_index] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
+
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, data_to_bake)
+            else:
+                bake_data_min_set = True
+                bake_data_min = data_to_bake
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, data_to_bake)
+            else:
+                bake_data_max_set = True
+                bake_data_max = data_to_bake
         elif data_layer.rand_mode == "FACE":
             for face_index, face in enumerate(mesh.data.polygons):
                 data_to_bake = (uniform_values[face_index +face_offset] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
@@ -1671,16 +1604,32 @@ def get_bake_random_float(context: bpy.types.Context, data_layer: DATABAKER_PG_D
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
 
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, min(data_loop_ids))
+            else:
+                bake_data_min_set = True
+                bake_data_min = min(data_loop_ids)
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, max(data_loop_ids))
+            else:
+                bake_data_max_set = True
+                bake_data_max = max(data_loop_ids)
+
             face_offset += len(mesh.data.polygons)
 
         bake_data.append((mesh, data_loop_ids))
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """"""
     settings = context.scene.DataBakerSettings
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     if data_layer.rand_mode == "COLLECTION":
         cols = []
@@ -1713,6 +1662,18 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
 
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, data_to_bake)
+            else:
+                bake_data_min_set = True
+                bake_data_min = data_to_bake
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, data_to_bake)
+            else:
+                bake_data_max_set = True
+                bake_data_max = data_to_bake
+
             bake_data.append((mesh, data_loop_ids))
     elif data_layer.rand_mode == "OBJECT":
         for mesh_index, mesh in enumerate(meshes):
@@ -1733,6 +1694,18 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
             for face in mesh.data.polygons:
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
+
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, data_to_bake)
+            else:
+                bake_data_min_set = True
+                bake_data_min = data_to_bake
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, data_to_bake)
+            else:
+                bake_data_max_set = True
+                bake_data_max = data_to_bake
 
             bake_data.append((mesh, data_loop_ids))
     elif data_layer.rand_mode == "FACE":
@@ -1755,6 +1728,18 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
 
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
+
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, min(data_loop_ids))
+            else:
+                bake_data_min_set = True
+                bake_data_min = min(data_loop_ids)
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, max(data_loop_ids))
+            else:
+                bake_data_max_set = True
+                bake_data_max = max(data_loop_ids)
                 
             face_offset += len(mesh.data.polygons)
 
@@ -1762,13 +1747,17 @@ def get_bake_random_float2(context: bpy.types.Context, data_layer: DATABAKER_PG_
     else:
         pass
 
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_random_float3(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """"""
     settings = context.scene.DataBakerSettings
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     if data_layer.rand_mode == "COLLECTION":
         cols = []
@@ -1853,13 +1842,25 @@ def get_bake_random_float3(context: bpy.types.Context, data_layer: DATABAKER_PG_
                 for loop_id in face.loop_indices:
                     data_loop_ids.append(data_to_bake)
 
+            if bake_data_min_set:
+                bake_data_min = min(bake_data_min, min(data_loop_ids))
+            else:
+                bake_data_min_set = True
+                bake_data_min = min(data_loop_ids)
+
+            if bake_data_max_set:
+                bake_data_max = max(bake_data_max, max(data_loop_ids))
+            else:
+                bake_data_max_set = True
+                bake_data_max = max(data_loop_ids)
+
             face_offset += len(mesh.data.polygons)
 
             bake_data.append((mesh, data_loop_ids))
     else:
         pass
 
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_parent_pos(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
@@ -1871,6 +1872,10 @@ def get_bake_parent_pos(context: bpy.types.Context, data_layer: DATABAKER_PG_Dat
     signed_scale = signed_axis * settings.scale
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     target_depth = max(1, settings.index)
     for mesh in meshes:
@@ -1884,27 +1889,42 @@ def get_bake_parent_pos(context: bpy.types.Context, data_layer: DATABAKER_PG_Dat
                 parent = None
                 break
 
-        if parent:
-            parent_loc = parent.matrix_world.to_translation()
-            if data_layer.obj:
-                parent_loc -= data_layer.obj.matrix_world.to_translation() # relative to origin?
+        if not parent: # fallback to self @NOTE see if this is the best solution
+            parent = mesh
 
-            vector_to_bake = parent_loc * signed_scale
+        parent_loc = parent.matrix_world.to_translation()
+        if data_layer.obj:
+            parent_loc -= data_layer.obj.matrix_world.to_translation() # relative to origin?
 
-            if data_layer.component == "X":
-                data_to_bake = vector_to_bake.x
-            elif data_layer.component == "Y":
-                data_to_bake = vector_to_bake.y
-            elif data_layer.component == "Z":
-                data_to_bake = vector_to_bake.z
-            else:
-                data_to_bake = 0.0
+        vector_to_bake = parent_loc * signed_scale
 
-            for face in mesh.data.polygons:
-                for loop_id in face.loop_indices:
-                    data_loop_ids.append(data_to_bake)
-            bake_data.append((mesh, data_loop_ids))
-    return bake_data
+        if data_layer.component == "X":
+            data_to_bake = vector_to_bake.x
+        elif data_layer.component == "Y":
+            data_to_bake = vector_to_bake.y
+        elif data_layer.component == "Z":
+            data_to_bake = vector_to_bake.z
+        else:
+            data_to_bake = 0.0
+
+        for face in mesh.data.polygons:
+            for loop_id in face.loop_indices:
+                data_loop_ids.append(data_to_bake)
+
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, data_to_bake)
+        else:
+            bake_data_min_set = True
+            bake_data_min = data_to_bake
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, data_to_bake)
+        else:
+            bake_data_max_set = True
+            bake_data_max = data_to_bake
+
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_parent_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
@@ -1915,6 +1935,10 @@ def get_bake_parent_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_Da
                                     -1.0 if settings.invert_z else 1.0))
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     target_depth = max(1, settings.index)
     for mesh in meshes:
@@ -1927,56 +1951,92 @@ def get_bake_parent_axis(context: bpy.types.Context, data_layer: DATABAKER_PG_Da
             else:
                 parent = None
         
-        if parent:
-            parent_quat = parent.matrix_world.to_quaternion()
+        if not parent: # fallback to self @NOTE see if this is the best solution
+            parent = mesh
 
-            if data_layer.axis == "X":
-                axis = mathutils.Vector((1.0, 0.0, 0.0))
-            elif data_layer.axis == "Y":
-                axis = mathutils.Vector((0.0, 1.0, 0.0))
-            elif data_layer.axis == "Z":
-                axis = mathutils.Vector((0.0, 0.0, 1.0))
-            else:
-                axis = mathutils.Vector((0.0, 0.0, 0.0))
+        parent_quat = parent.matrix_world.to_quaternion()
 
-            vector_to_bake = (parent_quat @ (axis * signed_axis))
+        if data_layer.axis == "X":
+            axis = mathutils.Vector((1.0, 0.0, 0.0))
+        elif data_layer.axis == "Y":
+            axis = mathutils.Vector((0.0, 1.0, 0.0))
+        elif data_layer.axis == "Z":
+            axis = mathutils.Vector((0.0, 0.0, 1.0))
+        else:
+            axis = mathutils.Vector((0.0, 0.0, 0.0))
 
-            if data_layer.component == "X":
-                data_to_bake = vector_to_bake.x
-            elif data_layer.component == "Y":
-                data_to_bake = vector_to_bake.y
-            elif data_layer.component == "Z":
-                data_to_bake = vector_to_bake.z
-            else:
-                data_to_bake = 0.0
+        vector_to_bake = (parent_quat @ (axis * signed_axis))
 
-            for face in mesh.data.polygons:
-                for loop_id in face.loop_indices:
-                    data_loop_ids.append(data_to_bake)
-            bake_data.append((mesh, data_loop_ids))
-    return bake_data
+        if data_layer.component == "X":
+            data_to_bake = vector_to_bake.x
+        elif data_layer.component == "Y":
+            data_to_bake = vector_to_bake.y
+        elif data_layer.component == "Z":
+            data_to_bake = vector_to_bake.z
+        else:
+            data_to_bake = 0.0
+
+        for face in mesh.data.polygons:
+            for loop_id in face.loop_indices:
+                data_loop_ids.append(data_to_bake)
+
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, data_to_bake)
+        else:
+            bake_data_min_set = True
+            bake_data_min = data_to_bake
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, data_to_bake)
+        else:
+            bake_data_max_set = True
+            bake_data_max = data_to_bake
+
+        bake_data.append((mesh, data_loop_ids))
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_value(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
     settings = context.scene.DataBakerSettings
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     for mesh in meshes:
         data_loop_ids = []
         for face in mesh.data.polygons:
-                for loop_id in face.loop_indices:
-                    data_to_bake = data_layer.x
-                    data_loop_ids.append(data_to_bake)
+            for loop_id in face.loop_indices:
+                data_to_bake = data_layer.x
+                data_loop_ids.append(data_to_bake)
+
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, data_to_bake)
+        else:
+            bake_data_min_set = True
+            bake_data_min = data_to_bake
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, data_to_bake)
+        else:
+            bake_data_max_set = True
+            bake_data_max = data_to_bake
+
         bake_data.append((mesh, data_loop_ids))
 
-    return bake_data
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_custom_prop(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
     settings = context.scene.DataBakerSettings
 
     bake_data = []
+    bake_data_min = 0.0
+    bake_data_min_set = False
+    bake_data_max = 0.0
+    bake_data_max_set = False
 
     for mesh in meshes:
         data_loop_ids = []
@@ -1992,11 +2052,23 @@ def get_bake_custom_prop(context: bpy.types.Context, data_layer: DATABAKER_PG_Da
                     data_loop_ids.append(data_to_bake)
         bake_data.append((mesh, data_loop_ids))
 
-    return bake_data
+        if bake_data_min_set:
+            bake_data_min = min(bake_data_min, data_to_bake)
+        else:
+            bake_data_min_set = True
+            bake_data_min = data_to_bake
+
+        if bake_data_max_set:
+            bake_data_max = max(bake_data_max, data_to_bake)
+        else:
+            bake_data_max_set = True
+            bake_data_max = data_to_bake
+
+    return bake_data, (bake_data_min, bake_data_max)
 
 def get_bake_none(context: bpy.types.Context, data_layer: DATABAKER_PG_DataLayerPropertyGroup, meshes: list, empties: list) -> list:
     """ """
-    return []
+    return [], (0.0, 0.0)
 
 ##############
 ### MESHES ###
@@ -2054,8 +2126,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                           invert_v=str(report.mesh_uvmap_invert_v),
                           count=str(report.mesh_uvmap_count))
     
-    for mesh_uvmap in report.mesh_uvmaps:
-        uv_sub_el = ET.SubElement(uv_el, "UVMap", name=mesh_uvmap.name, id=mesh_uvmap.ID)
+    #for mesh_uvmap in report.mesh_uvmaps:
+    #    uv_sub_el = ET.SubElement(uv_el, "UVMap", name=mesh_uvmap.name, id=mesh_uvmap.ID)
 
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""

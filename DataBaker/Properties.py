@@ -26,7 +26,7 @@ def data_layer_ptr_id_updated(self, context):
     automatically called when the data_layer's ptr_id property is updated in any way
     """
     settings = context.scene.DataBakerSettings
-    if self.ptr_index < len(settings.data_layers):
+    if settings.data_layers and self.ptr_index < len(settings.data_layers):
         data_layer = settings.data_layers[self.ptr_index]
         # only pick target if not self
         if data_layer.ID != self.ID:
@@ -38,12 +38,12 @@ def data_layer_ptr_id_updated(self, context):
                 # target found!
                 if data_layer.ID == self.ptr_ID:
                     # re-assign ptr_index to the previous target based on ID
-                    self.ptr_index = data_layer_index
+                    self.ptr_index = data_layer_index # @TODO this results in an infinite loop
                     return
 
     # else, invalidate
     self.ptr_ID = ""
-    self.ptr_index = -1
+    self.ptr_index = -1 # @TODO this results in an infinite loop
 
 class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     """ """
@@ -103,13 +103,13 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("X", "X", "Pack the data in the 'X' component"),
         ("Y", "Y", "Pack the data in the 'Y' component"),
     ]
-    pack_xy: EnumProperty(name="AB Mode", items=pack_x_y, default="X", description="Method for baking data")
+    pack_xy: EnumProperty(name="XY Mode", items=pack_x_y, default="Y", description="Method for baking data")
     pack_x_y_z = [
         ("X", "X", "Pack the data in the 'X' component"),
         ("Y", "Y", "Pack the data in the 'Y' component"),
         ("Z", "Z", "Pack the data in the 'Z' component"),
     ]
-    pack_xyz: EnumProperty(name="XYZ Mode", items=pack_x_y_z, default="X", description="Method for baking data")
+    pack_xyz: EnumProperty(name="XYZ Mode", items=pack_x_y_z, default="Y", description="Method for baking data")
     pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="Pack only if not (0,0,0), as it involves bit-packing and further 0-testing of the unpacked value in shaders could prove to be an unreliable operation. This is recommended, although it may lead to a false positive if the position to pack happens to be close enough to (0,0,0)")
 
     axis_x_y_z = [
@@ -183,7 +183,7 @@ def settings_data_layers_selected_index_updated(self, context):
     """
     # get data layer selected in main UI list
     settings = context.scene.DataBakerSettings
-    if settings.data_layers_selected_index < len(settings.data_layers):
+    if settings.data_layers and settings.data_layers_selected_index < len(settings.data_layers):
         data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
 
         # is the selected data layer supposed to target another layer?
@@ -205,6 +205,7 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     """ """
     data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="")
     data_layers_selected_index: IntProperty(name="", default=0, description="", update=settings_data_layers_selected_index_updated)
+    packing_precision: FloatProperty(name="Precision", default=0.99, description="")
 
     # transform
     world_obj: PointerProperty(type=bpy.types.Object, name="Object", description="Defaults to 'self'. Use this in the rare occasion that you want to bake the position/axis of a specific object into another object. Usually using 'self' is what you want (meaning, leave this empty)")
@@ -220,7 +221,6 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     origin: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="Optional object to use as baking origin")
-    precision_offset: FloatProperty(name="Precision Offset", min=1.0, default=1.0, description="Offset to improve packing precision")
 
     export_mesh: BoolProperty(name="Export", default=True, description="True to export the mesh to FBX upon bake completion")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="FBX file name, without extension")
@@ -242,14 +242,21 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     export_xml_file_path: StringProperty(name="Path", default="//", description="XML file path, not including file name", subtype='FILE_PATH')
     export_xml_override: BoolProperty(name="Override", default=True, description="True to override any existing .xml file")
 
-class DATABAKER_PG_ReportUVMapPropertyGroup(PropertyGroup):
-    """Properties for reporting animation-related bake data."""
+class DATABAKER_PG_DataLayerReportPropertyGroup(PropertyGroup):
+    """ """
+    active_layer_ID: StringProperty(name="ID", default="", description="")
 
-    ID: StringProperty(name="ID", default="", description="Unique identifier for the animation data")
-    name: StringProperty(name="Name", default="", description="Name of the animation data")
+    packed_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="")
+    packed_layers_selected_index: IntProperty(name="", default=0, description="")
+
+    range_min: FloatVectorProperty(name="Min")
+    range_max: FloatVectorProperty(name="Max")
 
 class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     """Enhanced reporting properties for DataBaker with detailed feedback."""
+
+    data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerReportPropertyGroup, description="")
+    data_layers_selected_index: IntProperty(name="", default=0, description="")
 
     baked: BoolProperty(name="Baked", default=False, description="")
     success: BoolProperty(name="Success", default=False, description="")
@@ -265,15 +272,9 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
 
-    position_multiplier: FloatProperty(name="Position Multiplier", default=0.0, description="")
-    parent_position_multiplier: FloatProperty(name="Parent Position Multiplier", default=0.0, description="")
-    shapekey_offset_multiplier: FloatProperty(name="Shape Key Offset Multiplier", default=0.0, description="")
-
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
-    mesh_uvmaps: CollectionProperty(type=DATABAKER_PG_ReportUVMapPropertyGroup, description="")
-    select_mesh_uvmap: IntProperty(name="Selected UV Map", default=0, description="")
     mesh_uvmap_invert_v: BoolProperty(name="Invert V", default=False, description="")
     mesh_uvmap_count: IntProperty(name="UV Map Count", default=0, description="")
 
@@ -285,7 +286,6 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
 
     world_obj: PointerProperty(type=bpy.types.Object, name="World", description="")
 
-    # mesh
     duplicate_mesh: BoolProperty(name="Duplicate Mesh", default=True, description="")
     make_single_user: BoolProperty(name="Make Single-User", default=True, description="")
     merge_mesh: BoolProperty(name="Merge Meshes", default=True, description="")
@@ -296,7 +296,6 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     invert_y: BoolProperty(name="Invert Y", default=True, description="")
     invert_z: BoolProperty(name="Invert Z", default=False, description="")
     origin: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
-    precision_offset: FloatProperty(name="Precision Offset", min=1.0, default=1.0, description="")
 
     export_mesh: BoolProperty(name="Export", default=True, description="")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="")
