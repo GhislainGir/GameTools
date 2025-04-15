@@ -101,7 +101,6 @@ class SDFBAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
 
-    frames: IntProperty(name="Z Slices Per Row", min=2, max=1024, default=8, description="")
     x: IntProperty(name="X", min=1, max=1024, default=32, description="")
     y: IntProperty(name="Y", min=1, max=1024, default=32, description="")
     z: IntProperty(name="Z", min=1, max=1024, default=64, description="")
@@ -122,6 +121,8 @@ class SDFBAKER_PG_ReportPropertyGroup(PropertyGroup):
     mesh: PointerProperty(type=bpy.types.Object)
     mesh_export: BoolProperty(name="Export", default=False, description="")
     mesh_path: StringProperty(name="Filepath", default="//", description="")
+    mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset")
+    mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset")
 
     tex: PointerProperty(type=bpy.types.Image)
     tex_width: IntProperty(name="Texture Width", default=0)

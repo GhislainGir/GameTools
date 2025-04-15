@@ -89,6 +89,8 @@ def reset_bake_report():
     report.mesh = None
     report.mesh_export = False
     report.mesh_path = ""
+    report.mesh_min_bounds_offset = mathutils.Vector((0.0, 0.0, 0.0))
+    report.mesh_max_bounds_offset = mathutils.Vector((0.0, 0.0, 0.0))
 
     report.tex = None
     report.tex_width = 0
@@ -126,6 +128,9 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
     objs_to_bake = context.selected_objects
     if len(objs_to_bake) <= 0:
         return (False, "No mesh selected", None, None)
+    
+    for selected_object in context.selected_objects:
+        selected_object.select_set(False)
 
     if active_obj is None:
         active_obj = objs_to_bake[0]
@@ -293,25 +298,27 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
                 sdf_index_x_offset = x * 4
 
                 sample_pos = zero_corner + (step * mathutils.Vector((x, y, z))) + (step * 0.5)
-                
+
                 if settings.gen_debug_mesh:
                     samples.append(sample_pos)
 
                 nearest_pos, nearest_nor, nearest_index, nearest_dist = BVH.find_nearest(sample_pos)
-                nearest_dist *= abs(settings.scale)
-                max_dist = max(max_dist, nearest_dist)
+                if nearest_dist:
+                    nearest_dist *= abs(settings.scale)
+                    max_dist = max(max_dist, nearest_dist)
 
-                # tracing any ray from within the geometry will result in a hit, allowing us to figure out if voxel
-                # is inside mesh and thus if distance should be negative to create a signed distance field
-                hit_pos, hit_nor, hit_index, hit_dist = BVH.ray_cast(sample_pos, mathutils.Vector((0.0, 0.0, 1.0)))
-                if hit_dist and hit_nor.dot(mathutils.Vector((0.0, 0.0, 1.0))) > 0.0:
-                    nearest_dist *= -1.0
+                    # tracing any ray from within the geometry will result in a hit, allowing us to figure out if voxel
+                    # is inside mesh and thus if distance should be negative to create a signed distance field
+                    hit_pos, hit_nor, hit_index, hit_dist = BVH.ray_cast(sample_pos, mathutils.Vector((0.0, 0.0, 1.0)))
+                    if hit_dist and hit_nor.dot(mathutils.Vector((0.0, 0.0, 1.0))) > 0.0:
+                        nearest_dist *= -1.0
 
-                if settings.invert_sign:
-                    nearest_dist *= -1.0
+                    if settings.invert_sign:
+                        nearest_dist *= -1.0
 
-                sdf_index = sdf_index_x_offset + sdf_index_y_offset + sdf_index_z_offset
-                sdf[sdf_index] = nearest_dist
+                    sdf_index = sdf_index_x_offset + sdf_index_y_offset + sdf_index_z_offset
+                    sdf[sdf_index] = nearest_dist
+
                 #sdf[sdf_index+0] = progress_x
                 #sdf[sdf_index+1] = progress_y
                 #sdf[sdf_index+2] = progress_z
@@ -325,10 +332,6 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
         obj = bpy.data.objects.new(bake_name, mesh)
         bpy.context.scene.collection.objects.link(obj)
 
-    add_bake_report("x", settings.x)
-    add_bake_report("y", settings.y)
-    add_bake_report("z", settings.z)
-    add_bake_report("frames", settings.frames)
     add_bake_report("max_dist", max_dist)
 
     return (True, "", sdf, max_dist, (zero_corner, one_corner))
@@ -384,7 +387,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         return (False, 'ERROR', msg)
 
     wm.progress_update(1)
-    
+
     bake_name = get_bake_name(context, active_object)
     add_bake_report("name", bake_name)
 
@@ -416,7 +419,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, "ERROR", msg)
 
-    success, msg, obj_to_export = generate_sdf_mesh_bounds(bake_name, corners)
+    success, msg, obj_to_export = generate_sdf_mesh_bounds(bake_name, corners, settings.scale)
     if not success:
         clear_bake_obj(context, obj)
         add_bake_report("success", False)
@@ -490,12 +493,15 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 ##############
 ### MESHES ###
-def generate_sdf_mesh_bounds(bake_name: str, corners: tuple[mathutils.Vector, mathutils.Vector]) -> tuple[bool, str]:
+def generate_sdf_mesh_bounds(bake_name: str, corners: tuple[mathutils.Vector, mathutils.Vector], scale: float) -> tuple[bool, str]:
     ''' Create a wireframe mesh to display the given bounds '''
 
     bake_name = bake_name if bake_name != "" else "BakedMesh"
 
     zero_corner, one_corner = corners
+
+    add_bake_report("mesh_min_bounds_offset", zero_corner * scale)
+    add_bake_report("mesh_max_bounds_offset", one_corner * scale)
 
     bounds_verts = [
         mathutils.Vector((zero_corner.x, zero_corner.y, zero_corner.z)),
@@ -540,6 +546,9 @@ def generate_sdf_mesh_bounds(bake_name: str, corners: tuple[mathutils.Vector, ma
         else:
             return (False, "An object named " + bake_name + " already exists but isn't a mesh. Can't modify it", None)
 
+    bounds_obj.select_set(True)
+    bpy.context.view_layer.objects.active = bounds_obj
+
     return (True, "", bounds_obj)
 
 def export_mesh(context: bpy.types.Context, bake_name: str, obj_to_export: bpy.types.Object):
@@ -558,8 +567,7 @@ def export_mesh(context: bpy.types.Context, bake_name: str, obj_to_export: bpy.t
     tags = { "ObjectName" : bake_name}
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
-        bpy.ops.object.select_all(action='DESELECT') # @TODO get rid of it
-        obj_to_export.select_set(True)
+        # export selection and assume selection was properly handled outside of this function
         bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
     else:
         return (False, msg, None, -1)
@@ -3087,6 +3095,10 @@ def get_best_texture_resolution(context: bpy.types.Context):
 
     settings = context.scene.SDFBakerSettings
 
+    add_bake_report("x", settings.x)
+    add_bake_report("y", settings.y)
+    add_bake_report("z", settings.z)
+
     NumVoxels = settings.x * settings.y * settings.z
     if NumVoxels <= 0:
         return (False, "Zero voxel to bake", 0, 0)
@@ -3146,7 +3158,13 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""
 
-    mesh_el = ET.SubElement(root, "Mesh", path=mesh_export_path)
+    mesh_el = ET.SubElement(root, "Mesh", path=mesh_export_path,
+                             bounds_offset_min_x=str(abs(report.mesh_min_bounds_offset[0])),
+                             bounds_offset_min_y=str(abs(report.mesh_min_bounds_offset[1])),
+                             bounds_offset_min_z=str(abs(report.mesh_min_bounds_offset[2])),
+                             bounds_offset_max_x=str(abs(report.mesh_max_bounds_offset[0])),
+                             bounds_offset_max_y=str(abs(report.mesh_max_bounds_offset[1])),
+                             bounds_offset_max_z=str(abs(report.mesh_max_bounds_offset[2])))
 
     # texture
     if report.tex:
@@ -3157,7 +3175,11 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                                         slices=str(report.tex_slices),
                                         path=report.tex_path,
                                         distance=report.distance_mode,
-                                        max_dist=str(report.max_dist))
+                                        max_dist=str(report.max_dist),
+                                        tiles=report.tile_sort_mode,
+                                        x=str(report.x),
+                                        y=str(report.y),
+                                        z=str(report.z))
 
     # write xml
     tree = ET.ElementTree(root)

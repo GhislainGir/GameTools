@@ -330,8 +330,8 @@ class SDFBAKER_PT_XMLExportPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "export_xml_file_path")
 
-            row = layout.row()
-            row.prop(settings, "export_xml_override")
+        row = layout.row()
+        row.prop(settings, "export_xml_override")
 
 ##############
 ### REPORT ###
@@ -412,6 +412,18 @@ class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
         col.label(text="Width: " + str(report.tex_width))
         col.label(text="Height: " + str(report.tex_height))
 
+        row = layout.row()
+        row.label(text="Slices Per Row: " + str(report.tex_slices))
+
+        layout.separator()
+
+        row = layout.row()
+        row.label(text="Voxels")
+        row = layout.row()
+        row.label(text="X " + str(report.x))
+        row.label(text="Y " + str(report.y))
+        row.label(text="Z " + str(report.z))
+
         layout.separator()
 
         if report.tex:
@@ -441,6 +453,9 @@ class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
         col = row.split()
         col.label(text="Invert V: " + str(report.invert_v))
         col.label(text="Invert Sign: " + str(report.invert_sign))
+
+        row = layout.row()
+        row.label(text="Tiles Sort: " + str(report.tile_sort_mode))
 
 class SDFBAKER_PT_ReportMeshPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_infomeshpanel"
@@ -476,6 +491,30 @@ class SDFBAKER_PT_ReportMeshPanel(bpy.types.Panel):
                 row.label(text="File: " + report.mesh_path, icon="FILE")
             else:
                 row.label(text="Not exported", icon="X")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Min Bounds Offset")
+
+            row = layout.row()
+            row.label(text="X: " + str(report.mesh_min_bounds_offset[0]), icon="DOT")
+            row = layout.row()
+            row.label(text="Y: " + str(report.mesh_min_bounds_offset[1]), icon="DOT")
+            row = layout.row()
+            row.label(text="Z: " + str(report.mesh_min_bounds_offset[2]), icon="DOT")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Max Bounds Offset")
+
+            row = layout.row()
+            row.label(text="X: " + str(report.mesh_max_bounds_offset[0]), icon="DOT")
+            row = layout.row()
+            row.label(text="Y: " + str(report.mesh_max_bounds_offset[1]), icon="DOT")
+            row = layout.row()
+            row.label(text="Z: " + str(report.mesh_max_bounds_offset[2]), icon="DOT")
         else:
             row = layout.row()
             row.label(text="None generated")
