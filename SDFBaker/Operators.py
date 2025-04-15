@@ -81,20 +81,45 @@ class SDFBAKER_OT_GenerateGeoNodes(Operator):
 
 ##############
 ### Preset ###
-class SDFBAKER_OT_DataBaker_AddPreset(AddPresetBase, Operator):
+class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, Operator):
     bl_idname = 'sdfbaker_sdfbakerpanel.addpreset'
     bl_label = 'Add preset'
-    preset_menu = 'SDFBAKER_MT_DataBaker_Presets'
+    preset_menu = 'SDFBAKER_MT_SDFBaker_Presets'
 
-    preset_defines = [ 'settings = bpy.context.scene.DataBakerSettings' ]
+    preset_defines = [ 'settings = bpy.context.scene.SDFBakerSettings' ]
     preset_values = [
+    'settings.distance_mode',
+    'settings.sdf_mode',
+    'settings.sdf_bounds',
+    'settings.frames',
+    'settings.x',
+    'settings.y',
+    'settings.z',
+    'settings.offset',
+    'settings.tile_sort_mode',
+    'settings.invert_v',
+    'settings.invert_sign',
+    'settings.mesh_name',
+    'settings.gen_selection_mesh',
+    'settings.gen_debug_mesh',
+    'settings.export_mesh',
+    'settings.export_mesh_file_name',
+    'settings.export_mesh_file_path',
+    'settings.export_mesh_file_override',
     'settings.scale',
+    'settings.invert_x',
+    'settings.invert_y',
+    'settings.invert_z',
     'settings.export_xml',
     'settings.export_xml_mode',
     'settings.export_xml_file_name',
     'settings.export_xml_file_path',
-    'settings.export_xml_override'
-    ] # @TODO
+    'settings.export_xml_override',
+    'settings.tex_file_name',
+    'settings.export_tex',
+    'settings.export_tex_file_path',
+    'settings.export_tex_override',
+    ]
 
     preset_subdir = 'operator/sdfbaker_data'
 

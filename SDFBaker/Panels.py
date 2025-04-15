@@ -97,25 +97,10 @@ class SDFBAKER_PT_VoxelsPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "x")
-
-        row = layout.row()
         row.prop(settings, "y")
 
         row = layout.row()
         row.prop(settings, "z")
-
-        layout.separator()
-        
-        layout.separator()
-        
-        row = layout.row()
-        row.prop(settings, "normalize")
-
-        row = layout.row()
-        if settings.normalize:
-            row.prop(settings, "remap")
-        else:
-            row.prop(settings, "scale")
 
 ############
 ### MESH ###
@@ -136,10 +121,22 @@ class SDFBAKER_PT_MeshPanel(bpy.types.Panel):
         settings = scene.SDFBakerSettings
         
         row = layout.row()
-        row.prop(settings, "mesh_name")
+        row.prop(settings, "scale")
 
         row = layout.row()
-        row.prop(settings, "gen_selection_mesh")
+        row.label(text="Invert")
+        row.prop(settings, "invert_x", text="X")
+        row.prop(settings, "invert_y", text="Y")
+        row.prop(settings, "invert_z", text="Z")
+
+        row = layout.row()
+        row.prop(settings, "mesh_name")
+
+        layout.separator()
+
+        row = layout.row()
+        row.prop(settings, "gen_selection_mesh", text="Merged")
+        row.prop(settings, "gen_debug_mesh", text="Debug")
 
 class SDFBAKER_PT_MeshExportPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_meshexportpanel"
@@ -196,7 +193,7 @@ class SDFBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
 class SDFBAKER_PT_TexPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_texpanel"
     bl_parent_id = "SDFBAKER_PT_sdfbakerpanel"
-    bl_label = "Textures"
+    bl_label = "Texture"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
@@ -210,16 +207,20 @@ class SDFBAKER_PT_TexPanel(bpy.types.Panel):
         settings = scene.SDFBakerSettings
         
         row = layout.row()
+        row.prop(settings, "distance_mode")
+
+        row = layout.row()
         row.prop(settings, "tex_file_name")
 
         row = layout.row()
         row.prop(settings, "tile_sort_mode")
         
         row = layout.row()
-        row.prop(settings, "invert_v")
+        row.prop(settings, "frames")
 
         row = layout.row()
-        row.prop(settings, "frames")
+        row.prop(settings, "invert_v")
+        row.prop(settings, "invert_sign")
 
 class SDFBAKER_PT_TexExportPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_texexportpanel"
@@ -375,6 +376,107 @@ class SDFBAKER_PT_ReportPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text=report.name)
 
+class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
+    bl_idname = "SDFBAKER_PT_infotexpanel"
+    bl_parent_id = "SDFBAKER_PT_reportpanel"
+    bl_label = "Texture"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    # @classmethod
+    # def poll(cls, context):
+    #     return context.scene.SDFBakerReport.success
+    
+    def draw_header(self, context):
+        report = context.scene.SDFBakerReport
+        row = self.layout.row(align=True)
+        if report.tex:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="ERROR")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.SDFBakerReport
+
+        row = layout.row()
+        col = row.split()
+        col.label(text="Width: " + str(report.tex_width))
+        col.label(text="Height: " + str(report.tex_height))
+
+        layout.separator()
+
+        if report.tex:
+            row = layout.row()
+            row.prop(report, "tex", text="")
+            row.enabled = False
+
+            row = layout.row()
+            if report.tex_export:
+                row.label(text="File: " + report.tex_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Distance: " + report.distance_mode)
+            if report.distance_mode != "REAL":
+                row = layout.row()
+                row.label(text="Max: " + str(report.max_dist))
+        else:
+            row.label(text="None generated", icon="X")
+    
+        layout.separator()
+
+        row = layout.row()
+        col = row.split()
+        col.label(text="Invert V: " + str(report.invert_v))
+        col.label(text="Invert Sign: " + str(report.invert_sign))
+
+class SDFBAKER_PT_ReportMeshPanel(bpy.types.Panel):
+    bl_idname = "SDFBAKER_PT_infomeshpanel"
+    bl_parent_id = "SDFBAKER_PT_reportpanel"
+    bl_label = "Mesh"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        report = context.scene.SDFBakerReport
+        row = self.layout.row(align=True)
+        if report.mesh:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="X")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.SDFBakerReport
+
+        if report.mesh:
+            row = layout.row()
+            row.prop(report, "mesh", text="")
+            row.enabled = False
+
+            row = layout.row()
+            if report.mesh_export:
+                row.label(text="File: " + report.mesh_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+        else:
+            row = layout.row()
+            row.label(text="None generated")
+
 class SDFBAKER_PT_ReportXMLPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_infoxmlpanel"
     bl_parent_id = "SDFBAKER_PT_reportpanel"
@@ -435,6 +537,25 @@ class SDFBAKER_PT_ReportUnitPanel(bpy.types.Panel):
 
         row = layout.row()
         row.label(text="Scale: " + str(report.unit_scale))
+
+        layout.separator()
+        row = layout.row()
+        row.label(text="Invert")
+
+        icon = "CHECKMARK" if report.unit_invert_x else "X"
+        row = layout.row()
+        row.label(text="X: " + str(report.unit_invert_x), icon=icon)
+        row.enabled = report.unit_invert_x
+
+        icon = "CHECKMARK" if report.unit_invert_y else "X"
+        row = layout.row()
+        row.label(text="Y: " + str(report.unit_invert_y), icon=icon)
+        row.enabled = report.unit_invert_y
+
+        icon = "CHECKMARK" if report.unit_invert_z else "X"
+        row = layout.row()
+        row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
+        row.enabled = report.unit_invert_z
 
 ##############
 ### LEGACY ###

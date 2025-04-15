@@ -43,6 +43,9 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_unit", context.scene.unit_settings.length_unit)
     add_bake_report("unit_length", context.scene.unit_settings.scale_length)
     add_bake_report("unit_scale", settings.scale)
+    add_bake_report("unit_invert_x", settings.invert_x)
+    add_bake_report("unit_invert_y", settings.invert_y)
+    add_bake_report("unit_invert_z", settings.invert_z)
 
 def reset_bake_report():
     """ """
@@ -59,6 +62,7 @@ def reset_bake_report():
     report.unit_length = 0.0
     report.unit_scale = 0.0
 
+    report.distance_mode = ""
     report.sdf_mode = ""
     report.sdf_bounds = None
 
@@ -66,6 +70,9 @@ def reset_bake_report():
     report.xml_path = ""
 
     report.scale = 0.0
+    report.invert_x = False
+    report.invert_y = False
+    report.invert_z = False
     
     report.frames = 0
     report.x = 0
@@ -74,11 +81,10 @@ def reset_bake_report():
     report.max_dist = 0.0
 
     report.offset = mathutils.Vector((0.0, 0.0, 0.0))
-    report.normalize = False
-    report.remap = False
 
     report.tile_sort_mode = ""
     report.invert_v = False
+    report.invert_sign = False
 
     report.mesh = None
     report.mesh_export = False
@@ -156,7 +162,7 @@ def get_bake_obj(context: bpy.types.Context, objs_to_bake: list, bake_name: str)
 
     dgraph = bpy.context.evaluated_depsgraph_get()
 
-    name = bake_name if bake_name != "" else "BakedMesh.SDF"
+    name = bake_name + ".source" if bake_name != "" else "BakedMesh.SDF.source"
     mesh = bpy.data.meshes.new(name)
 
     bm = bmesh.new()
@@ -178,6 +184,21 @@ def get_bake_obj(context: bpy.types.Context, objs_to_bake: list, bake_name: str)
         bpy.data.meshes.remove(mesh) # clean
         return (False, "Mesh has no faces or vertices", None)
 
+    # invert axis if needed
+    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                    -1.0 if settings.invert_y else 1.0,
+                                    -1.0 if settings.invert_z else 1.0))
+    signed_axis_mat_x = mathutils.Matrix.Scale(signed_axis.x, 4, (1,0,0))
+    signed_axis_mat_y = mathutils.Matrix.Scale(signed_axis.y, 4, (0,1,0))
+    signed_axis_mat_z = mathutils.Matrix.Scale(signed_axis.z, 4, (0,0,1))
+    mesh.transform(signed_axis_mat_x @ signed_axis_mat_y @ signed_axis_mat_z) # @NOTE can't we create a scale matrix in one call?
+
+    # need to recalc normals @NOTE I don't like this, as it may change the mesh in a way the user doesn't expects
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(mesh)
+
     obj = bpy.data.objects.new(name, mesh)
     scene.collection.objects.link(obj)
 
@@ -191,12 +212,14 @@ def clear_bake_obj(context: bpy.types.Context, obj: bpy.types.Object):
 
     if obj and not settings.gen_selection_mesh:
         bpy.data.meshes.remove(obj.data)
-        bpy.data.objects.remove(obj)
 
-def bake_sdf(context, obj, tex_width: int, tex_height: int):
+def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex_height: int):
     """ """
     settings = context.scene.SDFBakerSettings
 
+    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                    -1.0 if settings.invert_y else 1.0,
+                                    -1.0 if settings.invert_z else 1.0))
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     BVH = mathutils.bvhtree.BVHTree.FromBMesh(bm)
@@ -204,8 +227,9 @@ def bake_sdf(context, obj, tex_width: int, tex_height: int):
     if not BVH:
         return (False, "Couldn't create BVH", None, (None, None))
 
-    add_bake_report("tile_sort_mode", settings.tile_sort_mode) # @TODO implement
-    add_bake_report("invert_v", settings.invert_v) # @TODO implement
+    add_bake_report("tile_sort_mode", settings.tile_sort_mode)
+    add_bake_report("invert_v", settings.invert_v)
+    add_bake_report("invert_sign", settings.invert_sign)
 
     custom_bounds = False
     if settings.sdf_mode == "CUSTOM" and settings.sdf_bounds:
@@ -241,13 +265,14 @@ def bake_sdf(context, obj, tex_width: int, tex_height: int):
     one_corner = center + (bounds * 0.5)
     step = mathutils.Vector((bounds.x / settings.x, bounds.y / settings.y, bounds.z / settings.z))
 
-    samples = []
+    if settings.gen_debug_mesh:
+        samples = []
 
     max_dist = 0.0
     sdf = [0.0, 0.0, 0.0, 1.0] * (tex_width * tex_height)
     for z in range(settings.z):
         progress_z = z / max(1.0, (settings.z - 1))
-        bpy.context.window_manager.progress_update(progress_z)
+        bpy.context.window_manager.progress_update((progress_z * 80) + 10)
 
         flip_tile_x = settings.tile_sort_mode == "TB_RL" or settings.tile_sort_mode == "BT_RL"
         sdf_index_z_tile_x_offset = (z % settings.frames) * settings.x
@@ -260,14 +285,16 @@ def bake_sdf(context, obj, tex_width: int, tex_height: int):
         sdf_index_z_offset = (sdf_index_z_tile_x_offset + sdf_index_z_tile_y_offset) * 4
 
         for y in range(settings.y):
-            progress_y = y / max(1.0, (settings.y - 1))
+            #progress_y = y / max(1.0, (settings.y - 1))
             sdf_index_y_offset = ((settings.y - 1 - y) if settings.invert_v else y) * tex_width * 4
             for x in range(settings.x):
-                progress_x = x / max(1.0, (settings.x - 1))
+                #progress_x = x / max(1.0, (settings.x - 1))
                 sdf_index_x_offset = x * 4
 
-                sample_pos = zero_corner + (step * mathutils.Vector((x, y, z))) + (step * 0.5) # @TODO Y need to be flipped?
-                samples.append(sample_pos)
+                sample_pos = zero_corner + (step * mathutils.Vector((x, y, z))) + (step * 0.5)
+                
+                if settings.gen_debug_mesh:
+                    samples.append(sample_pos)
 
                 nearest_pos, nearest_nor, nearest_index, nearest_dist = BVH.find_nearest(sample_pos)
                 nearest_dist *= abs(settings.scale)
@@ -279,19 +306,23 @@ def bake_sdf(context, obj, tex_width: int, tex_height: int):
                 if hit_dist and hit_nor.dot(mathutils.Vector((0.0, 0.0, 1.0))) > 0.0:
                     nearest_dist *= -1.0
 
+                if settings.invert_sign:
+                    nearest_dist *= -1.0
+
                 sdf_index = sdf_index_x_offset + sdf_index_y_offset + sdf_index_z_offset
                 sdf[sdf_index] = nearest_dist
                 #sdf[sdf_index+0] = progress_x
                 #sdf[sdf_index+1] = progress_y
                 #sdf[sdf_index+2] = progress_z
 
-    mesh = bpy.data.meshes.new("VertexOnlyMesh")
-    obj = bpy.data.objects.new("VertexOnlyObject", mesh)
-
-    bpy.context.scene.collection.objects.link(obj)
-
-    mesh.from_pydata(samples, [], [])
-    mesh.update()
+    if settings.gen_debug_mesh:
+        bake_name = bake_name + ".debug" if bake_name != "" else "BakedMesh.debug"
+        mesh = bpy.data.meshes.new(bake_name)
+        mesh.from_pydata(samples, [], [])
+        mesh.update()
+        
+        obj = bpy.data.objects.new(bake_name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
 
     add_bake_report("x", settings.x)
     add_bake_report("y", settings.y)
@@ -308,7 +339,7 @@ def get_remapped_sdf(context: bpy.types.Context, sdf: list, max_dist: float):
     if abs(max_dist) < 0.00001:
         return (False, "Invalid maximum distance", sdf)
     
-    if not settings.normalize and not settings.remap:
+    if settings.distance_mode == "REAL":
         return (False, "Not asked to normalize or remap", sdf)
 
     if not sdf or len(sdf) < 4:
@@ -316,9 +347,6 @@ def get_remapped_sdf(context: bpy.types.Context, sdf: list, max_dist: float):
 
     max_range = max_dist
     min_range = -max_dist if settings.remap else 0.0
-
-    add_bake_report("remap", settings.remap)
-    add_bake_report("normalize", settings.normalize)
 
     max_voxel = len(sdf) // 4
     for voxel_index in range(max_voxel):
@@ -380,14 +408,14 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ########
     # BAKE #
 
-    success, msg, sdf, max_dist, corners = bake_sdf(context, obj, tex_width, tex_height)
+    success, msg, sdf, max_dist, corners = bake_sdf(context, bake_name, obj, tex_width, tex_height)
     if not success:
         clear_bake_obj(context, obj)
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, "ERROR", msg)
 
-    success, msg, obj_to_export = generate_sdf_mesh_bounds(bake_name + ".bounds", corners)
+    success, msg, obj_to_export = generate_sdf_mesh_bounds(bake_name, corners)
     if not success:
         clear_bake_obj(context, obj)
         add_bake_report("success", False)
@@ -395,8 +423,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         return (False, "ERROR", msg)
     add_bake_report("mesh", obj_to_export)
 
-    if settings.normalize:
+    if settings.distance_mode != "REAL":
         success, msg, sdf = get_remapped_sdf(context, sdf, max_dist)
+    add_bake_report("distance_mode", settings.distance_mode)
 
     wm.progress_update(90)
 
@@ -460,11 +489,10 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 ##############
 ### MESHES ###
-def generate_sdf_mesh_bounds(name: str, corners: tuple[mathutils.Vector, mathutils.Vector]) -> tuple[bool, str]:
+def generate_sdf_mesh_bounds(bake_name: str, corners: tuple[mathutils.Vector, mathutils.Vector]) -> tuple[bool, str]:
     ''' Create a wireframe mesh to display the given bounds '''
 
-    if name is None:
-        return (False, "Invalid name", None)
+    bake_name = bake_name if bake_name != "" else "BakedMesh"
 
     zero_corner, one_corner = corners
 
@@ -488,9 +516,9 @@ def generate_sdf_mesh_bounds(name: str, corners: tuple[mathutils.Vector, mathuti
             [0, 3, 5, 6],
         ]
 
-    bounds_obj = bpy.context.scene.objects.get(name, None)
+    bounds_obj = bpy.context.scene.objects.get(bake_name, None)
     if bounds_obj is None:
-        bounds_mesh = bpy.data.meshes.new(name)
+        bounds_mesh = bpy.data.meshes.new(bake_name)
         bounds_mesh.from_pydata(bounds_verts, [], bounds_faces)
         bounds_obj = bpy.data.objects.new(bounds_mesh.name, bounds_mesh)
         bounds_obj.display_type = 'WIRE'
@@ -507,9 +535,9 @@ def generate_sdf_mesh_bounds(name: str, corners: tuple[mathutils.Vector, mathuti
                 for bounds_vertex_index, bounds_vertex in enumerate(bounds_mesh.vertices):
                     bounds_vertex.co = bounds_verts[bounds_vertex_index]
             else:
-                return (False, "An object named " + name + " already exists but it doesn't look like it's from a previous bake. Unsafe to modify", None)
+                return (False, "An object named " + bake_name + " already exists but it doesn't look like it's from a previous bake. Unsafe to modify", None)
         else:
-            return (False, "An object named " + name + " already exists but isn't a mesh. Can't modify it", None)
+            return (False, "An object named " + bake_name + " already exists but isn't a mesh. Can't modify it", None)
 
     return (True, "", bounds_obj)
 
@@ -573,6 +601,16 @@ def generate_geonodes_sdf_3d(context: bpy.types.Context, obj: bpy.types.Object):
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["Z"].identifier] = settings.z
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["Object"].identifier] = obj
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["Bounds Offset"].identifier] = settings.offset
+
+    map = bpy.data.materials.get("SDF", None)
+    if map is None:
+        mat = bpy.data.materials.new(name = "SDF")
+        buid_material_sdf_3d_node_group(mat)
+
+    if geonodes_obj.data.materials:
+        geonodes_obj.data.materials[0] = mat
+    else:
+        geonodes_obj.data.materials.append(mat)
 
     return (True, "INFO", "")
 
@@ -2928,6 +2966,62 @@ def build_geonodes_sdf_3d():
     nodes_sdf_3d.links.new(set_material.outputs[0], join_geometry.inputs[0])
     return nodes_sdf_3d
 
+def buid_material_sdf_3d_node_group(mat: bpy.types.Material):
+    # https://github.com/BrendanParmer/NodeToPython/
+    
+    mat.use_nodes = True
+    sdf = mat.node_tree
+    #start with a clean node tree
+    for node in sdf.nodes:
+        sdf.nodes.remove(node)
+    sdf.color_tag = 'NONE'
+    sdf.description = ""
+    sdf.default_group_node_width = 140
+    
+
+    #sdf interface
+
+    #initialize sdf nodes
+    #node Material Output
+    material_output = sdf.nodes.new("ShaderNodeOutputMaterial")
+    material_output.name = "Material Output"
+    material_output.is_active_output = True
+    material_output.target = 'ALL'
+    #Displacement
+    material_output.inputs[2].default_value = (0.0, 0.0, 0.0)
+    #Thickness
+    material_output.inputs[3].default_value = 0.0
+
+    #node Attribute
+    attribute = sdf.nodes.new("ShaderNodeAttribute")
+    attribute.name = "Attribute"
+    attribute.attribute_name = "Color"
+    attribute.attribute_type = 'GEOMETRY'
+
+    #node Emission
+    emission = sdf.nodes.new("ShaderNodeEmission")
+    emission.name = "Emission"
+    #Strength
+    emission.inputs[1].default_value = 1.0
+
+
+    #Set locations
+    material_output.location = (300.0, 300.0)
+    attribute.location = (-50.5788459777832, 251.546630859375)
+    emission.location = (122.99018096923828, 275.61212158203125)
+
+    #Set dimensions
+    material_output.width, material_output.height = 140.0, 100.0
+    attribute.width, attribute.height = 140.0, 100.0
+    emission.width, emission.height = 140.0, 100.0
+
+    #initialize sdf links
+    #emission.Emission -> material_output.Surface
+    sdf.links.new(emission.outputs[0], material_output.inputs[0])
+    #attribute.Color -> emission.Color
+    sdf.links.new(attribute.outputs[0], emission.inputs[0])
+    return sdf
+
 ################
 ### TEXTURES ###
 def generate_texture(name: str, filename: str, buffer: list, tex_width: int, tex_height: int) -> tuple[bool, str, bpy.types.Image]:
@@ -3030,7 +3124,6 @@ def get_best_texture_resolution(context: bpy.types.Context):
 ### XML ###
 def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     """ """
-    # @TODO
     settings = context.scene.SDFBakerSettings
     report = context.scene.SDFBakerReport
 
@@ -3044,8 +3137,16 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             system=report.unit_system,
                             unit=str(report.unit_unit),
                             length=str(report.unit_length),
-                            scale=str(report.unit_scale))
+                            scale=str(report.unit_scale),
+                            invert_x=str(report.unit_invert_x),
+                            invert_y=str(report.unit_invert_y),
+                            invert_z=str(report.unit_invert_z))
     
+    # mesh info
+    mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""
+
+    mesh_el = ET.SubElement(root, "Mesh", path=mesh_export_path)
+
     # texture
     if report.tex:
         if report.tex_path != "":
@@ -3054,8 +3155,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                                         height=str(report.tex_height),
                                         slices=str(report.tex_slices),
                                         path=report.tex_path,
-                                        normalize=str(report.normalize),
-                                        remap=str(report.remap),
+                                        distance=report.distance_mode,
                                         max_dist=str(report.max_dist))
 
     # write xml
