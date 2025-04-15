@@ -165,6 +165,9 @@ class SDFBAKER_PT_MeshExportPanel(bpy.types.Panel):
         layout.enabled = bpy.data.is_saved
 
         row = layout.row()
+        row.prop(settings, "export_mesh_file_name")
+
+        row = layout.row()
         row.prop(settings, "export_mesh_file_path")
 
 class SDFBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):

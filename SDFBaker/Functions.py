@@ -184,20 +184,21 @@ def get_bake_obj(context: bpy.types.Context, objs_to_bake: list, bake_name: str)
         bpy.data.meshes.remove(mesh) # clean
         return (False, "Mesh has no faces or vertices", None)
 
-    # invert axis if needed
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-    signed_axis_mat_x = mathutils.Matrix.Scale(signed_axis.x, 4, (1,0,0))
-    signed_axis_mat_y = mathutils.Matrix.Scale(signed_axis.y, 4, (0,1,0))
-    signed_axis_mat_z = mathutils.Matrix.Scale(signed_axis.z, 4, (0,0,1))
-    mesh.transform(signed_axis_mat_x @ signed_axis_mat_y @ signed_axis_mat_z) # @NOTE can't we create a scale matrix in one call?
+    if settings.invert_x or settings.invert_y or settings.invert_z:
+        # invert axis if needed
+        signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                        -1.0 if settings.invert_y else 1.0,
+                                        -1.0 if settings.invert_z else 1.0))
+        signed_axis_mat_x = mathutils.Matrix.Scale(signed_axis.x, 4, (1,0,0))
+        signed_axis_mat_y = mathutils.Matrix.Scale(signed_axis.y, 4, (0,1,0))
+        signed_axis_mat_z = mathutils.Matrix.Scale(signed_axis.z, 4, (0,0,1))
+        mesh.transform(signed_axis_mat_x @ signed_axis_mat_y @ signed_axis_mat_z) # @NOTE can't we create a scale matrix in one call?
 
-    # need to recalc normals @NOTE I don't like this, as it may change the mesh in a way the user doesn't expects
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bm.to_mesh(mesh)
+        # need to recalc normals @NOTE I don't like this, as it may change the mesh in a way the user doesn't expects
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(mesh)
 
     obj = bpy.data.objects.new(name, mesh)
     scene.collection.objects.link(obj)
@@ -346,7 +347,7 @@ def get_remapped_sdf(context: bpy.types.Context, sdf: list, max_dist: float):
         return (False, "Invalid buffer", sdf)
 
     max_range = max_dist
-    min_range = -max_dist if settings.remap else 0.0
+    min_range = -max_dist if settings.distance_mode == "REMAPPED" else 0.0
 
     max_voxel = len(sdf) // 4
     for voxel_index in range(max_voxel):

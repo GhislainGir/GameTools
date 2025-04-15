@@ -23,25 +23,25 @@ class SDFBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     """ """
 
     sdf_modes = [
-        ("BOUNDS", "Selection", "Automatically derive SDF bounds from selection bounds, with optional offset"),
-        ("CUSTOM", "Custom", "Use the bounds of a mesh")
+        ("BOUNDS", "Selection", "The volume automatically encapsulates all selected meshes, with an optional extra offset in X, Y, and Z"),
+        ("CUSTOM", "Custom", "The volume is based on the bounding box of a specified mesh or empty. If an empty is used, the volume is derived from its display size and scale and centered on its position")
     ]
-    sdf_mode: EnumProperty(name="Bounds", items=sdf_modes, default="BOUNDS", description="")
-    sdf_bounds: PointerProperty(name="Object", type=bpy.types.Object, description="Custom mesh to use for computing bounds. Empty may be used, in which case bounds will be derived from empty's display size, multiplied by the empty's scale. This object will be excluded from the bake!")
+    sdf_mode: EnumProperty(name="Bounds", items=sdf_modes, default="BOUNDS", description="Control how the sdf volume is computed")
+    sdf_bounds: PointerProperty(name="Object", type=bpy.types.Object, description="Custom mesh to use for computing the bounds. An empty can also be used—in that case, the bounds are derived from the empty's display size, multiplied by its scale, and centered on its position. This object will be excluded from the bake!")
 
-    frames: IntProperty(name="Slices Per Row", min=2, max=1024, default=8, description="How many Z slices to distribute along the U axis in the texture. Assuming you want to bake 64 voxels in Z, a value of 8 will generate an evenly distributed 8 by 8 texture. A value 10 will generate a 10 by 7 texture with 4 empty tiles in the last row")
-    x: IntProperty(name="X", min=2, max=1024, default=32, description="")
-    y: IntProperty(name="Y", min=2, max=1024, default=32, description="")
-    z: IntProperty(name="Z", min=2, max=1024, default=64, description="")
+    frames: IntProperty(name="Slices Per Row", min=1, max=1024, default=8, description="Specify how many Z slices to distribute along the U axis in the texture. For example, if you're baking 64 voxels in Z and set this value to 8, the result will be an evenly distributed 8×8 texture. If set to 10, it will produce a 10×7 layout, with 4 empty tiles in the last row")
+    x: IntProperty(name="X", min=1, max=1024, default=32, description="Amount of voxels to bake in the X axis")
+    y: IntProperty(name="Y", min=1, max=1024, default=32, description="Amount of voxels to bake in the Y axis")
+    z: IntProperty(name="Z", min=1, max=1024, default=64, description="Amount of voxels to bake in the Z axis")
 
-    offset: FloatVectorProperty(name="Offset", default=(1.0, 1.0, 1.0), description="How much bounds are extended, allowing to generate voxels outside the selection (in Blender unit, on each side)")
+    offset: FloatVectorProperty(name="Offset", default=(1.0, 1.0, 1.0), description="Specifies how much to extend the bounds, allowing voxels to be generated outside the selection's bounds (in Blender units, on each side)")
 
     distance_modes = [
-        ('REAL', 'Actual', 'Encode distance as-is, in whatever units they were initially computed'),
-        ('NORMALIZED', 'Normalized', 'Normalize distance in the range [-1:1]'),
-        ('REMAPPED', 'Normalized & Remapped', 'Normalize and remap distance in the range [0:1]')
+        ('REAL', 'Actual', 'Encode distances as-is, using the original units they were computed in'),
+        ('NORMALIZED', 'Normalized', 'Normalize distances to the range [-1, 1]. The reported "Maximum Distance" can be used to remap the normalized values back to their original range'),
+        ('REMAPPED', 'Normalized & Remapped', 'Normalize and remap distances to the range [0, 1]. The reported "Maximum Distance", along with a constant bias scale, can be used to remap the normalized values back to their original range')
     ]
-    distance_mode: EnumProperty(name="Distance", items=distance_modes, default="REAL", description="Control how distances are baked in the texture")
+    distance_mode: EnumProperty(name="Distance", items=distance_modes, default="REAL", description="Control how distances are encoded in the texture")
 
     tile_sort_modes = [
         ('TB_LR', 'Top Bottom, Left Right', ''),
@@ -49,15 +49,15 @@ class SDFBAKER_PG_SettingsPropertyGroup(PropertyGroup):
         ('BT_LR', 'Bottom Top, Left Right', ''),
         ('BT_RL', 'Bottom Top, Right Left', '')
     ]
-    tile_sort_mode: EnumProperty(name="Slices", items=tile_sort_modes, default="BT_LR", description="Control how the tiles/z-slices are distributed in the texture. Bottom Top is typically required for Unreal Engine or DirectX apps.")
-    invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap for each tile/slice. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each tile individually and doesn't affect the way they are sorted.")
-    invert_sign: BoolProperty(name="Invert Sign", default=False, description="Flip the sign of the distance field (inside<>outside). Negative if inside if False, positive else.")
+    tile_sort_mode: EnumProperty(name="Slices", items=tile_sort_modes, default="BT_LR", description="Control how the tiles/z-slices are distributed in the texture. 'Bottom Top' is typically required for Unreal Engine or DirectX apps.")
+    invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap for each tile/z-slice. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each tile individually and doesn't affect the way they are sorted.")
+    invert_sign: BoolProperty(name="Invert Sign", default=False, description="Flip the sign of the distance field (inside <> outside). Negative if inside and False, positive otherwise.")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.SDF", description="Name of the resulting baked mesh")
-    gen_selection_mesh: BoolProperty(name="Create Selection Mesh", default=True, description="Generate mesh used for SDF computation (generated internally regardless but normally destroyed)")
-    gen_debug_mesh: BoolProperty(name="Create Debug Mesh", default=True, description="Generate debug sample points")
-    export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the SDF bounds to an FBX file upon bake completion")
+    gen_selection_mesh: BoolProperty(name="Create Selection Mesh", default=True, description="Generate the mesh used for SDF computation (internally generated but destroyed afterward if False)")
+    gen_debug_mesh: BoolProperty(name="Create Debug Mesh", default=False, description="Generate a mesh with a vertex for each sample point (useful for debugging)")
+    export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the SDF bounds to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported FBX file (without the .fbx extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
     export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH')
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
@@ -66,22 +66,22 @@ class SDFBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    
+
     # xml
-    export_xml: BoolProperty(name="Export", default=True, description="True to export an XML file containing informations relative to the bake (recommended)")
+    export_xml: BoolProperty(name="Export", default=True, description="True to export an XML file containing informations relative to the bake. Only available if the Blender file is saved")
     export_xml_modes = [
-        ("TEXPATH", "Texture Path", "Use the same mesh fbx file name & path. Defaults to 'Custom' if mesh is *not* exported"),
+        ("TEXPATH", "Texture Path", "Use the same mesh fbx file name & path. Defaults to 'Custom' if the texture is *not* exported"),
         ("CUSTOMPATH", "Custom Path", "Specify a custom xml file name & path")
     ]
-    export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the xml file name & path is computed")
-    export_xml_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="XML file name, without extension")
-    export_xml_file_path: StringProperty(name="Path", default="//", description="XML file path, not including file name", subtype='FILE_PATH')
-    export_xml_override: BoolProperty(name="Override", default=True, description="True to override any existing .xml file")
+    export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
+    export_xml_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported XML file (without the .xml extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
+    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
+    export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
     # textures
-    tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>", description="Name for the vertex offset texture file (without the .exr extension)")
-    export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion")
-    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH')
+    tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>", description="Name for the sdf texture file (without the .exr extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
+    export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated texture to an EXR file upon bake completion. Only available if the Blender file is saved")
+    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file", subtype='FILE_PATH')
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
 
 class SDFBAKER_PG_ReportPropertyGroup(PropertyGroup):
@@ -102,9 +102,9 @@ class SDFBAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
 
     frames: IntProperty(name="Z Slices Per Row", min=2, max=1024, default=8, description="")
-    x: IntProperty(name="X", min=2, max=1024, default=32, description="")
-    y: IntProperty(name="Y", min=2, max=1024, default=32, description="")
-    z: IntProperty(name="Z", min=2, max=1024, default=64, description="")
+    x: IntProperty(name="X", min=1, max=1024, default=32, description="")
+    y: IntProperty(name="Y", min=1, max=1024, default=32, description="")
+    z: IntProperty(name="Z", min=1, max=1024, default=64, description="")
     max_dist: FloatProperty(name="Max", default=0.0)
 
     distance_mode: StringProperty(name="Distance", default="")
