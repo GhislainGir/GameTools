@@ -409,7 +409,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.mode_set(mode="OBJECT") # @TODO is this necessary?
 
     settings = context.scene.SDFBakerSettings
     new_bake_report(context)
