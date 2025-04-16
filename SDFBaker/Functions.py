@@ -32,7 +32,13 @@ from ctypes import POINTER, pointer, c_int, cast, c_float
 ##############
 ### REPORT ###
 def new_bake_report(context: bpy.types.Context):
-    """ """
+    """
+    Reset the bake report and start a new one
+
+    :param context: Blender current execution context
+    :return: None
+    :rtype: None
+    """
     settings = context.scene.SDFBakerSettings
 
     reset_bake_report()
@@ -48,7 +54,12 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_invert_z", settings.invert_z)
 
 def reset_bake_report():
-    """ """
+    """
+    Set all report properties to their default values
+
+    :return: None
+    :rtype: None
+    """
     report = bpy.context.scene.SDFBakerReport
 
     report.baked = False
@@ -101,11 +112,24 @@ def reset_bake_report():
     report.tex_path = ""
 
 def add_bake_report(prop_name: str, prop_value: float|int|str):
-    """ """
+    """
+    Set a value in the bake report
+
+    :param prop_name: report property to set
+    :param prop_value: value to assign to the property
+    :return: None
+    :rtype: None
+    """
     setattr(bpy.context.scene.SDFBakerReport, prop_name, prop_value)
 
-def export_bake_report(context: bpy.types.Context):
-    """ """
+def export_bake_report(context: bpy.types.Context) -> tuple[bool, str, str]:
+    """
+    Export the bake report to XML
+
+    :param context: Blender current execution context
+    :return: the function's success, potential error message, export path
+    :rtype: tuple
+    """
     return(export_xml(context))
 
 ############
