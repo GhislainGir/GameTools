@@ -99,6 +99,7 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, Operator):
     'settings.tile_sort_mode',
     'settings.invert_v',
     'settings.invert_sign',
+    'settings.two_sided',
     'settings.mesh_name',
     'settings.gen_selection_mesh',
     'settings.gen_debug_mesh',
@@ -126,7 +127,7 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, Operator):
 ##############
 ### Report ###
 class SDFBAKER_OT_ExportReport(Operator):
-    """ """
+    """Export the bake report to an XML file, according to the XML export settings"""
     bl_idname = "gametools.sdfbaker_export_report"
     bl_label = "Export"
     bl_category = "Game Tools"
@@ -145,7 +146,7 @@ class SDFBAKER_OT_ExportReport(Operator):
             return {'CANCELLED'}
 
 class SDFBAKER_OT_ClearReport(Operator):
-    """ Bakes object & skeletal animations of the active mesh into textures, storing positional & normal data per vertex. """
+    """Clear the bake report"""
     bl_idname = "gametools.sdfbaker_clear_report"
     bl_label = "Clear"
     bl_category = "Game Tools"

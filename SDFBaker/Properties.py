@@ -52,6 +52,7 @@ class SDFBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     tile_sort_mode: EnumProperty(name="Slices", items=tile_sort_modes, default="BT_LR", description="Control how the tiles/z-slices are distributed in the texture. 'Bottom Top' is typically required for Unreal Engine or DirectX apps.")
     invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap for each tile/z-slice. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each tile individually and doesn't affect the way they are sorted.")
     invert_sign: BoolProperty(name="Invert Sign", default=False, description="Flip the sign of the distance field (inside <> outside). Negative if inside and False, positive otherwise.")
+    two_sided: BoolProperty(name="Two Sided", default=False, description="Assume mesh(es) are double sided, ignoring sign and computing the absolute distance. Useful for flat geometry, non-closed geometry etc.")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.SDF", description="Name of the resulting baked mesh")
@@ -112,6 +113,7 @@ class SDFBAKER_PG_ReportPropertyGroup(PropertyGroup):
     tile_sort_mode: StringProperty(name="Tile Sort Mode", default="")
     invert_v: BoolProperty(name="Invert V", default=True, description="")
     invert_sign: BoolProperty(name="Invert Sign", default=True, description="")
+    two_sided: BoolProperty(name="Two Sided", default=False, description="")
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="")

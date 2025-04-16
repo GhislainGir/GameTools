@@ -222,8 +222,12 @@ class SDFBAKER_PT_TexPanel(bpy.types.Panel):
         row.prop(settings, "frames")
 
         row = layout.row()
-        row.prop(settings, "invert_v")
-        row.prop(settings, "invert_sign")
+        col = row.split()
+        col.prop(settings, "invert_v")
+        col = row.split()
+        col.prop(settings, "invert_sign")
+        col = row.split()
+        col.prop(settings, "two_sided")
 
 class SDFBAKER_PT_TexExportPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_texexportpanel"
