@@ -175,7 +175,7 @@ def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -
     :param context: Blender current execution context
     :param active_object: object to derive name from
     :return: the bake operation's 'name'
-    :rtype: string
+    :rtype: str
     """
 
     settings = context.scene.SDFBakerSettings
