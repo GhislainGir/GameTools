@@ -16,7 +16,7 @@ import bpy
 from bl_ui.utils import PresetPanel
 
 from . import Functions
-from .Functions import get_data_layer_name, get_data_layer_storage_mode_icon, get_data_layer_info
+from .Functions import get_data_layer_name, get_data_layer_icon, get_data_layer_info
 
 ####################################################################################
 ###################################### PANELS ######################################
@@ -38,25 +38,11 @@ class DATABAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
 
 ############
 ### DATA ###
-class DATABAKER_UL_DataTargetList(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        settings = context.scene.DataBakerSettings
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            if item:
-                row = layout.row()
-                row.label(text=get_data_layer_name(item), translate=False)
-                row.enabled = settings.data_layers[settings.data_layers_selected_index].ID != item.ID
-            else:
-                layout.label(text="", translate=False, icon="X")
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text="", translate=False)
-
 class DATABAKER_UL_DataList(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             if item:
-                icon_base, icon_name = get_data_layer_storage_mode_icon(item, False)
+                icon_base, icon_name = get_data_layer_icon(item, False)
                 if icon_base:
                     row = layout.row()
                     row.label(text=get_data_layer_name(item), translate=False, icon=icon_name)
@@ -81,16 +67,17 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
                 else:
                     pass
 
-                icon_base, icon_name = get_data_layer_storage_mode_icon(item, True)
+                icon_base, icon_name = get_data_layer_icon(item, True)
                 if not icon_base:
                     row.label(text="", translate=False, icon=icon_name)
-                success, msg, _ = get_data_layer_info(item, data.data_layers) # @TODO
+                success, msg, _ = get_data_layer_info(item, data.data_layers)
                 row.label(text="", translate=False, icon="CHECKMARK" if success else "ERROR")
             else:
                 layout.label(text="", translate=False, icon="X")
         elif self.layout_type == 'GRID':
+            icon_base, icon_name = get_data_layer_icon(item, False)
             layout.alignment = 'CENTER'
-            layout.label(text="", translate=False, icon=get_data_layer_storage_mode_icon(item))
+            layout.label(text="", translate=False, icon=icon_name)
 
 class DATABAKER_PT_DataBaker(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_databakerpanel"
@@ -167,7 +154,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                         row.prop(data, "name", text="Shapekey")
 
                         row = panel_body.row()
-                        row.prop(data, "shapekey_mode")
+                        row.prop(data, "vertex_mode")
 
                         row = panel_body.row()
                         row.prop(data, "component")
@@ -210,6 +197,9 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                         row.prop(data, "rand_seed")
                         row = panel_body.row()
                         row.prop(data, "rand_float_mode")
+                        if data.rand_float_mode != "FLOAT":
+                            row = panel_body.row()
+                            row.prop(data, "component")
                         row = panel_body.row()
                         row.prop(data, "uniform")
                     elif data.data == "PARENT_POS":
@@ -233,6 +223,15 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                     elif data.data == "CUSTOM_PROP":
                         row = panel_body.row()
                         row.prop(data, "name", text="Name")
+                    elif data.data == "FRAME":
+                        row = panel_body.row()
+                        row.prop(data, "vertex_mode", text="Mode")
+
+                        row = panel_body.row()
+                        row.prop(data, "index", text="Frame")
+
+                        row = panel_body.row()
+                        row.prop(data, "component")
                     else:
                         pass
 
@@ -263,17 +262,15 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                             row.prop(settings, "pack_precision")
                         else:
                             pass
-
+                        
                         row = panel_body.row()
-                        row.template_list("DATABAKER_UL_DataTargetList", "", settings, "data_layers", data, "ptr_index", rows=3)
+                        row.prop(settings, "data_layers_ptr", text="Layer")
 
                         row = panel_body.row()
                         row.prop(data, "pack_only_if_non_null")
 
-                # @TODO add error panel if any errors!
-
-##########
-# MESHES #
+##############
+### MESHES ###
 class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_meshmainpanel"
     bl_parent_id = "DATABAKER_PT_databakerpanel"
@@ -304,7 +301,6 @@ class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
         
         row = layout.row()
         row.prop(settings, "mesh_name")
-        row.enabled = settings.merge_mesh
 
 class DATABAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_meshuvpanel"
@@ -327,36 +323,6 @@ class DATABAKER_PT_MeshUVPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "invert_v")
-
-class DATABAKER_PT_MeshAdvPanel(bpy.types.Panel):
-    bl_idname = "DATABAKER_PT_meshadvpanel"
-    bl_parent_id = "DATABAKER_PT_meshmainpanel"
-    bl_label = "Advanced"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 100
-    
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.DataBakerSettings
-        
-        row = layout.row()
-        row.prop(settings, "duplicate_mesh")
-        
-        row = layout.row()
-        row.prop(settings, "make_single_user")
-        row.enabled = settings.duplicate_mesh == False
-        
-        row = layout.row()
-        row.prop(settings, "merge_mesh")
-
-        row = layout.row()
-        row.prop(settings, "clean_bake")
-        row.enabled = settings.duplicate_mesh
 
 class DATABAKER_PT_MeshExportPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_meshexportpanel"
@@ -419,7 +385,7 @@ class DATABAKER_PT_XMLPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 10
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -435,7 +401,7 @@ class DATABAKER_PT_XMLExportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 1
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -464,8 +430,8 @@ class DATABAKER_PT_XMLExportPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "export_xml_file_path")
 
-            row = layout.row()
-            row.prop(settings, "export_xml_override")
+        row = layout.row()
+        row.prop(settings, "export_xml_override")
 
 ##############
 ### REPORT ###
@@ -475,7 +441,7 @@ class DATABAKER_UL_ReportDataSubList(bpy.types.UIList):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             if item:
                 row = layout.row()
-                row.label(text=get_data_layer_name(item), translate=False)
+                row.label(text=get_data_layer_name(item), translate=False, icon="COPYDOWN")
             else:
                 layout.label(text="", translate=False, icon="X")
         elif self.layout_type == 'GRID':
@@ -488,10 +454,21 @@ class DATABAKER_UL_ReportDataList(bpy.types.UIList):
             if item and item.packed_layers:
                 data_layer = [data_layer for data_layer in item.packed_layers if data_layer.ID == item.active_layer_ID][0]
 
-                row = layout.row()
-                row.label(text=get_data_layer_name(data_layer), translate=False, icon=get_data_layer_storage_mode_icon(data_layer))
-                row = layout.row(align=True)
-                row.alignment = "RIGHT"
+                icon_base, icon_name = get_data_layer_icon(data_layer, False)
+                if icon_base:
+                    row = layout.row()
+                    row.label(text=get_data_layer_name(data_layer), translate=False, icon=icon_name)
+                    row = layout.row(align=True)
+                    row.alignment = "RIGHT"
+                else:
+                    row = layout.row()
+                    col = row.split(align=True)
+                    col.alignment = "LEFT"
+                    col.label(text="")
+                    col = row.split(align=True)
+                    col.label(text=get_data_layer_name(data_layer), translate=False, icon=icon_name)
+                    row = layout.row(align=True)
+                    row.alignment = "RIGHT"
                 if data_layer.packing_mode == "UV":    
                     row.label(text=str(data_layer.uv_index))
                     row.label(text=data_layer.uv_channel)
@@ -504,8 +481,9 @@ class DATABAKER_UL_ReportDataList(bpy.types.UIList):
             else:
                 layout.label(text="", translate=False, icon="X")
         elif self.layout_type == 'GRID':
+            icon_base, icon_name = get_data_layer_icon(data_layer, False)
             layout.alignment = 'CENTER'
-            layout.label(text="", translate=False, icon=get_data_layer_storage_mode_icon(data_layer))
+            layout.label(text="", translate=False, icon=icon_name)
 
             layout.alignment = 'CENTER'
             layout.label(text="", icon="UV")
@@ -557,7 +535,7 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
         layout.template_list("DATABAKER_UL_ReportDataList", "", report, "data_layers", report, "data_layers_selected_index", rows=6)
         if report.data_layers:
             data_layer = report.data_layers[report.data_layers_selected_index]
-            if data_layer:
+            if data_layer and data_layer.packed_layers and len(data_layer.packed_layers) > 1:
                 layout.template_list("DATABAKER_UL_ReportDataSubList", "", data_layer, "packed_layers", data_layer, "packed_layers_selected_index", rows=3)
 
             row = layout.row()
@@ -566,6 +544,10 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
 
             row = layout.row()
             row.prop(data_layer, "range_max")
+            row.enabled = False
+
+            row = layout.row()
+            row.prop(data_layer, "packing_precision")
             row.enabled = False
 
 class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):

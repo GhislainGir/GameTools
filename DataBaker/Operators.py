@@ -26,12 +26,18 @@ import uuid
 ###################################### OPERATORS ######################################
 #######################################################################################
 class DATABAKER_OT_BakeData(Operator):
-    """ Bakes various data such as pivots and axis into UVs or VCols. """
+    """Bakes various data such as pivots and axis into UVs or VCols."""
     bl_idname = "gametools.databaker_bakedata"
     bl_label = "Bake"
     bl_category = "Game Tools"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
+    # tooltip: bpy.props.StringProperty(name="Name", default="BakedMesh.DATA", description="Name of the resulting baked mesh")
+
+    # @classmethod
+    # def description(cls, context, operator):
+    #     return operator.tooltip
+
     # @classmethod
     # def poll(cls, context):
     #     Object = context.active_object
@@ -54,16 +60,10 @@ class DATABAKER_OT_DataBaker_AddPreset(AddPresetBase, Operator):
     preset_menu = 'DATABAKER_MT_DataBaker_Presets'
 
     preset_defines = [ 'settings = bpy.context.scene.DataBakerSettings' ]
-    # @TODO check this works
     preset_values = [
     'settings.data_layers',
     'settings.data_layers_selected_index',
-    'settings.packing_precision',
     'settings.world_obj',
-    'settings.duplicate_mesh',
-    'settings.make_single_user',
-    'settings.merge_mesh',
-    'settings.clean_bake',
     'settings.mesh_name',
     'settings.scale',
     'settings.invert_x',
@@ -85,8 +85,8 @@ class DATABAKER_OT_DataBaker_AddPreset(AddPresetBase, Operator):
 
     preset_subdir = 'operator/databaker_data'
 
-#####################
-### NLA Exclusion ###
+###################
+### DATA LAYERS ###
 class DATABAKER_OT_NewSettings_NewItem(Operator):
     """Add a new item to the list."""
     bl_idname = "databaker_item.new_item"
@@ -144,7 +144,7 @@ class DATABAKER_OT_NewSettings_NewItem(Operator):
 
                 to_data_layer.obj = from_data_layer.obj
 
-                to_data_layer.shapekey_mode = from_data_layer.shapekey_mode
+                to_data_layer.vertex_mode = from_data_layer.vertex_mode
                 
                 to_data_layer.mask_mode = from_data_layer.mask_mode
 
@@ -208,17 +208,10 @@ class DATABAKER_OT_NewSettings_MoveItem(Operator):
 
         return{'FINISHED'}
 
-class DATABAKER_OT_NewSettings_PickItem(Operator):
-    """Move an item in the list."""
-    bl_idname = "databaker_item.move_item"
-    bl_label = "Move an item in the list"
-
-    
-
 ##############
 ### Report ###
 class DATABAKER_OT_ExportReport(Operator):
-    """ """
+    """Export the bake report to an XML file, according to the XML export settings."""
     bl_idname = "gametools.databaker_export_report"
     bl_label = "Export"
     bl_category = "Game Tools"
@@ -237,7 +230,7 @@ class DATABAKER_OT_ExportReport(Operator):
             return {'CANCELLED'}
 
 class DATABAKER_OT_ClearReport(Operator):
-    """ Bakes object & skeletal animations of the active mesh into textures, storing positional & normal data per vertex. """
+    """Clear the bake report."""
     bl_idname = "gametools.databaker_clear_report"
     bl_label = "Clear"
     bl_category = "Game Tools"
