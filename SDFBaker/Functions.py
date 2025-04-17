@@ -17,6 +17,7 @@ import os
 import sys
 import mathutils
 from mathutils.bvhtree import BVHTree
+from mathutils import geometry
 import random
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -170,7 +171,7 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
 
 def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -> str:
     """
-    Return the name to give to the mesh & images to generate.
+    Return the name to give to the mesh & image to generate.
 
     :param context: Blender current execution context
     :param active_object: object to derive name from
@@ -180,14 +181,14 @@ def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -
 
     settings = context.scene.SDFBakerSettings
 
-    name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh"
+    name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.SDF"
     tags = { "ObjectName" : active_object.name if active_object is not None else ""}
     name = replace_tags(name, tags)
     return name
 
 def get_bake_obj(context: bpy.types.Context, objs_to_bake: list, bake_name: str) -> tuple[bool, str, bpy.types.Object]:
     """
-    Return the objects to bake duplicated and merged as a single object
+    Return the objects to bake, duplicated and merged as a single object
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to bake
@@ -382,7 +383,7 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
                 #sdf[sdf_index+2] = progress_z
 
     if settings.gen_debug_mesh:
-        bake_name = bake_name + ".debug" if bake_name != "" else "BakedMesh.debug"
+        bake_name = bake_name + ".debug" if bake_name != "" else "BakedMesh.SDF.debug"
         mesh = bpy.data.meshes.new(bake_name)
         mesh.from_pydata(samples, [], [])
         mesh.update()
@@ -433,7 +434,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT") # @TODO is this necessary?
+    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE is this necessary?
 
     settings = context.scene.SDFBakerSettings
     new_bake_report(context)
@@ -530,7 +531,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     # MESH #
 
     if settings.export_mesh and bpy.data.is_saved:
-        success, msg, mesh_path = export_mesh(context, bake_name, obj_to_export)
+        success, msg, mesh_path = export_mesh_selection(context, bake_name)
         if not success:
             clear_bake_obj(context, obj)
             add_bake_report("success", False)
@@ -570,7 +571,7 @@ def generate_sdf_mesh_bounds(bake_name: str, corners: tuple[mathutils.Vector, ma
     :rtype: tuple
     """
 
-    bake_name = bake_name if bake_name != "" else "BakedMesh"
+    bake_name = bake_name if bake_name != "" else "BakedMesh.SDF"
 
     zero_corner, one_corner = corners
 
@@ -625,17 +626,15 @@ def generate_sdf_mesh_bounds(bake_name: str, corners: tuple[mathutils.Vector, ma
 
     return (True, "", bounds_obj)
 
-def export_mesh(context: bpy.types.Context, bake_name: str, obj_to_export: bpy.types.Object):
+def export_mesh_selection(context: bpy.types.Context, bake_name: str):
     """
-    Export the given object to FBX
+    Export the current selection to FBX
 
     :param context: Blender current execution context
     :param bake_name: Bake operation's 'name'
-    :param obj_to_export: object to export
-    :return: success, message, export path
+    :return: the function's success, potential error message, export path
     :rtype: tuple
     """
-
     settings = context.scene.VATBakerSettings
 
     tags = { "ObjectName" : bake_name}
@@ -647,6 +646,46 @@ def export_mesh(context: bpy.types.Context, bake_name: str, obj_to_export: bpy.t
         return (False, msg, None, -1)
 
     return (True, "", export_path)
+
+##############
+### CURVES ###
+def cubic_bezier(p0, p1, p2, p3, t):
+    """
+    """
+    u = 1 - t
+    return (
+        u**3 * p0 +
+        3 * u**2 * t * p1 +
+        3 * u * t**2 * p2 +
+        t**3 * p3
+    )
+
+def get_closest_point_on_curve(curve_obj, target_point, samples=100):
+    """
+    """
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = curve_obj.evaluated_get(depsgraph)
+    eval_curve = eval_obj.data
+
+    closest_point = None
+    min_dist = float('inf')
+
+    for spline in eval_curve.splines:
+        for segment_index in range(len(spline.bezier_points) // 2):
+            points_on_curve = geometry.interpolate_bezier(
+                spline.bezier_points[(segment_index * 2)].co,
+                spline.bezier_points[(segment_index * 2)].handle_right,
+                spline.bezier_points[(segment_index * 2) + 1].handle_left,
+                spline.bezier_points[(segment_index * 2) + 1].co,
+                samples)
+
+            for point_on_curve in points_on_curve:
+                dist = (target_point - point_on_curve).length
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_point = point_on_curve
+
+    return closest_point
 
 ################
 ### GEONODES ###

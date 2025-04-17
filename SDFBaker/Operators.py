@@ -26,7 +26,7 @@ import uuid
 ###################################### OPERATORS ######################################
 #######################################################################################
 class SDFBAKER_OT_BakeData(Operator):
-    """ """
+    """Bakes a 2D or 3D SDF from the selected meshes."""
     bl_idname = "gametools.sdfbaker_bakedata"
     bl_label = "Bake"
     bl_category = "Game Tools"
@@ -53,7 +53,7 @@ class SDFBAKER_OT_BakeData(Operator):
             return {'CANCELLED'}
 
 class SDFBAKER_OT_GenerateGeoNodes(Operator):
-    """Legacy way of baking SDF using geometry nodes. This was kept around in case you find the geometry nodes graph useful and for educational purposes"""
+    """Legacy way of baking SDF using geometry nodes (for educational purposes only)."""
     bl_idname = "gametools.sdfbaker_generategeonodes"
     bl_label = "GeoNodes (Legacy)"
     bl_category = "Game Tools"
@@ -127,7 +127,7 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, Operator):
 ##############
 ### Report ###
 class SDFBAKER_OT_ExportReport(Operator):
-    """Export the bake report to an XML file, according to the XML export settings"""
+    """Export the bake report to an XML file, according to the XML export settings."""
     bl_idname = "gametools.sdfbaker_export_report"
     bl_label = "Export"
     bl_category = "Game Tools"
@@ -146,7 +146,7 @@ class SDFBAKER_OT_ExportReport(Operator):
             return {'CANCELLED'}
 
 class SDFBAKER_OT_ClearReport(Operator):
-    """Clear the bake report"""
+    """Clear the bake report."""
     bl_idname = "gametools.sdfbaker_clear_report"
     bl_label = "Clear"
     bl_category = "Game Tools"
