@@ -33,33 +33,33 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     bake_mode: EnumProperty(name="Mode", items=bake_modes, default=0, description="Select how the vertex animation data is baked")
 
     # scene 
-    scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit.")
+    scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit")
     invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
 
     # uv
     uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData.VAT", description="Name of the UVMap to be created or used for baking mesh UVs")
-    invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap and flip the VAT texture(s) upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps.")
+    invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap and flip the VAT texture(s) upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.VAT", description="Name of the baked object")
     mesh_target_prop: StringProperty(name="Property", default="BakeTarget", description="Custom property name for the retargeting feature (to bake a high-res animated mesh to a low-res mesh)")
-    export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion")
+    export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported FBX file (without the .fbx extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH')
+    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
     require_triangulation: BoolProperty(name="Require Triangulation", default=False, description="Enable to enforce triangulation, potentially improving remapping stability")
     previz_result: BoolProperty(name="Previz", default=True, description="Enable to add a geometry node modifier to the baked mesh for previewing baked offsets and normals after bake completion")
 
     # xml
-    export_xml: BoolProperty(name="Export", default=True, description="Enable to export an XML file containing information about the bake process (recommended)")
+    export_xml: BoolProperty(name="Export", default=True, description="Enable to export an XML file containing information about the bake process (recommended). Only available if the Blender file is saved")
     export_xml_modes = [
         ("MESHPATH", "Mesh Path", "Use the same FBX file name and path for the XML file. Defaults to 'Custom' if mesh is not exported"),
         ("CUSTOMPATH", "Custom Path", "Specify a custom XML file name and path")
     ]
     export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
-    export_xml_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported XML file (without the .xml extension)")
+    export_xml_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported XML file (without the .xml extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
     export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
@@ -94,7 +94,7 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
         ("CUSTOM", "Custom", "Use a custom frame as the reference frame"),
     ]
     frame_ref_mode: EnumProperty(name="Mode", items=frame_ref_modes, default="START", description="Select how the reference frame is computed")
-    frame_ref_custom: IntProperty(name="Reference", default=1, description="Frame to use as the reference 'pose,' from which mappings and offsets are computed. Specifying a frame outside the animation range is allowed to specify a T-pose frame that should otherwise be excluded from the bake.")
+    frame_ref_custom: IntProperty(name="Reference", default=1, description="Frame to use as the reference 'pose,' from which mappings and offsets are computed. Specifying a frame outside the animation range is allowed to specify a T-pose frame that should otherwise be excluded from the bake")
 
     offset_tex_modes = [
         ('OFFSET', 'Offset', 'Store the vertices offset from the base pose in the VAT texture (recommended)'),
@@ -105,12 +105,12 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     # textures
     offset_tex: BoolProperty(name="Offset", default=True, description="Enable to bake the vertex offset texture")
     offset_tex_remap: BoolProperty(name="Remap", default=False, description="Enable to remap the offsets within a [0:1] range. This requires a multiplier and bias to remap the offsets in your shader or game engine. It is NOT recommended unless you intend to experiment with storing positions/offsets in 8-bit RGBA textures, as this will likely result in significant precision loss and visible deformation. Proceed at your own risk")
-    offset_tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>_Offset", description="Name for the vertex offset texture file (without the .exr extension)")
+    offset_tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>_Offset", description="Name for the vertex offset texture file (without the .exr extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
     normal_tex: BoolProperty(name="Normal", default=True, description="Enable to bake the vertex normal texture")
     normal_tex_remap: BoolProperty(name="Remap", default=True, description="Enable to remap the normals within a [0:1] range. This requires a constant bias to remap the normals in your shader or game engine. It is likely safe to do so, as normal VAT may be stored in an 8-bit RGBA texture without noticeable precision loss")
-    normal_tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>_Normal", description="Name for the vertex normal texture file (without the .exr extension)")
-    export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion")
-    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH')
+    normal_tex_file_name: StringProperty(name="Filename", default="T_<ObjectName>_Normal", description="Name for the vertex normal texture file (without the .exr extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
+    export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion. Only available if the Blender file is saved")
+    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
     export_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of vertices or frames")
     export_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of vertices or frame")

@@ -62,8 +62,6 @@ class VATBAKER_PT_VertexAnimation(bpy.types.Panel):
         row.scale_y = 2.0
         row.enabled = settings.offset_tex or settings.normal_tex
 
-        #layout.progress(factor = settings.progress) # @TODO
-
 #############
 ### SCENE ###
 class VATBAKER_PT_FramePanel(bpy.types.Panel):
@@ -485,8 +483,8 @@ class VATBAKER_PT_XMLExportPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "export_xml_file_path")
 
-            row = layout.row()
-            row.prop(settings, "export_xml_override")
+        row = layout.row()
+        row.prop(settings, "export_xml_override")
 
 ##############
 ### REPORT ###
