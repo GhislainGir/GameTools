@@ -57,7 +57,7 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("VCOL", "Vertex Color", "Bake data into vertex colors"),
         ("NORMAL", "Normal", "Bake data in mesh normals"),
     ]
-    packing_mode: EnumProperty(name="Mode", items=packing_modes, default="UV", description="How to bake the value")
+    packing_mode: EnumProperty(name="Mode", items=packing_modes, description="How to bake the value")
 
     uv_u_v = [
         ("U", "U", "U channel of UV map"),
@@ -159,13 +159,13 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
 
     # generate enum on demand to omit the selected layer, as it cannot be picked to prevent targeting self
     def get_data_layers_ptr_items(self, context):
-        settings = context.scene.DataBakerSettings
+        settings = bpy.context.scene.DataBakerSettings
         items = []
         for data_layer_index, data_layer in enumerate(settings.data_layers):
             if settings.data_layers_selected_index < len(settings.data_layers):
                 data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
-                if data_layer_selected != data_layer:
-                    items.append((data_layer.ID, get_data_layer_name(data_layer), data_layer.ID, "", data_layer_index))
+                if data_layer_selected != data_layer and data_layer.packing_mode != "XY" and data_layer.packing_mode != "XYZ" and data_layer.packing_mode != "FRACTION":
+                    items.append((data_layer.ID, get_data_layer_name(data_layer), data_layer.ID))
         return items
 
     # getting the enum value is based on the selected layer's ptr_id matching any of the available enum items, else 0
@@ -174,10 +174,10 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
         if settings.data_layers and settings.data_layers_selected_index < len(settings.data_layers):
             data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
 
-            items = self.get_data_layers_ptr_items(bpy.context)
-            for item in items:
+            items = settings.get_data_layers_ptr_items(bpy.context)
+            for item_index, item in enumerate(items):
                 if item[0] == data_layer_selected.ptr_ID: # ID match
-                    return item[4] # index
+                    return item_index
 
         return -1
 
@@ -186,7 +186,7 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
         settings = bpy.context.scene.DataBakerSettings
         if settings.data_layers and settings.data_layers_selected_index < len(settings.data_layers):
             data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
-            data_layer_selected.ptr_ID = self.get_data_layers_ptr_items(bpy.context)[value][0]
+            data_layer_selected.ptr_ID = settings.get_data_layers_ptr_items(bpy.context)[value][0]
         return
 
     # used to expose a picker for data_layers to target all other data_layers but themselves
@@ -205,7 +205,7 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    origin: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="Optional object to use as baking origin")
+    origin: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as baking origin")
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported FBX file (without the .fbx extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
@@ -236,6 +236,7 @@ class DATABAKER_PG_DataLayerReportPropertyGroup(PropertyGroup):
 
     range_min: FloatVectorProperty(name="Min")
     range_max: FloatVectorProperty(name="Max")
+    range_valid: BoolProperty(name="Valid")
 
 class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     """Enhanced reporting properties for DataBaker with detailed feedback."""
