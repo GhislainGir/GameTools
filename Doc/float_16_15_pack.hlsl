@@ -32,11 +32,11 @@ uint X = floor(X_remapped * ((1 << 16) - 1));
 // 2. 000000000000000aaaaaaaa0bbbbbbbb
 // 3. aaaaaaaa0bbbbbbbb000000000000000
 
-// shift 8 bits to the left to create 'a' component
+// shift 8 bits to the right to create 'a' component
 uint Xa = X >> 8;
 //   0000000000000000XXXXXXXXXXXXXXXX
 // > 000000000000000000000000aaaaaaaa
-// shift 'a' component 8 bit to the right to add 0 bit + 8 bits for 'b' component
+// shift 'a' component 8 bit to the left to add 0 bit + 8 bits for 'b' component
 Xa = Xa << 9;
 //   000000000000000000000000aaaaaaaa
 // > 0000000000000000aaaaaaa000000000
