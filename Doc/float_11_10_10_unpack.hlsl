@@ -67,7 +67,7 @@ y += inMin.y;
 // Z
 // *
 
-// mask out the 10 leftmost bits to isolate Z
+// mask out the 10 rightmost bits to isolate Z
 uint packed_z = packed_int & ((1 << 10) - 1);
 //   XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
 // & 00000000000000000000001111111111
