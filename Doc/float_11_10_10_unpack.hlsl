@@ -1,12 +1,12 @@
 const uint packed_int = asuint(inXYFloat);
-// XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
+// XXXXXXX00XXXYYYYYYYYYYZZZZZZZZZZ
 // 11-bit X, 10-bit Y, 10-bit Z - one bit discarded to prevent NaNs
 
 // *
 // X
 // *
 
-// shift 28 bits to the left to isolate X component
+// shift 20 bits to the left to isolate X component
 uint packed_x = packed_int >> 20;
 //   XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
 // > 00000000000000000000XXXXXXXX0XXX
@@ -20,15 +20,21 @@ uint packed_x = packed_int >> 20;
 uint packed_x_a = packed_x >> 4;
 //   00000000000000000000aaaaaaaa0bbb
 // > 000000000000000000000000aaaaaaaa
-// mask 8 leftmost bits to isolate 'b'
+// shift three bits to the left
+packed_x_a = (packed_x_a << 3)
+//   000000000000000000000000aaaaaaaa
+// > 000000000000000000000aaaaaaaa000
+// mask 3 rightmost bits to isolate 'b'
 uint packed_x_b = packed_x & ((1 << 3) - 1);
 //   00000000000000000000aaaaaaaa0bbb
 // & 00000000000000000000000000000111
 // > 00000000000000000000000000000bbb
 
-// shift 'a' 3 bits to the left and merge 'ab'
-packed_x = (packed_x_a << 3) | packed_x_b;
-//   000000000000000000000aaaaaaaabbb
+// and merge 'ab'
+packed_x = packed_x_a | packed_x_b;
+//   000000000000000000000aaaaaaaa000
+// | 00000000000000000000000000000bbb
+// = 000000000000000000000aaaaaaaabbb
 
 // bring back extracted X to [0:1] range
 x = packed_x / float((1 << 11) - 1);
@@ -52,7 +58,7 @@ uint packed_y = packed_int & ((1 << 10) - 1);
 // > 0000000000000000000000YYYYYYYYYY
 
 // bring back extracted Y to [0:1] range
-y = packed_y / float((1 << 15) - 1);
+y = packed_y / float((1 << 10) - 1);
 // remap Y to initial range
 y *= (inMax.y - inMin.y);
 y += inMin.y;
