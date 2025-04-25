@@ -4,12 +4,13 @@
 //   SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
 //
 // NaNs are encoded with the exponent field filled with ones (like infinity values).
-//   S11111111MMMMMMMMMMMMMMMMMMMMMMM = NaN
+//   ?11111111??????????????????????? = NaN
 //
 // We'd like to pack the three floats ideally using 11, 11 and 10 bits of precision, totalling 32 bits.
 // We may however only use 31 bits and split the bits of the first float into two groups of bits, as to
 // ensure the exponent field isn't filled with ones, thus using 11, 10 and 10 bits of precision.
-//   XXXXXXX0XXXXYYYYYYYYYYZZZZZZZZZZ
+//   SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
+//   XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
 //
 // x, y, z are the floats to pack, while min_xyz and max_xyz describe the min/max range x,y and z are in.
 
@@ -29,30 +30,30 @@ uint X = floor(X_remapped * ((1 << 11) - 1));
 // splitting bits into two separate groups of bits labeled 'a' and 'b' (2). Bits then need to be shifted to the
 // most significant bits (3)
 // 1. 000000000000000000000XXXXXXXXXXX
-// 2. 00000000000000000000aaaaaaa0bbbb
-// 3. aaaaaaa0bbbb00000000000000000000
+// 2. 00000000000000000000aaaaaaaa0bbb
+// 3. aaaaaaaa0bbb00000000000000000000
 
-// shift 4 bits to the left to create 'a' component
-uint Xa = X >> 4;
+// shift 3 bits to the left to create 'a' component
+uint Xa = X >> 3;
 //   000000000000000000000XXXXXXXXXXX
-// > 0000000000000000000000000aaaaaaa
-// shift 'a' component 5 bit to the right to add 0 bit + 4 bits for 'b' component
-Xa = Xa << 5;
-//   0000000000000000000000000aaaaaaa
-// > 00000000000000000000aaaaaaa00000
-// mask out the four rightmost bits of X to create 'b' component
-uint Xb = X & ((1 << 4) - 1);
+// > 000000000000000000000000aaaaaaaa
+// shift 'a' component 4 bits to the right to add 0 bit + 3 bits for 'b' component
+Xa = Xa << 4;
+//   000000000000000000000000aaaaaaaa
+// > 00000000000000000000aaaaaaaa0000
+// mask out the three rightmost bits of X to create 'b' component
+uint Xb = X & ((1 << 3) - 1);
 //   000000000000000000000XXXXXXXXXXX
-// > 0000000000000000000000000000bbbb
+// > 00000000000000000000000000000bbb
 // merge 'ab'
 X = Xa | Xb;
-//   00000000000000000000aaaaaaa00000
-// | 0000000000000000000000000000bbbb
-// = 00000000000000000000aaaaaaa0bbbb
+//   00000000000000000000aaaaaaaa0000
+// | 00000000000000000000000000000bbb
+// = 00000000000000000000aaaaaaaa0bbb
 // shift X to most significant bits
 X = X << 20;
-//   00000000000000000000aaaaaaa0bbbb
-// > aaaaaaa0bbbb00000000000000000000
+//   00000000000000000000aaaaaaaa0bbb
+// > aaaaaaaa0bbb00000000000000000000
 
 // *
 // Y
@@ -93,7 +94,7 @@ uint Z = floor(Z_remapped * ((1 << 10) - 1));
 
 // create the final integer packing X, Y & Z components
 uint XYZ_packed = X | Y | Z;
-//   XXXXXXX0XXXX00000000000000000000
+//   XXXXXXXX0XXX00000000000000000000
 // | 000000000000YYYYYYYYYY0000000000
 // | 0000000000000000000000ZZZZZZZZZZ
-// = XXXXXXX0XXXXYYYYYYYYYYZZZZZZZZZZ
+// = XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
