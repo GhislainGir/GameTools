@@ -11,7 +11,7 @@
 // to ensure the exponent field isn't filled with ones, thus using 16 and 15 bits of precision.
 //   XXXXXXXX0XXXXXXXXYYYYYYYYYYYYYYY
 //
-// x, y, z are the floats to pack, while min_xyz and max_xyz describe the min/max range x,y and z are in.
+// x, y are the floats to pack, while min_xy and max_xy describe the min/max range x and y are in.
 
 
 // *
@@ -19,7 +19,7 @@
 // *
 
 // remap X from [min:max] to [-1:1] range
-float X_remapped = saturate((x - min_xyz.x) / (max_xyz.x - min_xyz.x));
+float X_remapped = saturate((x - min_xy.x) / (max_xy.x - min_xy.x));
 // remap X from [-1:1] to [0:1] range
 X_remapped = (X_remapped + 1) * 0.5;
 
@@ -59,7 +59,7 @@ X = X << 15;
 // *
 
 // remap Y from [min:max] to [-1:1] range
-float Y_remapped = saturate((y - min_xyz.y) / (max_xyz.y - min_xyz.y));
+float Y_remapped = saturate((y - min_xy.y) / (max_xy.y - min_xy.y));
 // remap Y from [-1:1] to [0:1] range
 Y_remapped = (Y_remapped + 1) * 0.5;
 
