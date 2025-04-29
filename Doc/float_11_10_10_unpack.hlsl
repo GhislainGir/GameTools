@@ -1,4 +1,4 @@
-const uint packed_int = asuint(inXYFloat);
+const uint packed_int = asuint(inXYZFloat);
 // XXXXXXX00XXXYYYYYYYYYYZZZZZZZZZZ
 // 11-bit X, 10-bit Y, 10-bit Z - one bit discarded to prevent NaNs
 
