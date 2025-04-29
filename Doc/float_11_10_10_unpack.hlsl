@@ -52,7 +52,7 @@ uint packed_y = packed_int >> 10;
 // > 0000000000XXXXXXXX0XXXYYYYYYYYYY
 
 // mask out 10 leftmost bits to isolate Y
-uint packed_y = packed_int & ((1 << 10) - 1);
+packed_y &= ((1 << 10) - 1);
 //   0000000000XXXXXXXX0XXXYYYYYYYYYY
 // & 00000000000000000000001111111111
 // > 0000000000000000000000YYYYYYYYYY
