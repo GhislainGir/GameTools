@@ -21,7 +21,7 @@ uint packed_x_a = packed_x >> 4;
 //   00000000000000000000aaaaaaaa0bbb
 // > 000000000000000000000000aaaaaaaa
 // shift three bits to the left
-packed_x_a = (packed_x_a << 3)
+packed_x_a = (packed_x_a << 3);
 //   000000000000000000000000aaaaaaaa
 // > 000000000000000000000aaaaaaaa000
 // mask 3 rightmost bits to isolate 'b'
