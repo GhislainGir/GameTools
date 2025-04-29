@@ -19,10 +19,8 @@
 // X
 // *
 
-// remap X from [min:max] to [-1:1] range
+// remap X from [min:max] to [0:1] range
 float X_remapped = saturate((x - min_xyz.x) / (max_xyz.x - min_xyz.x));
-// remap X from [-1:1] to [0:1] range
-X_remapped = (X_remapped + 1) * 0.5;
 
 // floor (X * 2047) to store it in 11 bits of precision (2^11 = 2048, ranging from 0 to 2047)
 uint X = floor(X_remapped * ((1 << 11) - 1));
@@ -59,10 +57,8 @@ X = X << 20;
 // Y
 // *
 
-// remap Y from [min:max] to [-1:1] range
+// remap Y from [min:max] to [0:1] range
 float Y_remapped = saturate((y - min_xyz.y) / (max_xyz.y - min_xyz.y));
-// remap Y from [-1:1] to [0:1] range
-Y_remapped = (Y_remapped + 1) * 0.5;
 
 // floor (Y * 1023) to store it in 10 bits of precision (2^10 = 1024, ranging from 0 to 1023)
 uint Y = floor(Y_remapped * ((1 << 10) - 1));
@@ -78,10 +74,8 @@ Y = Y << 10;
 // Z
 // *
 
-// remap Z from [min:max] to [-1:1] range
+// remap Z from [min:max] to [0:1] range
 float Z_remapped = saturate((z - min_xyz.z) / (max_xyz.z - min_xyz.z));
-// remap Z from [-1:1] to [0:1] range
-Z_remapped = (Z_remapped + 1) * 0.5;
 
 // floor (Z * 1023) to store it in 10 bits of precision (2^10 = 1024, ranging from 0 to 1023)
 uint Z = floor(Z_remapped * ((1 << 10) - 1));
