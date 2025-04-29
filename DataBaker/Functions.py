@@ -53,7 +53,7 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_invert_y", settings.invert_y)
     add_bake_report("unit_invert_z", settings.invert_z)
 
-    add_bake_report("world_obj", settings.world_obj)
+    add_bake_report("origin_obj", settings.origin_obj)
 
 def reset_bake_report():
     """
@@ -86,13 +86,10 @@ def reset_bake_report():
     report.mesh_path = ""
     report.mesh_uvmap_invert_v = False
 
-    report.meshes_count = 0
-    report.empties_count = 0
-
     report.xml = False
     report.xml_path = ""
 
-    report.world_obj = None
+    report.origin_obj = None
 
     report.mesh_name = ""
     report.scale = 0.0
@@ -150,16 +147,31 @@ def add_bake_layer_report(data_layer, packing, pack_range = None):
                     except (AttributeError, TypeError):
                         pass
 
+def clear_bake_layer_report(data_layer) -> bool:
+    """
+    """
+    report = bpy.context.scene.DataBakerReport
+
+    # for each layer
+    report_data_layers = report.data_layers
+    for report_data_layer_index, report_data_layer in enumerate(report_data_layers):
+        # for each other layer packed in this layer, including self
+        for packed_data_layer in report_data_layer.packed_layers:
+            if packed_data_layer.ID == data_layer.ID:
+                report_data_layers.remove(report_data_layer_index)
+                return True
+
+    return False
+
 def edit_bake_layer_report_range_min(data_layer, prop_value: mathutils.Vector = mathutils.Vector((0.0, 0.0, 0.0))) -> bool:
     return edit_bake_layer_report_range(data_layer, prop_value, "min")
 
 def edit_bake_layer_report_range_max(data_layer, prop_value: mathutils.Vector = mathutils.Vector((0.0, 0.0, 0.0))) -> bool:
     return edit_bake_layer_report_range(data_layer, prop_value, "max")
 
-def edit_bake_layer_report_range(data_layer, value: mathutils.Vector, range: str = "min") -> bool:
+def edit_bake_layer_report_range(data_layer, value, prop_name: str = "range_min") -> bool:
     """ """
     report = bpy.context.scene.DataBakerReport
-    prop_name = "range_min" if range == "min" else "range_max"
     # for each layer
     report_data_layers = report.data_layers
     for report_data_layer in report_data_layers:
@@ -214,15 +226,16 @@ def get_packed_11_10_10_xyz(x: float, x_min: float, x_max: float, y: float, y_mi
     """ 
     Algorithm to pack three floats into one, using 11, 10 and 10 bits of precision while preventing NaNs.
 
-    32bit float NaNs are encoded with the exponent field filled with ones (like infinity values).
+    32bit float NaNs are encoded with the exponent field filled with ones.
       SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
     > S11111111MMMMMMMMMMMMMMMMMMMMMMM = NAN
+    > XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
 
     We'd like to pack the three floats ideally using 11, 11 and 10 bits of precision, totalling 32 bits.
     We may however only use 31 bits and split the bits of the first float into two groups of bits, as to
     ensure the exponent field isn't filled with ones, thus using 11, 10 and 10 bits of precision.
     
-    > XXXXXXX0XXXXYYYYYYYYYYZZZZZZZZZZ
+      XXXXXXXX0XXXYYYYYYYYYYZZZZZZZZZZ
 
     :param x: first float to pack
     :param x_min: 
@@ -244,30 +257,32 @@ def get_packed_11_10_10_xyz(x: float, x_min: float, x_max: float, y: float, y_mi
     if max_xyz.x - min_xyz.x < thresh:
         max_xyz.x = min_xyz.x + thresh
 
-    bitstring_a = str(bin(math.floor((((min(1.0, max(0.0, (x - min_xyz.x) / (max_xyz.x - min_xyz.x)))) + 1) * 0.5) * (1<<10))))
+    a = min(1.0, max(0.0, (x - min_xyz.x) / (max_xyz.x - min_xyz.x)))
+    bitstring_a = str(bin(math.floor(a * ((1 << 11) - 1))))
     bitstring_a = bitstring_a[2:] # get rid of 0b
     bitstring_a = bitstring_a.zfill(11) # ensure it's 11 char long
 
     bitstring_a_a = bitstring_a[:8] # get first 8 characters
     bitstring_a_b = bitstring_a[-3:] # get last 3 characters
-    bitstring_a = bitstring_a_a + "0" + bitstring_a_b # reconstruct 10 bits integer with last exponent bit as 0 to prevent NaNs
+    bitstring_a = bitstring_a_a + "0" + bitstring_a_b # reconstruct 12 bits integer with the last exponent bit as 0 to prevent NaNs
 
     if max_xyz.y - min_xyz.y < thresh:
         max_xyz.y = min_xyz.y + thresh
 
-    bitstring_b = str(bin(math.floor((((min(1.0, max(0.0, (y - min_xyz.y) / (max_xyz.y - min_xyz.y)))) + 1) * 0.5) * (1<<10))))
+    b = min(1.0, max(0.0, (y - min_xyz.y) / (max_xyz.y - min_xyz.y)))
+    bitstring_b = str(bin(math.floor(b * ((1 << 10) - 1))))
     bitstring_b = bitstring_b[2:] # get rid of 0b
-    bitstring_b = bitstring_b.zfill(10) # ensure it's 11 char long
+    bitstring_b = bitstring_b.zfill(10) # ensure it's 10 char long
 
     if max_xyz.z - min_xyz.z < thresh:
         max_xyz.z = min_xyz.z + thresh
 
-    bitstring_c = str(bin(math.floor((((min(1.0, max(0.0, (z - min_xyz.z) / (max_xyz.z - min_xyz.z)))) + 1) * 0.5) * (1<<9))))
+    c = min(1.0, max(0.0, (z - min_xyz.z) / (max_xyz.z - min_xyz.z)))
+    bitstring_c = str(bin(math.floor(c * ((1 << 10) - 1))))
     bitstring_c = bitstring_c[2:] # get rid of 0b
     bitstring_c = bitstring_c.zfill(10) # ensure it's 10 char long
 
     bits_string = "0b" + bitstring_a + bitstring_b + bitstring_c
-
     cp = pointer(c_int(int(bits_string, 0)))
     fp = cast(cp, POINTER(c_float))
     return fp.contents.value
@@ -276,7 +291,7 @@ def get_packed_16_15_xy(x: float, x_min: float, x_max: float, y: float, y_min: f
     """ 
     Algorithm to pack two floats into one, using 15 and 16 bits of precision while preventing NaNs.
 
-    32bit float NaNs are encoded with the exponent field filled with ones (like infinity values).
+    32bit float NaNs are encoded with the exponent field filled with ones.
       SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
     > S11111111MMMMMMMMMMMMMMMMMMMMMMM = NAN
 
@@ -308,11 +323,11 @@ def get_packed_16_15_xy(x: float, x_min: float, x_max: float, y: float, y_min: f
     a = min(1.0, max(0.0, (x - min_xyz.x) / (max_xyz.x - min_xyz.x)))
     bitstring_a = str(bin(math.floor(a * ((1 << 16) - 1))))
     bitstring_a = bitstring_a[2:] # get rid of '0b'
-    bitstring_a = bitstring_a.zfill(16) # ensure it's 15 char long
+    bitstring_a = bitstring_a.zfill(16) # ensure it's 16 char long
 
     bitstring_a_a = bitstring_a[:8] # get first 8 characters
-    bitstring_a_b = bitstring_a[-8:] # get last 7 characters
-    bitstring_a = bitstring_a_a + "0" + bitstring_a_b # use 17 bits integer with last exponent bit as 0 to prevent NaNs
+    bitstring_a_b = bitstring_a[-8:] # get last 8 characters
+    bitstring_a = bitstring_a_a + "0" + bitstring_a_b # use 17 bits integer with the last exponent bit as 0 to prevent NaNs
 
     if max_xyz.y - min_xyz.y < thresh:
         max_xyz.y = min_xyz.y + thresh
@@ -320,7 +335,7 @@ def get_packed_16_15_xy(x: float, x_min: float, x_max: float, y: float, y_min: f
     b = min(1.0, max(0.0, (y - min_xyz.y) / (max_xyz.y - min_xyz.y)))
     bitstring_b = str(bin(math.floor(b * ((1 << 15) - 1))))
     bitstring_b = bitstring_b[2:] # get rid of '0b'
-    bitstring_b = bitstring_b.zfill(15) # ensure it's 16 char long
+    bitstring_b = bitstring_b.zfill(15) # ensure it's 15 char long
 
     bits_string = "0b" + bitstring_a + bitstring_b
 
@@ -355,7 +370,7 @@ def get_packed_frac(x: float, y: float, y_min: float, y_max: float, threshold: f
     min_y = min(y_max, y_min)
     max_y = max(y_max, y_min)
 
-    if max_y - min_y < thresh:
+    if (max_y - min_y) < thresh:
         max_y = min_y + thresh
 
     y = (y - min_y) / (max_y - min_y)
@@ -525,14 +540,12 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
         return (False, "No active object", None, None)
 
     for selected_obj in context.selected_objects:
-        if selected_obj.type != "MESH" and selected_obj.type != "EMPTY":
-            selected_obj.select_set(False)
-        elif selected_obj.type == "MESH" and len(selected_obj.data.vertices) <= 0: # mesh could have no vertices
+        if selected_obj.type != "MESH" or len(selected_obj.data.vertices) <= 0: # mesh could have no vertices
             selected_obj.select_set(False)
 
     objs_to_bake = context.selected_objects # cache selection
     if objs_to_bake and len(objs_to_bake) <= 0:
-        return (False, "No mesh or empty to bake once filtered out", None, None)
+        return (False, "No mesh to bake once filtered out", None, None)
 
     active_obj = context.view_layer.objects.active
 
@@ -564,48 +577,57 @@ def get_bake_name(context: bpy.types.Context, active_object:bpy.types.Object) ->
     name = replace_tags(name, tags)
     return name
 
-def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, list, list]:
+def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, list]:
     """
-    Generate and return a copy of all depsgraph-evaluated meshes and empties to be included in the bake
+    Generate and return a copy of all depsgraph-evaluated meshes to be included in the bake
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to generate duplicates from
-    :return: the function's success, potential error message, list of duplicated mesh objects to include in the bake, list of duplicated empty objects to include in the bake
+    :return: the function's success, potential error message, list of duplicated mesh objects to include in the bake
     :rtype: tuple
     """
 
     settings = context.scene.DataBakerSettings
     custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
+    """
+    scan layers for a shapekey layer! If so we probably want to ensure it is set to 0.0 and assume the baked object
+    will have the rest pose so that the baked shapekey does indeed always contain the proper shapekey offset/normal
+    """
+    shapekey_values_to_restore = []
+    for obj_to_bake in objs_to_bake:
+        for data_layer in settings.data_layers:
+            if data_layer.data == "SHAPEKEY" and data_layer.obj_mode == "SELF" or (data_layer.obj_mode == "CUSTOM" and data_layer.obj == obj_to_bake):
+                if obj_to_bake.data.shape_keys and (data_layer.name in obj_to_bake.data.shape_keys.key_blocks):
+                    shapekey = obj_to_bake.data.shape_keys.key_blocks[data_layer.name]
+                    shapekey_values_to_restore.append((shapekey, shapekey.value))
+                    shapekey.value = 0.0
+                    break # move onto next object
+
     dgraph = bpy.context.evaluated_depsgraph_get()
 
-    duped_objs = []
+    eval_objs_to_bake = []
     for obj_to_bake in objs_to_bake:
         col = context.scene.collection
         if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
             col = obj_to_bake.users_collection[0]
 
         if obj_to_bake.type == "MESH":
+            """
+            evaluate object, as to apply modifiers, shapekeys etc! Data is baked assuming this 'pose' is the 'rest pose'
+            """
             eval_obj = obj_to_bake.evaluated_get(dgraph)
-            eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
+            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
 
             if eval_obj.parent:
-                eval_mesh.transform(eval_obj.parent.matrix_world.inverted() @ eval_obj.matrix_world)
+                eval_mesh.transform(eval_obj.parent.matrix_world.inverted() @ eval_obj.matrix_world) # @TODO evaluated obj world matrix seems to be relative to its parent
             else:
                 eval_mesh.transform(eval_obj.matrix_world)
 
-            duped_obj = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh)
-        elif obj_to_bake.type == "EMPTY": # @NOTE legacy method of including empties in the objects to duplicate. Probably need a refactor at some point
-            duped_obj = bpy.data.objects.new(obj_to_bake.name + ".baked", object_data=None)
+            duped_obj = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
 
-            if obj_to_bake.parent:
-                duped_obj.matrix_world = obj_to_bake.parent.matrix_world.inverted() @ obj_to_bake.matrix_world.copy()
-            else:
-                duped_obj.matrix_world = obj_to_bake.matrix_world.copy()
-
-            duped_obj.empty_display_type = obj_to_bake.empty_display_type
-            duped_obj.empty_display_size = obj_to_bake.empty_display_size
-        else: # shouldn't encounter any other object type at this point, thanks to the get_bake_selection call filtering out selected objects
+            eval_obj.to_mesh_clear()
+        else:
             continue
 
         duped_obj.parent = obj_to_bake.parent
@@ -621,41 +643,41 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
         property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
 
         col.objects.link(duped_obj)
-        duped_objs.append(duped_obj)
+        eval_objs_to_bake.append(duped_obj)
 
     context.view_layer.objects.active = objs_to_bake[0]
 
-    # loop through all *newly* selected objects that we may have duplicated and build list of all meshes and empties for later cleaning process
-    meshes = [obj for obj in duped_objs if obj.type == "MESH"]
-    add_bake_report("meshes_count", len(meshes))
-    empties = [obj for obj in duped_objs if obj.type == "EMPTY"]
-    add_bake_report("empties_count", len(empties))
-
-    return (True, "", meshes, empties)
-
-def post_process_bake_selection(context: bpy.types.Context, meshes: list, empties: list) -> tuple[bool, str]:
     """
-    Merge duplicated meshes that were part of the bake and clean duplicated empties, if any
+    restore modified shapekey values, if needed
+    """
+    if shapekey_values_to_restore:
+        for shapekey, shapekey_value in shapekey_values_to_restore:
+            shapekey.value = shapekey_value
+
+    return (True, "", eval_objs_to_bake)
+
+def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: list) -> tuple[bool, str]:
+    """
+    Merge duplicated meshes that were part of the bake and clean duplicated meshes, if any
 
     :param context: Blender current execution context
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
     :return: the function's success and potential error message
     :rtype: tuple
     """
 
     settings = context.scene.DataBakerSettings
-    
+
     dgraph = bpy.context.evaluated_depsgraph_get()
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.Data"
-    
+
     # create a new mesh to 'merge' all duplicated meshes
     merged_mesh = bpy.data.meshes.new(name)
-    
+
     bm = bmesh.new()
-    for mesh in meshes:
-        obj_eval = mesh.evaluated_get(dgraph)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        obj_eval = eval_obj_to_bake.evaluated_get(dgraph)
         mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         mesh_eval.transform(obj_eval.matrix_world)
 
@@ -668,8 +690,18 @@ def post_process_bake_selection(context: bpy.types.Context, meshes: list, emptie
     bm.to_mesh(merged_mesh)
     bm.free()
 
+    if settings.clear_attributes and merged_mesh.attributes:
+        attr_names = [data_layer.ID for data_layer in settings.data_layers]
+        for attr_name in attr_names:
+            attr = merged_mesh.attributes.get(attr_name, None)
+            if attr:
+                merged_mesh.attributes.remove(attr)
+
     # create a new object from the new mesh
     obj = bpy.data.objects.new(name, merged_mesh)
+    if settings.origin_obj:
+        obj.matrix_world = settings.origin_obj.matrix_world
+        merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
     context.scene.collection.objects.link(obj)
 
     add_bake_report("mesh", obj)
@@ -677,15 +709,22 @@ def post_process_bake_selection(context: bpy.types.Context, meshes: list, emptie
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
-    # delete duplicated empties
-    for empty in empties:
-        bpy.data.objects.remove(empty)
-
-    # delete duplicated meshes
-    for mesh in meshes:
-        bpy.data.objects.remove(mesh)
+    clear_bake_selection(eval_objs_to_bake)
 
     return (True, "")
+
+def clear_bake_selection(eval_objs_to_bake: list) -> bool:
+    """
+    Clear the Blender file of duplicated objects
+
+    :param eval_objs_to_bake: Objects to remove
+    :return: success
+    :rtype: bool
+    """
+    for eval_obj_to_bake in eval_objs_to_bake:
+        bpy.data.objects.remove(eval_obj_to_bake)
+
+    return True
 
 def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     """
@@ -695,7 +734,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT") # @TODO is this necessary?
+    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE is this necessary?
 
     settings = context.scene.DataBakerSettings
     new_bake_report(context)
@@ -724,7 +763,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     wm.progress_update(3)
 
-    success, msg, meshes, empties = pre_process_bake_selection(context, objs_to_bake)
+    success, msg, eval_objs_to_bake = pre_process_bake_selection(context, objs_to_bake)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -740,8 +779,10 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ########
     # BAKE #
 
-    success, msg = bake_data_layers(context, layers_info, meshes, empties)
+    success, msg = bake_data_layers(context, layers_info, eval_objs_to_bake)
     if not success:
+        clear_bake_selection(eval_objs_to_bake)
+
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
@@ -749,8 +790,10 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ########
     # MESH #
 
-    success, msg = post_process_bake_selection(context, meshes, empties)
+    success, msg = post_process_bake_selection(context, eval_objs_to_bake)
     if not success:
+        clear_bake_selection(eval_objs_to_bake)
+
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
@@ -957,10 +1000,10 @@ def get_data_layer_packing_info(data_layer_target, data_layers_to_pack: list) ->
             return (False, "divergent packing mode", "", None)
 
         if packing_mode == "FRACTION" or (packing_mode == "XY" and data_layer_to_pack.pack_xy == "X") or (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "X"):
-            if len(layers_packed_in_x) > 0:
+            if len(layers_packed_in_y) > 0:
                 return (False, "multiple layers targeting component X", "", None)
             else:
-                layers_packed_in_x.append(data_layer_to_pack)
+                layers_packed_in_y.append(data_layer_to_pack)
         elif (packing_mode == "XY" and data_layer_to_pack.pack_xy == "Y") or (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "Y"):
             if len(layers_packed_in_y) > 0:
                 return (False, "multiple layers targeting component Y", "", None)
@@ -1007,14 +1050,18 @@ def get_data_layer_name(data_layer: object) -> str:
     """
     if data_layer:
         if data_layer.data == "POSITION":
-            return "Position " + data_layer.component
+            prefix = "Parent Position " if data_layer.obj_mode == "PARENT" else "Position "
+            return prefix + "(" + data_layer.component + ")"
         elif data_layer.data == "AXIS":
-            return "Axis " + data_layer.component
+            prefix = "Parent Axis " if data_layer.obj_mode == "PARENT" else "Axis "
+            return prefix + data_layer.axis + " (" + data_layer.component + ")"
         elif data_layer.data == "SHAPEKEY":
+            prefix = "Parent Shapekey " if data_layer.obj_mode == "PARENT" else "Shapekey "
+
             if data_layer.vertex_mode == "OFFSET":
-                return "Shapekey Offset " + data_layer.component
+                return prefix + "Offset " + data_layer.component # @TODO () component
             elif data_layer.vertex_mode == "NORMAL":
-                return "Shapekey Normal " + data_layer.component
+                return prefix + "Normal " + data_layer.component # @TODO () component + normal axis etc.
             else:
                 pass
         elif data_layer.data == "MASK":
@@ -1023,6 +1070,7 @@ def get_data_layer_name(data_layer: object) -> str:
             elif data_layer.mask_mode == "LINEAR":
                 return "Mask Linear " + data_layer.axis
         elif data_layer.data == "RANDOM":
+            prefix = "Parent Axis " if data_layer.obj_mode == "PARENT" else "Axis " # @TODO
             if data_layer.rand_mode == "COLLECTION":
                 return "Random Per Col " + data_layer.component
             elif data_layer.rand_mode == "OBJECT":
@@ -1031,10 +1079,6 @@ def get_data_layer_name(data_layer: object) -> str:
                 return "Random Per Face " + data_layer.component
             else:
                 pass
-        elif data_layer.data == "PARENT_POS":
-            return "Parent " + str(data_layer.index) + " Pos " + data_layer.component
-        elif data_layer.data == "PARENT_AXIS":
-            return "Parent " + str(data_layer.index) + " Axis " + data_layer.component
         elif data_layer.data == "VALUE":
             return "Value"
         elif data_layer.data == "CUSTOM_PROP":
@@ -1105,10 +1149,6 @@ def get_data_layer_pre_bake_function(data_layer: object):
             return pre_bake_mask
         elif data_layer.data == "RANDOM":
             return pre_bake_random
-        elif data_layer.data == "PARENT_POS":
-            return pre_bake_parent_position
-        elif data_layer.data == "PARENT_AXIS":
-            return pre_bake_parent_axis
         elif data_layer.data == "VALUE":
             return pre_bake_value
         elif data_layer.data == "CUSTOM_PROP":
@@ -1122,9 +1162,13 @@ def get_data_layer_pre_bake_function(data_layer: object):
 
 def get_data_layer_range_safe(range: tuple[float, float]) -> tuple[float, float]:
     """
-
     """
+    if range is None:
+        return False, 0.0, 1.0
+    
     range_min, range_max = range
+    if range_min is None or range_max is None:
+        return False, 0.0, 1.0
 
     bake_min = min(range_min, range_max)
     bake_max = max(range_min, range_max)
@@ -1132,9 +1176,42 @@ def get_data_layer_range_safe(range: tuple[float, float]) -> tuple[float, float]
 
     return bake_valid_range, bake_min, bake_max
 
+def get_data_layer_obj_source_obj(data_layer: object, prop_name: str, obj: bpy.types.Object) -> bool:
+    """
+    Returns the source mesh to process for the given data layer's mesh.  
+    The source can be:
+    - itself, as the original un-evaluated object, retrieved via a custom property object pointer stored
+      in the evaluated object,
+    - the user-specified mesh defined in the data layer,
+    - or the parent mesh.
+
+    :param data_layer: The data layer currently being processed.  
+    :param prop_name: The name of the custom property that stores the source mesh of the duplicated mesh.  
+    :param obj: The duplicated mesh currently being processed.
+    """
+    custom_prop = prop_name if prop_name != "" else "BakeSource"
+
+    # user-specified object override
+    if data_layer.obj_mode == "CUSTOM" and data_layer.obj:
+        return data_layer.obj
+    # parent object
+    elif data_layer.obj_mode == "PARENT" and obj.parent:
+        # walk up hierarchy
+        parent = obj.get(custom_prop, obj)
+        for depth in range(max(1, data_layer.index)):
+            if parent.parent:
+                parent = parent.parent
+            else:
+                return obj.get(custom_prop, obj) # @NOTE fall back to self?
+
+        return parent
+    # source object
+    else:
+        return obj.get(custom_prop, obj)
+
 ######################
 ### BAKE FUNCTIONS ###
-def bake_data_layers(context, layers_info, meshes, empties) -> tuple[bool, str]:
+def bake_data_layers(context, layers_info, eval_objs_to_bake) -> tuple[bool, str]:
     """
     Responsible for actually baking data into meshes.
 
@@ -1148,16 +1225,17 @@ def bake_data_layers(context, layers_info, meshes, empties) -> tuple[bool, str]:
 
     :param context: Blender current execution context
     :param layers_info: list of data_layer, data_layer_info pairings
-    :param meshes: list of duplicated meshes to include in the bake
-    :param empties: list of duplicated empties to include in the bake
+    :param eval_objs_to_bake: list of duplicated mesh objects to include in the bake
     :return: the function's success and potential error message
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
 
-    data_layers_uvs = [] 
+    data_layers_uvs = []
     data_layers_vcols = []
     data_layers_normals = []
+
+    dgraph = bpy.context.evaluated_depsgraph_get()
 
     # pre bake
     for data_layer, layer_info in layers_info:
@@ -1171,32 +1249,34 @@ def bake_data_layers(context, layers_info, meshes, empties) -> tuple[bool, str]:
         for layer_packed_index, layer_packed in enumerate(packing):
             if layer_packed:
                 pre_bake_func = get_data_layer_pre_bake_function(layer_packed)
-                bake_range = pre_bake_func(context, layer_packed, meshes, empties)
-                bake_range_valid, bake_min, bake_max = get_data_layer_range_safe(bake_range)
+                bake_success, bake_msg, bake_min, bake_max = pre_bake_func(context, dgraph, layer_packed, eval_objs_to_bake)
+                if not bake_success:
+                    return (False, bake_msg)
+                bake_range_valid, bake_min, bake_max = get_data_layer_range_safe((bake_min, bake_max))
                 data_layer_min[layer_packed_index] = bake_min
                 data_layer_max[layer_packed_index] = bake_max
 
-                if data_layer.packing_mode == "UV":
-                    data_layers_uvs.append((data_layer, layer_info))
-                elif data_layer.packing_mode == "VCOL":
-                    data_layers_vcols.append((data_layer, layer_info))
-                elif data_layer.packing_mode == "NORMAL":
-                    data_layers_normals.append((data_layer, layer_info))
-                else:
-                    pass
+        if data_layer.packing_mode == "UV":
+            data_layers_uvs.append((data_layer, layer_info))
+        elif data_layer.packing_mode == "VCOL":
+            data_layers_vcols.append((data_layer, layer_info))
+        elif data_layer.packing_mode == "NORMAL":
+            data_layers_normals.append((data_layer, layer_info))
+        else:
+            pass
 
         bake_min = mathutils.Vector((data_layer_min))
         bake_max = mathutils.Vector((data_layer_max))
         add_bake_layer_report(data_layer, packing, (bake_range_valid, bake_min, bake_max))
 
     # bake
-    bake_data_layer_uv(context, meshes, data_layers_uvs)
-    bake_data_layer_vcol(context, meshes, data_layers_vcols)
-    bake_data_layer_normal(context, meshes, data_layers_normals)
+    bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs)
+    bake_data_layer_vcol(context, eval_objs_to_bake, data_layers_vcols)
+    bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals)
 
     return (True, "")
 
-def bake_data_layer_uv(context, meshes, data_layers_uvs):
+def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
     """
 
     """
@@ -1206,73 +1286,75 @@ def bake_data_layer_uv(context, meshes, data_layers_uvs):
         return
 
     # for each mesh
-    for mesh_index, mesh in enumerate(meshes):
-        progress = mesh_index / max(1, (len(meshes) - 1))
-        context.window_manager.progress_update((progress * 80) + 10) # @TODO
+    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+        progress = eval_obj_to_bake_index / max(1, (len(eval_objs_to_bake) - 1))
+        context.window_manager.progress_update((progress * 26) + 10)
 
+        eval_mesh = eval_obj_to_bake.data
         # for each uv layer
         for data_layer_uv, layer_info in data_layers_uvs:
             to_bake, packing_mode, packing = layer_info
 
             """ 1. prepare UV channel(s) """
-            uv_index = 0 if data_layer_uv.uv_channel == "U" else 0
+            uv_index = 0 if data_layer_uv.uv_channel == "U" else 1
             one_minus = False if data_layer_uv.uv_channel == "U" else settings.invert_v
 
-            while (data_layer_uv.uv_index > (len(mesh.data.uv_layers) - 1)):
-                mesh.data.uv_layers.new()
+            while (data_layer_uv.uv_index > (len(eval_mesh.uv_layers) - 1)):
+                eval_mesh.uv_layers.new()
 
                 zero_uv = (0.0, 1.0 if settings.invert_v else 0.0)
-                for loop_id in mesh.data.loops:
-                    mesh.data.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv = zero_uv
+                for loop_id in eval_mesh.loops:
+                    eval_mesh.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv = zero_uv
 
             uv_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
             uv_name += "." + str(data_layer_uv.uv_index)
-            mesh.data.uv_layers[data_layer_uv.uv_index].name = uv_name
+            eval_mesh.uv_layers[data_layer_uv.uv_index].name = uv_name
 
-            """ 2. gather data from mesh attributes """
+            """ 2. gather data from mesh attributes, and get layer range """
+            layers_range = [None, None, None]
             datas = [None, None, None]
             for layer_packed_index, layer_packed in enumerate(packing):
-                if layer_packed and (layer_packed.ID in mesh.data.attributes):
-                    data = np.zeros(len(mesh.data.loops), dtype=np.float32)
+                if layer_packed and (layer_packed.ID in eval_mesh.attributes):
+                    data = np.zeros(len(eval_mesh.loops), dtype=np.float32)
 
-                    attr = mesh.data.attributes[layer_packed.ID]
+                    attr = eval_mesh.attributes[layer_packed.ID]
                     attr.data.foreach_get('value', data)
 
                     datas[layer_packed_index] = data
 
-            """ 3. get min/max """
-            data_to_bake_min = get_bake_layer_report_range_min(data_layer_uv)
-            data_to_bake_max = get_bake_layer_report_range_max(data_layer_uv)
+                    layers_range[layer_packed_index] = (
+                        get_bake_layer_report_range_valid(layer_packed),
+                        get_bake_layer_report_range_min(layer_packed),
+                        get_bake_layer_report_range_max(layer_packed))
 
-            """ 4. bake """
-            for loop_id in mesh.data.loops:
+            """ 3. bake """
+            for loop_id in eval_mesh.loops:
                 index = loop_id.index
 
-                data_to_bake = mathutils.Vector((
+                data_to_pack = mathutils.Vector((
                     datas[0][index] if datas[0] is not None else 0.0,
                     datas[1][index] if datas[1] is not None else 0.0,
                     datas[2][index] if datas[2] is not None else 0.0))
 
                 if packing_mode == "XYZ":
-                    data_to_bake = get_packed_11_10_10_xyz(data_to_bake.x, data_to_bake_min.x, data_to_bake_max.x,
-                                                            data_to_bake.y, data_to_bake_min.y, data_to_bake_max.y,
-                                                            data_to_bake.z, data_to_bake_min.z, data_to_bake_max.z)
+                    data_to_bake = get_packed_11_10_10_xyz(data_to_pack.x, layers_range[0][1], layers_range[0][2],
+                                                            data_to_pack.y, layers_range[1][1], layers_range[1][2],
+                                                            data_to_pack.z, layers_range[2][1], layers_range[2][2])
                 elif packing_mode == "XY":
-                    data_to_bake = get_packed_16_15_xy(data_to_bake.x, data_to_bake_min.x, data_to_bake_max.x,
-                                                        data_to_bake.y, data_to_bake_min.y, data_to_bake_max.y)
+                    data_to_bake = get_packed_16_15_xy(data_to_pack.x, layers_range[0][1], layers_range[0][2],
+                                                        data_to_pack.y, layers_range[1][1], layers_range[1][2])
                 elif packing_mode == "FRACTION":
-                    data_to_bake = get_packed_frac(data_to_bake.x, data_to_bake_min.x, data_to_bake_max.x,
-                                                    data_to_bake.y, data_to_bake_min.y, data_to_bake_max.y,
-                                                    data_layer_uv.packing_precision)
+                    data_to_bake = get_packed_frac(data_to_pack.x, data_to_pack.y, layers_range[1][1], layers_range[1][2],
+                                                    data_layer_uv.packing_precision) # @TODO report packing precision?
                 else:
-                    data_to_bake = data_to_bake.x
+                    data_to_bake = data_to_pack.x
 
                 if one_minus:
                     data_to_bake = 1.0 - data_to_bake # @TODO do one minus even for bitpacked data?!
 
-                mesh.data.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv[uv_index] = data_to_bake
+                eval_mesh.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv[uv_index] = data_to_bake
 
-def bake_data_layer_vcol(context, meshes, data_layers_vcols):
+def bake_data_layer_vcol(context, eval_objs_to_bake, data_layers_vcols):
     """
     
     """
@@ -1282,10 +1364,11 @@ def bake_data_layer_vcol(context, meshes, data_layers_vcols):
         return
 
     # for each mesh
-    for mesh_index, mesh in enumerate(meshes):
-        progress = mesh_index / max(1, (len(meshes) - 1))
-        context.window_manager.progress_update((progress * 80) + 10) # @TODO
-        
+    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+        progress = eval_obj_to_bake_index / max(1, (len(eval_objs_to_bake) - 1))
+        context.window_manager.progress_update((progress * 26) + 36)
+
+        eval_mesh = eval_obj_to_bake.data
         # for each vcol layer
         for data_layer_vcol, layer_info in data_layers_vcols:
             to_bake, packing_mode, packing = layer_info
@@ -1293,19 +1376,19 @@ def bake_data_layer_vcol(context, meshes, data_layers_vcols):
             """ 1. prepare Vertex Colors """
             vcol_index = 0 if data_layer_vcol.vcol_rgba == "R" else 1 if data_layer_vcol.vcol_rgba == "G" else 2 if data_layer_vcol.vcol_rgba == "B" else 3
 
-            if mesh.data.vertex_colors:
-                vcol = mesh.data.vertex_colors.active
+            if eval_mesh.vertex_colors:
+                vcol = eval_mesh.vertex_colors.active
             else:
-                vcol = mesh.data.vertex_colors.new()
+                vcol = eval_mesh.vertex_colors.new()
 
-                for loop_id in mesh.data.loops:
+                for loop_id in eval_mesh.loops:
                     vcol.data[loop_id.index].color = [0.0, 0.0, 0.0, 0.0]
 
             """ 2. gather data from mesh attributes """
-            if data_layer_vcol.ID in mesh.data.attributes:
-                data = np.zeros(len(mesh.data.loops), dtype=np.float32)
+            if data_layer_vcol.ID in eval_mesh.attributes:
+                data = np.zeros(len(eval_mesh.loops), dtype=np.float32)
 
-                attr = mesh.data.attributes[data_layer_vcol.ID]
+                attr = eval_mesh.attributes[data_layer_vcol.ID]
                 attr.data.foreach_get('value', data)
             else:
                 data = None
@@ -1315,20 +1398,23 @@ def bake_data_layer_vcol(context, meshes, data_layers_vcols):
             data_to_bake_max = get_bake_layer_report_range_max(data_layer_vcol)
 
             """ 4. bake """
-            for loop_id in mesh.data.loops:
+            for loop_id in eval_mesh.loops:
                 index = loop_id.index
 
-                data_to_bake = data[index] if data else 0.0
+                data_to_bake = data[index] if data is not None else 0.0
                 data_to_bake = get_normalized(data_to_bake, data_to_bake_min, data_to_bake_max)
 
                 vcol.data[index].color[vcol_index] = data_to_bake
 
-def bake_data_layer_normal(context, meshes, data_layers_normals):
+def bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals):
     """
 
     """
     settings = context.scene.DataBakerSettings
-    
+    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                    -1.0 if settings.invert_y else 1.0,
+                                    -1.0 if settings.invert_z else 1.0))
+
     if not data_layers_normals or len(data_layers_normals) <= 0:
         return
 
@@ -1357,19 +1443,25 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
     before actually iterating meshes, and it's far from ideal... @NOTE find more elegant solution
     """
     unit_normal = True
-    for mesh_index, mesh in enumerate(meshes):
+    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+        eval_mesh = eval_obj_to_bake.data
+
         datas = [None, None, None]
         for data_layer_normal, layer_info in data_layers_normals:
-            # gather data from mesh attributes
-            if data_layer_normal.ID in mesh.data.attributes:
-                data = np.zeros(len(mesh.data.loops), dtype=np.float32)
-                attr = mesh.data.attributes[data_layer_normal.ID]
+            if data_layer_normal.ID in eval_mesh.attributes:
+                data = np.zeros(len(eval_mesh.loops), dtype=np.float32)
+                attr = eval_mesh.attributes[data_layer_normal.ID]
                 attr.data.foreach_get('value', data)
 
-                datas[index] = data
+                if data_layer_normal.normal_xyz == "X":
+                    datas[0] = data
+                elif data_layer_normal.normal_xyz == "Y":
+                    datas[1] = data
+                else:
+                    datas[2] = data
 
         # for each normal to bake
-        for index in range(len(mesh.data.loops)):
+        for index in range(len(eval_mesh.loops)):
             normal = mathutils.Vector((
                 datas[0][index] if datas[0] is not None else 0.0,
                 datas[1][index] if datas[1] is not None else 0.0,
@@ -1377,14 +1469,17 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
 
             # check if its of unit length
             if abs(normal.length - 1.0) > 0.001:
-                unit_normal = False # @TODO report
+                unit_normal = False
                 break
+
+    for data_layer_normal, layer_info in data_layers_normals:
+        edit_bake_layer_report_range(data_layer_normal, unit_normal, "range_unit")
 
     """
     3. If any XYZ normal is not a unit vector, spherical reprojection becomes necessary. However, this prevents us from directly packing three
     independent values into the XYZ normal.
 
-    Let’s assume we want to bake a simple linear mask into the X component of the normal—and nothing else. Since the normal must be normalized,
+    Let's assume we want to bake a simple linear mask into the X component of the normal—and nothing else. Since the normal must be normalized,
     we cannot simply store values in the [0:1] range in the X component alone. Doing so would alter the X component upon normalization, unless
     we adjust another component (Y or Z) to maintain the unit length. This can be achieved with the following:
 
@@ -1400,19 +1495,19 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
     can be used directly to store arbitrary values in a unit XYZ vector.
     """
     if unit_normal:
-        layer_z_available = True # @TODO report
+        layer_z_available = True
     else:
         layer_z_available = True if len(layers_used) < 3 else False
 
         global_min_x = layers_range[0][1] if layers_range[0] else 0.0
         global_min_y = layers_range[1][1] if layers_range[1] else 0.0
         global_min_z = layers_range[2][1] if layers_range[2] and layer_z_available else 0.0
-        global_min = mathutils.Vector((global_min_x, global_min_y, global_min_z))
+        global_min = mathutils.Vector((global_min_x, global_min_y, global_min_z)) * signed_axis
 
         global_max_x = layers_range[0][2] if layers_range[0] else 0.0
         global_max_y = layers_range[1][2] if layers_range[1] else 0.0
         global_max_z = layers_range[2][2] if layers_range[2] and layer_z_available else 0.0
-        global_max = mathutils.Vector((global_max_x, global_max_y, global_max_z))
+        global_max = mathutils.Vector((global_max_x, global_max_y, global_max_z)) * signed_axis
 
         global_average = (global_max + global_min) * 0.5
         global_radius = max((global_max - global_average).length, (global_average - global_min).length)
@@ -1421,7 +1516,11 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
         if not layer_z_available:
             layers_used.remove(2) # put Z layer back into the pool of available layers
 
-    for mesh_index, mesh in enumerate(meshes):
+    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+        progress = eval_obj_to_bake_index / max(1, (len(eval_objs_to_bake) - 1))
+        context.window_manager.progress_update((progress * 26) + 62)
+
+        eval_mesh = eval_obj_to_bake.data
         """
         4. for each mesh, gather normal X/Y/Z data from its attributes
         """
@@ -1430,9 +1529,9 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
             if data_layer_normal.normal_xyz == "Z" and not layer_z_available:
                 continue
 
-            if data_layer_normal.ID in mesh.data.attributes:
-                data = np.zeros(len(mesh.data.loops), dtype=np.float32)
-                attr = mesh.data.attributes[data_layer_normal.ID]
+            if data_layer_normal.ID in eval_mesh.attributes:
+                data = np.zeros(len(eval_mesh.loops), dtype=np.float32)
+                attr = eval_mesh.attributes[data_layer_normal.ID]
                 attr.data.foreach_get('value', data)
 
                 if data_layer_normal.normal_xyz == "X":
@@ -1445,7 +1544,7 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
         """
         5. build normal buffer @NOTE find a more elegant solution
         """
-        num_normals = len(mesh.data.loops)
+        num_normals = len(eval_mesh.loops)
         normals = [None] * num_normals
         for index in range(num_normals):
             normal = mathutils.Vector((
@@ -1453,7 +1552,7 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
                 datas[1][index] if datas[1] is not None else 0.0,
                 datas[2][index] if datas[2] is not None else 0.0))
 
-            normals[index] = normal
+            normals[index] = normal * signed_axis
 
         """
         6. remap necessary X/Y/Z components IF packing a non-unit vector
@@ -1463,7 +1562,7 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
 
             if not layer_z_available:
                 indices_to_remap = [0, 1]
-            else:    
+            else:
                 indices_to_remap = [index for index in indices_all if index in layers_used] # indices to remap are 'used' layers
 
             for normal in normals:
@@ -1474,20 +1573,15 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
             7. derive the first remaining component based on the other two: z = sqrt(1.0 - saturation(dot(normal.xz, normal.xz)))
             """
             index_to_derive = [index for index in indices_all if index not in layers_used][0] # indices to derive are 'unused' layers but we only really need the first one
-
-            # build 2D vector
             indices_all.remove(index_to_derive)
             for normal in normals:
                 flat_normal = mathutils.Vector((normal[indices_all[0]], normal[indices_all[1]], 0.0))
-
-                # derive missing component
                 normal[index_to_derive] = math.sqrt(1.0 - min(1.0, max(0.0, flat_normal.dot(flat_normal))))
 
         """
         8. bake!
         """
-        mesh.data.normals_split_custom_set(normals)
-
+        eval_mesh.normals_split_custom_set(normals)
     """
     9. modify report
     """
@@ -1497,24 +1591,26 @@ def bake_data_layer_normal(context, meshes, data_layers_normals):
             edit_bake_layer_report_range_max(data_layer_normal, mathutils.Vector((1.0, 1.0, 1.0)))
     else:
         for data_layer_normal, layer_info in data_layers_normals:
-            edit_bake_layer_report_range_min(data_layer_normal, mathutils.Vector((global_average)))
-            edit_bake_layer_report_range_max(data_layer_normal, mathutils.Vector((global_radius, global_radius, global_radius)))
+            edit_bake_layer_report_range_min(data_layer_normal, mathutils.Vector((global_average.x, global_average.y, global_average.z if layer_z_available else 0.0)) * signed_axis)
+            edit_bake_layer_report_range_max(data_layer_normal, mathutils.Vector((global_radius, global_radius, global_radius if layer_z_available else 0.0)))
+
+            if not layer_z_available and data_layer_normal.normal_xyz == "Z":
+                clear_bake_layer_report(data_layer_normal)
 
 ##########################
 ### PRE-BAKE FUNCTIONS ###
-def pre_bake_position(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
                                     -1.0 if settings.invert_y else 1.0,
@@ -1524,76 +1620,17 @@ def pre_bake_position(context: bpy.types.Context, data_layer: object, meshes: li
     bake_min = None
     bake_max = None
 
-    for mesh in meshes:
-        mesh_source = mesh.get(custom_prop, mesh)
-        mesh_source_quat = mesh_source.matrix_world
-        if settings.world_obj:
-            mesh_source_quat = mesh_source_quat @ settings.world_obj.matrix_world.inverted # make it relative to world obj
-        mesh_source_loc = mesh_source_quat.to_translation()
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        vector_to_bake = mesh_source_loc * signed_scale
+        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+        eval_obj_source_mat = eval_obj_source.matrix_world
+        if settings.origin_obj:
+            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
+        eval_obj_source_loc = eval_obj_source_mat.to_translation()
 
-        if data_layer.component == "X":
-            data_to_bake = vector_to_bake.x
-        elif data_layer.component == "Y":
-            data_to_bake = vector_to_bake.y
-        elif data_layer.component == "Z":
-            data_to_bake = vector_to_bake.z
-        else:
-            data_to_bake = 0.0        
-
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
-
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
-
-        attr = mesh.data.attributes[data_layer.ID]
-        attr.data.foreach_set('value', data_loop_ids)
-
-        bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
-        bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
-
-    return bake_min, bake_max
-
-def pre_bake_axis(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
-    """
-    Intermediate bake function to store the value in the meshes' face corner attributes
-
-    :param context: Blender current execution context
-    :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
-    :rtype: tuple
-    """
-    settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
-
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-
-    bake_min = None
-    bake_max = None
-
-    for mesh in meshes:
-        mesh_source = mesh.get(custom_prop, mesh)
-        mesh_source_mat = mesh_source.matrix_world
-        if settings.world_obj:
-            mesh_source_mat = mesh_source_mat @ settings.world_obj.matrix_world.inverted # make it relative to world obj
-
-        mesh_source_quat = mesh_source_mat.to_quaternion()
-
-        if data_layer.axis == "X":
-            axis = mathutils.Vector((1.0, 0.0, 0.0))
-        elif data_layer.axis == "Y":
-            axis = mathutils.Vector((0.0, 1.0, 0.0))
-        elif data_layer.axis == "Z":
-            axis = mathutils.Vector((0.0, 0.0, 1.0))
-        else:
-            axis = mathutils.Vector((0.0, 0.0, 0.0))
-
-        vector_to_bake = (mesh_source_quat @ (axis * signed_axis))
+        vector_to_bake = eval_obj_source_loc * signed_scale
 
         if data_layer.component == "X":
             data_to_bake = vector_to_bake.x
@@ -1604,33 +1641,96 @@ def pre_bake_axis(context: bpy.types.Context, data_layer: object, meshes: list, 
         else:
             data_to_bake = 0.0
 
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+        data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-        attr = mesh.data.attributes[data_layer.ID]
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
         bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
 
-    return bake_min, bake_max
+    return (True, "", bake_min, bake_max)
 
-def pre_bake_shapekey(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
-    # @TODO check that it is working & rework way shapekeys offset & normal are computed
     settings = context.scene.DataBakerSettings
     custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
+
+    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
+                                    -1.0 if settings.invert_y else 1.0,
+                                    -1.0 if settings.invert_z else 1.0))
+
+    bake_min = None
+    bake_max = None
+
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
+
+        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+        eval_obj_source_mat = eval_obj_source.matrix_world
+        if settings.origin_obj:
+            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
+        eval_obj_source_euler = eval_obj_source_mat.to_euler()
+
+        if data_layer.axis == "X":
+            axis = mathutils.Vector((1.0, 0.0, 0.0))
+        elif data_layer.axis == "Y":
+            axis = mathutils.Vector((0.0, 1.0, 0.0))
+        elif data_layer.axis == "Z":
+            axis = mathutils.Vector((0.0, 0.0, 1.0))
+        else:
+            axis = mathutils.Vector((0.0, 0.0, 0.0))
+
+        axis.rotate(eval_obj_source_euler)
+        vector_to_bake = axis * signed_axis
+
+        if data_layer.component == "X":
+            data_to_bake = vector_to_bake.x
+        elif data_layer.component == "Y":
+            data_to_bake = vector_to_bake.y
+        elif data_layer.component == "Z":
+            data_to_bake = vector_to_bake.z
+        else:
+            data_to_bake = 0.0
+
+        data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
+
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+
+        attr = eval_mesh.attributes[data_layer.ID]
+        attr.data.foreach_set('value', data_loop_ids)
+
+        bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
+        bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
+
+    return (True, "", bake_min, bake_max)
+
+def pre_bake_shapekey(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
+    """
+    Intermediate bake function to store the value in the meshes' face corner attributes
+
+    :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
+    :param data_layer: data layer to bake
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
+    :rtype: tuple
+    """
+    settings = context.scene.DataBakerSettings
 
     signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
                                     -1.0 if settings.invert_y else 1.0,
@@ -1641,85 +1741,106 @@ def pre_bake_shapekey(context: bpy.types.Context, data_layer: object, meshes: li
 
     bake_min = None
     bake_max = None
-    
-    for mesh in meshes:
-        data_loop_ids = [0.0] * len(mesh.data.loops)
 
-        mesh_source = mesh.get(custom_prop, mesh)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        if mesh_source.data.shape_keys:
-            # cache & reset all shape keys
-            initial_shape_keys = []
-            for shape_key in mesh_source.data.shape_keys.key_blocks:
-                initial_shape_keys.append((shape_key.name, shape_key.value))
-                shape_key.value = 0.0
+        data_loop_ids = [0.0] * len(eval_mesh.loops)
 
-            # enable shape key to bake
-            if data_layer.name in mesh_source.data.shape_keys.key_blocks:
-                mesh_source.data.shape_keys.key_blocks[settings.name].value = 1.0
+        target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        if not target:
+            return (False, "Shapekey: No source object found", 0.0, 1.0)
+        if target.type != "MESH":
+            return (False, "Shapekey: Source object isn't a mesh", 0.0, 1.0)
 
-            # cache posed vertices
-            obj_eval = mesh_source.evaluated_get(dgraph)
-            mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-            mesh_eval.transform(obj_eval.matrix_world)
-            vertices_posed = [vertex.copy() for vertex in mesh_eval.vertices]
-            obj_eval.to_mesh_clear()
+        target_mesh = target.data
+        if target_mesh.shape_keys and (data_layer.name in target_mesh.shape_keys.key_blocks):
+            #target_eval = target.evaluated_get(dgraph)
+            # duplicate mesh data and apply the shapekey offset to it
+            bm = bmesh.new()
+            bm.from_mesh(target_mesh)
+            bm.verts.ensure_lookup_table()
 
-            # disable shape key to bake
-            if data_layer.name in mesh_source.data.shape_keys.key_blocks:
-                mesh_source.data.shape_keys.key_blocks[settings.name].value = 0.0
+            for vertex_index, vertex in enumerate(bm.verts):
+                #shapekey_world_pos = target_eval.matrix_world @ target_mesh.shape_keys.key_blocks[data_layer.name].data[vertex_index].co
+                shapekey_world_pos = target_mesh.shape_keys.key_blocks[data_layer.name].data[vertex_index].co
+                vertex.co = shapekey_world_pos
 
-            # cache rest vertices
-            obj_eval = mesh_source.evaluated_get(dgraph)
-            mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-            mesh_eval.transform(obj_eval.matrix_world)
-            vertices_rest = [vertex.copy() for vertex in mesh_eval.vertices]
-            obj_eval.to_mesh_clear()
+            mesh_name = "MyMesh"
+            object_name = "MyObject"
+            mesh = bpy.data.meshes.new(mesh_name)
+            bm.to_mesh(mesh)
+            obj = bpy.data.objects.new(object_name, eval_mesh)
+            bpy.context.collection.objects.link(obj)
 
-            # restore shapekeys
-            for shape_key_name, shape_key_value in initial_shape_keys:
-                mesh_source.data.shape_keys.key_blocks[shape_key_name].value = shape_key_value 
+            bm.normal_update()
 
-            # compute shape key value to bake
-            for loop_id in mesh_eval.data.loops:
-                if data_layer.vertex_mode == "OFFSET":
-                    vector_to_bake = (vertices_posed[loop_id.vertex_index].co - vertices_rest[loop_id.vertex_index].co) * signed_scale
-                elif data_layer.vertex_mode == "NORMAL":
-                    vector_to_bake = vertices_posed[loop_id.vertex_index].normal * signed_axis
-                else:
-                    vector_to_bake = mathutils.Vector((0.0, 0.0, 0.0))
+            topology_mismatch  = len(eval_mesh.vertices) != len(target_mesh.vertices)
+            topology_mismatch |= len(eval_mesh.loops) != len(target_mesh.loops)
+            if topology_mismatch:
+                BVH = BVHTree.FromBMesh(bm) # fall back to nearest search method
 
-                if data_layer.component == "X":
-                    data_to_bake = vector_to_bake.x
-                elif data_layer.component == "Y":
-                    data_to_bake = vector_to_bake.y
-                elif data_layer.component == "Z":
-                    data_to_bake = vector_to_bake.z
-                else:
-                    pass
+                for loop_id in eval_mesh.loops:
+                    vert_pos = eval_mesh.vertices[loop_id.vertex_index].co
+                    closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vert_pos)
 
-                data_loop_ids[loop_id.index] = data_to_bake
+                    if data_layer.vertex_mode == "OFFSET":
+                        vector_to_bake = (closest_face_pos - vert_pos) * signed_scale
+                    else:
+                        vector_to_bake = closest_face_nor.normalized() * signed_axis
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+                    if data_layer.component == "X":
+                        data_to_bake = vector_to_bake.x
+                    elif data_layer.component == "Y":
+                        data_to_bake = vector_to_bake.y
+                    else:
+                        data_to_bake = vector_to_bake.z
 
-        attr = mesh.data.attributes[data_layer.ID]
+                    data_loop_ids[loop_id.index] = data_to_bake
+            else:
+                for loop_id in eval_mesh.loops:
+                    if data_layer.vertex_mode == "OFFSET":
+                        vert_pos = eval_mesh.vertices[loop_id.vertex_index].co
+                        target_vert_pos = bm.verts[loop_id.vertex_index].co
+                        vector_to_bake = (target_vert_pos - vert_pos) * signed_scale
+                    else:
+                        vector_to_bake = bm.verts[loop_id.vertex_index].normal.normalized() * signed_axis
+
+                    if data_layer.component == "X":
+                        data_to_bake = vector_to_bake.x
+                    elif data_layer.component == "Y":
+                        data_to_bake = vector_to_bake.y
+                    elif data_layer.component == "Z":
+                        data_to_bake = vector_to_bake.z
+                    else:
+                        pass
+
+                    data_loop_ids[loop_id.index] = data_to_bake
+
+            bm.free()
+        else:
+            return (False, "No shapekey named " + data_layer.name + " found in object " + target.name, 0.0, 1.0)
+
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
         bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
-    
-    return bake_min, bake_max
 
-def pre_bake_mask(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+    return (True, "", bake_min, bake_max)
+
+def pre_bake_mask(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -1746,8 +1867,8 @@ def pre_bake_mask(context: bpy.types.Context, data_layer: object, meshes: list, 
         origin_mode = data_layer.origin_mode
 
     if data_layer.mask_mode == "SPHERE":
-        return pre_bake_mask_sphere(data_layer, meshes, empties, custom_prop, origin_mode, signed_scale)
-    elif data_layer.mask_mode == "LINEAR":            
+        return pre_bake_mask_sphere(dgraph, data_layer, eval_objs_to_bake, custom_prop, origin_mode, signed_scale)
+    elif data_layer.mask_mode == "LINEAR":
         if data_layer.axis == "X":
             world_axis = mathutils.Vector((1.0, 0.0, 0.0))
         elif data_layer.axis == "Y":
@@ -1757,22 +1878,21 @@ def pre_bake_mask(context: bpy.types.Context, data_layer: object, meshes: list, 
         else:
             world_axis = mathutils.Vector((0.0, 0.0, 0.0))
 
-        if settings.world_obj:
-            world_axis = settings.world_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj
+        if settings.origin_obj:
+            world_axis = settings.origin_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj
 
-        return pre_bake_mask_linear(data_layer, meshes, empties, custom_prop, origin_mode, signed_scale, world_axis)
+        return pre_bake_mask_linear(dgraph, data_layer, eval_objs_to_bake, custom_prop, origin_mode, signed_scale, world_axis)
     else:
-        return (0.0, 1.0)
+        return (False, "Unknown mask mode", 0.0, 1.0)
 
-def pre_bake_mask_sphere(data_layer: object, meshes: list, empties: list, custom_prop: str, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[float, float]:
+def pre_bake_mask_sphere(dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list, custom_prop: str, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0))) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
-    :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     # sphere mask origin may be 'global' (shared across all objects)
@@ -1785,17 +1905,19 @@ def pre_bake_mask_sphere(data_layer: object, meshes: list, empties: list, custom
         mask_global = True
     elif origin_mode == "SELECTION":
         averaged_pos = mathutils.Vector((0.0, 0.0, 0.0))
-        for mesh in meshes:
-            averaged_pos += mesh.matrix_world.to_translation()
-        mask_origin_pos = averaged_pos / max(len(meshes), 1)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            averaged_pos += eval_obj_to_bake.matrix_world.to_translation()
+        mask_origin_pos = averaged_pos / max(len(eval_objs_to_bake), 1)
         mask_global = True
 
     # if 'global', iterate all meshes to get max distance relative to sphere mask origin
     if mask_global:
         verts = []
-        for mesh in meshes:
-            for loop_id in mesh.data.loops:
-                vertex_offset = (mesh.world_matrix @ mesh.data.vertices[loop_id.vertex_index].co) - mask_origin_pos
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_mesh = eval_obj_to_bake.data
+            
+            for loop_id in eval_mesh.loops:
+                vertex_offset = (eval_obj_to_bake.world_matrix @ eval_mesh.vertices[loop_id.vertex_index].co) - mask_origin_pos
                 verts.append(vertex_offset.length)
 
         min_dist = min(verts)
@@ -1809,10 +1931,12 @@ def pre_bake_mask_sphere(data_layer: object, meshes: list, empties: list, custom
     bake_min = None
     bake_max = None
 
-    for mesh in meshes:
-        data_loop_ids = [0.0] * len(mesh.data.loops)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        mesh_source = mesh.get(custom_prop, mesh)
+        data_loop_ids = [0.0] * len(eval_mesh.loops)
+
+        mesh_source = eval_obj_to_bake.get(custom_prop, eval_obj_to_bake)
         obj_eval = mesh_source.evaluated_get(dgraph)
         mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         mesh_eval.transform(obj_eval.matrix_world)
@@ -1865,26 +1989,25 @@ def pre_bake_mask_sphere(data_layer: object, meshes: list, empties: list, custom
 
         obj_eval.to_mesh_clear()
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-        attr = mesh.data.attributes[data_layer.ID]
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
         bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
 
-    return bake_min, bake_max
+    return (True, "", bake_min, bake_max)
 
-def pre_bake_mask_linear(data_layer: object, meshes: list, empties: list, custom_prop: str, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0)), world_axis: mathutils.Vector=mathutils.Vector((0.0, 0.0, 1.0))) -> tuple[float, float]:
+def pre_bake_mask_linear(dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list, custom_prop: str, origin_mode: str="WORLD", signed_scale: mathutils.Vector=mathutils.Vector((1.0, 1.0, 1.0)), world_axis: mathutils.Vector=mathutils.Vector((0.0, 0.0, 1.0))) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
-    :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     # linear mask origin may be 'global' (shared across all objects)
@@ -1906,20 +2029,23 @@ def pre_bake_mask_linear(data_layer: object, meshes: list, empties: list, custom
             pass # WORLD
     elif origin_mode == "SELECTION":
         averaged_pos = mathutils.Vector((0.0, 0.0, 0.0))
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_mesh = eval_obj_to_bake.data
+            mesh_source = eval_mesh.get(custom_prop, eval_mesh)
 
             averaged_pos += mesh_source.matrix_world.to_translation()
-        mask_origin_pos = averaged_pos / max(len(meshes), 1)
+        mask_origin_pos = averaged_pos / max(len(eval_objs_to_bake), 1)
         mask_origin_axis = world_axis
         mask_global = True
 
     # if 'global', iterate all meshes to get max distance relative to linear mask origin
     if mask_global:
         verts = []
-        for mesh in meshes:
-            for loop_id in mesh.data.loops:
-                vertex_offset = (mesh.world_matrix @ mesh.data.vertices[loop_id.vertex_index].co) - mask_origin_pos
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_mesh = eval_obj_to_bake.data
+
+            for loop_id in eval_mesh.loops:
+                vertex_offset = (eval_obj_to_bake.world_matrix @ eval_mesh.vertices[loop_id.vertex_index].co) - mask_origin_pos
                 verts.append(vertex_offset.dot(mask_origin_axis))
 
         min_dist = min(verts)
@@ -1933,10 +2059,12 @@ def pre_bake_mask_linear(data_layer: object, meshes: list, empties: list, custom
     bake_min = None
     bake_max = None
 
-    for mesh in meshes:
-        data_loop_ids = [0.0] * len(mesh.data.loops)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        mesh_source = mesh.get(custom_prop, mesh)
+        data_loop_ids = [0.0] * len(eval_mesh.loops)
+
+        mesh_source = eval_mesh.get(custom_prop, eval_mesh)
         obj_eval = mesh_source.evaluated_get(dgraph)
         mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         mesh_eval.transform(obj_eval.matrix_world)
@@ -2000,46 +2128,46 @@ def pre_bake_mask_linear(data_layer: object, meshes: list, empties: list, custom
 
             data_loop_ids[loop_id.index] = data_to_bake
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-        attr = mesh.data.attributes[data_layer.ID]
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
         bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
 
-    return bake_min, bake_max
+    return (True, "", bake_min, bake_max)
 
-def pre_bake_random(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_random(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     if data_layer.rand_float_mode == "FLOAT":
-        return pre_bake_random_float(context, data_layer, meshes, empties)
+        return pre_bake_random_float(context, dgraph, data_layer, eval_objs_to_bake)
     elif data_layer.rand_float_mode == "FLOAT2":
-        return pre_bake_random_float2(context, data_layer, meshes, empties)
+        return pre_bake_random_float2(context, dgraph, data_layer, eval_objs_to_bake)
     elif data_layer.rand_float_mode == "FLOAT3":
-        return pre_bake_random_float3(context, data_layer, meshes, empties)
+        return pre_bake_random_float3(context, dgraph, data_layer, eval_objs_to_bake)
     else:
-        return (0.0, 1.0)
+        return (False, "Unknown random mode", 0.0, 1.0)
 
-def pre_bake_random_float(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_random_float(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -2054,10 +2182,9 @@ def pre_bake_random_float(context: bpy.types.Context, data_layer: object, meshes
     if data_layer.rand_mode == "COLLECTION":
         # pre pass
         cols = []
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
-
-            for col in mesh_source.users_collection:
+        for eval_obj_to_bake in eval_objs_to_bake:
+            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            for col in target.users_collection:
                 if col not in cols:
                     cols.append(col)
 
@@ -2072,12 +2199,14 @@ def pre_bake_random_float(context: bpy.types.Context, data_layer: object, meshes
             random.shuffle(uniform_values)
 
         # main pass
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
-            if mesh_source.users_collection:
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_mesh = eval_obj_to_bake.data
+
+            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            if target.users_collection:
                 col_index = -1
                 try:
-                    col_index = cols.index(mesh_source.users_collection[0])
+                    col_index = cols.index(target.users_collection[0])
                 except:
                     pass
                 
@@ -2088,54 +2217,54 @@ def pre_bake_random_float(context: bpy.types.Context, data_layer: object, meshes
             else:
                 data_to_bake = 0.0
 
-            data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+            data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
             bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
     elif data_layer.rand_mode == "OBJECT":
-        uniform_length = len(meshes)
+        uniform_length = len(eval_objs_to_bake)
         uniform_length = max(1, uniform_length - 1)
 
         # pre pass
-        for mesh_index, mesh in enumerate(meshes):
-            uniform_values.append(mesh_index / uniform_length)
+        for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+            uniform_values.append(eval_obj_to_bake_index / uniform_length)
 
         if uniform_length > 0:
             random.seed(data_layer.rand_seed)
             random.shuffle(uniform_values)
 
         # main pass
-        for mesh_index, mesh in enumerate(meshes):
-            data_to_bake = (uniform_values[mesh_index] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
+        for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+            data_to_bake = (uniform_values[eval_obj_to_bake_index] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
-            data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+            data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
             bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
     elif data_layer.rand_mode == "FACE":
-        for mesh in meshes:
-            uniform_length += len(mesh.data.polygons)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            uniform_length += len(eval_mesh.polygons)
         uniform_length = max(1, uniform_length - 1)
 
         # pre pass
         face_offset = 0
-        for mesh in meshes:
-            for face_index, face in enumerate(mesh.data.polygons):
+        for eval_obj_to_bake in eval_objs_to_bake:
+            for face_index, face in enumerate(eval_mesh.polygons):
                 uniform_values.append((face_index + face_offset) / uniform_length)
             
-            face_offset += len(mesh.data.polygons)
+            face_offset += len(eval_mesh.polygons)
 
         if uniform_length > 0:
             random.seed(data_layer.rand_seed)
@@ -2143,48 +2272,39 @@ def pre_bake_random_float(context: bpy.types.Context, data_layer: object, meshes
 
         # main pass
         face_offset = 0
-        for mesh in meshes:
-            data_loop_ids = [0.0] * len(mesh.data.loops)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            data_loop_ids = [0.0] * len(eval_mesh.loops)
 
-            for face_index, face in enumerate(mesh.data.polygons):
+            for face_index, face in enumerate(eval_mesh.polygons):
                 data_to_bake = (uniform_values[face_index + face_offset] * data_layer.uniform) + ((1 - data_layer.uniform) * random.uniform(0,1)) # blend between uniform random and completely random
 
                 for loop_id in face.loop_indices:
                     data_loop_ids[loop_id] = data_to_bake
 
-            face_offset += len(mesh.data.polygons)
+            face_offset += len(eval_mesh.polygons)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
             bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
     else:
-        bake_min = 0.0
-        bake_max = 1.0
+        return (False, "Unknown rand mode", 0.0, 1.0)
 
-        data_loop_ids = [0.0] * len(mesh.data.loops)
-    
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+    return (True, "", bake_min, bake_max)
 
-        attr = mesh.data.attributes[data_layer.ID]
-        attr.data.foreach_set('value', data_loop_ids)
-
-    return bake_min, bake_max
-
-def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_random_float2(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -2196,19 +2316,19 @@ def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshe
     if data_layer.rand_mode == "COLLECTION":
         # pre pass
         cols = []
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
-
-            for col in mesh_source.users_collection:
+        for eval_obj_to_bake in eval_objs_to_bake:
+            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            for col in target.users_collection:
                 if col not in cols:
                     cols.append(col)
 
         # main pass
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_mesh = eval_obj_to_bake.data
 
-            if mesh_source.users_collection:
-                col_index = cols.index(mesh_source.users_collection[0])
+            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            if target.users_collection:
+                col_index = cols.index(target.users_collection[0])
                 if col_index >= 0:
                     np.random.seed(data_layer.rand_seed + col_index)
                     rand = np.random.uniform(-math.pi, math.pi)
@@ -2224,12 +2344,12 @@ def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshe
             else:
                 data_to_bake = 0.0
 
-            data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+            data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
@@ -2237,7 +2357,9 @@ def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshe
     elif data_layer.rand_mode == "OBJECT":
 
         # main pass
-        for mesh_index, mesh in enumerate(meshes):
+        for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+            eval_mesh = eval_obj_to_bake.data
+
             np.random.seed(data_layer.rand_seed + mesh_index)
             rand = np.random.uniform(-math.pi, math.pi)
 
@@ -2250,12 +2372,12 @@ def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshe
             else:
                 data_to_bake = 0.0
 
-            data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+            data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
@@ -2266,10 +2388,12 @@ def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshe
 
         # main pass
         face_offset = 0
-        for mesh_index, mesh in enumerate(meshes):
-            data_loop_ids = [0.0] * len(mesh.data.loops)
+        for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+            eval_mesh = eval_obj_to_bake.data
 
-            for face_index, face in enumerate(mesh.data.polygons):
+            data_loop_ids = [0.0] * len(eval_mesh.loops)
+
+            for face_index, face in enumerate(eval_mesh.polygons):
                 np.random.seed(data_layer.rand_seed + (face_index + face_offset))
                 rand = np.random.uniform(-math.pi, math.pi)
 
@@ -2285,42 +2409,30 @@ def pre_bake_random_float2(context: bpy.types.Context, data_layer: object, meshe
                 for loop_id in face.loop_indices:
                     data_loop_ids[loop_id] = data_to_bake
 
-            face_offset += len(mesh.data.polygons)
+            face_offset += len(eval_mesh.polygons)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
             bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
     else:
-        data_loop_ids = [0.0] * len(mesh.data.loops)
-    
-        bake_min = 0.0
-        bake_max = 1.0
+        return (False, "Unknown rand mode", 0.0, 1.0)
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+    (True, "", bake_min, bake_max)
 
-        attr = mesh.data.attributes[data_layer.ID]
-        attr.data.foreach_set('value', data_loop_ids)
-
-        bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
-        bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
-
-    return bake_min, bake_max
-
-def pre_bake_random_float3(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_random_float3(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -2332,19 +2444,19 @@ def pre_bake_random_float3(context: bpy.types.Context, data_layer: object, meshe
     if data_layer.rand_mode == "COLLECTION":
         # pre pass
         cols = []
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
-
-            for col in mesh_source.users_collection:
+        for eval_obj_to_bake in eval_objs_to_bake:
+            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            for col in target.users_collection:
                 if col not in cols:
                     cols.append(col)
 
         # main pass
-        for mesh in meshes:
-            mesh_source = mesh.get(custom_prop, mesh)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_mesh = eval_obj_to_bake.data
 
-            if mesh_source.users_collection:
-                col_index = cols.index(mesh_source.users_collection[0])
+            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            if target.users_collection:
+                col_index = cols.index(target.users_collection[0])
                 if col_index >= 0:
                     # https://gist.github.com/andrewbolster/10274979
                     np.random.seed(data_layer.rand_seed + col_index)
@@ -2363,21 +2475,23 @@ def pre_bake_random_float3(context: bpy.types.Context, data_layer: object, meshe
             else:
                 data_to_bake = 0.0
 
-            data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+            data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
             bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
     elif data_layer.rand_mode == "OBJECT":
         # main pass
-        for mesh_index, mesh in enumerate(meshes):
+        for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+            eval_mesh = eval_obj_to_bake.data
+
             # https://gist.github.com/andrewbolster/10274979
-            np.random.seed(data_layer.rand_seed + mesh_index)
+            np.random.seed(data_layer.rand_seed + eval_obj_to_bake_index)
             phi = np.random.uniform(0,np.pi*2)
             costheta = np.random.uniform(-1,1)
             theta = np.arccos( costheta )
@@ -2391,12 +2505,12 @@ def pre_bake_random_float3(context: bpy.types.Context, data_layer: object, meshe
             else:
                 data_to_bake = 0.0
 
-            data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+            data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
@@ -2407,10 +2521,12 @@ def pre_bake_random_float3(context: bpy.types.Context, data_layer: object, meshe
 
         # main pass
         face_offset = 0
-        for mesh_index, mesh in enumerate(meshes):
-            data_loop_ids = [0.0] * len(mesh.data.loops)
+        for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+            eval_mesh = eval_obj_to_bake.data
 
-            for face_index, face in enumerate(mesh.data.polygons):
+            data_loop_ids = [0.0] * len(eval_mesh.loops)
+
+            for face_index, face in enumerate(eval_mesh.polygons):
                 # https://gist.github.com/andrewbolster/10274979
                 np.random.seed(data_layer.rand_seed + (face_index + face_offset))
                 phi = np.random.uniform(0,np.pi*2)
@@ -2429,205 +2545,63 @@ def pre_bake_random_float3(context: bpy.types.Context, data_layer: object, meshe
                 for loop_id in face.loop_indices:
                     data_loop_ids[loop_id] = data_to_bake
 
-            face_offset += len(mesh.data.polygons)
+            face_offset += len(eval_mesh.polygons)
 
-            if data_layer.ID not in mesh.data.attributes:
-                mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+            if data_layer.ID not in eval_mesh.attributes:
+                eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-            attr = mesh.data.attributes[data_layer.ID]
+            attr = eval_mesh.attributes[data_layer.ID]
             attr.data.foreach_set('value', data_loop_ids)
 
             bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
             bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
     else:
-        data_loop_ids = [0.0] * len(mesh.data.loops)
-    
-        bake_min = 0.0
-        bake_max = 1.0
+        return (False, "Unknown rand mode", 0.0, 1.0)
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+    (True, "", bake_min, bake_max)
 
-        attr = mesh.data.attributes[data_layer.ID]
-        attr.data.foreach_set('value', data_loop_ids)
-
-    return bake_min, bake_max
-
-def pre_bake_parent_position(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_value(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
-    settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
-    
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-    signed_scale = signed_axis * settings.scale
 
     bake_min = None
     bake_max = None
 
-    target_depth = max(1, data_layer.index)
-    for mesh in meshes:
-        mesh_source = mesh.get(custom_prop, mesh)
-        parent = mesh_source
-        for depth in range(target_depth):
-            if parent and parent.parent and (parent.parent.type == 'MESH' or parent.parent.type == 'EMPTY'):
-                parent = parent.parent
-            else:
-                parent = None
-                break
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        if not parent: # fallback to self @NOTE see if this is the best solution
-            parent = mesh_source
-
-        parent_loc = parent.matrix_world.to_translation()
-        if data_layer.obj:
-            parent_loc -= data_layer.obj.matrix_world.to_translation() # relative to origin?
-
-        vector_to_bake = parent_loc * signed_scale
-
-        if data_layer.component == "X":
-            data_to_bake = vector_to_bake.x
-        elif data_layer.component == "Y":
-            data_to_bake = vector_to_bake.y
-        elif data_layer.component == "Z":
-            data_to_bake = vector_to_bake.z
-        else:
-            data_to_bake = 0.0
-
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
-
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
-
-        attr = mesh.data.attributes[data_layer.ID]
-        attr.data.foreach_set('value', data_loop_ids)
-
-        bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
-        bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
-    
-    return bake_min, bake_max
-
-def pre_bake_parent_axis(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
-    """
-    Intermediate bake function to store the value in the meshes' face corner attributes
-
-    :param context: Blender current execution context
-    :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
-    :rtype: tuple
-    """
-    settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
-    
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-
-    bake_min = None
-    bake_max = None
-
-    target_depth = max(1, data_layer.index)
-    for mesh in meshes:
-        mesh_source = mesh.get(custom_prop, mesh)
-        parent = mesh_source
-        for depth in range(target_depth):
-            if parent and parent.parent and (parent.parent.type == 'MESH' or parent.parent.type == 'EMPTY'):
-                parent = parent.parent
-            else:
-                parent = None
-        
-        if not parent: # fallback to self @NOTE see if this is the best solution
-            parent = mesh_source
-
-        parent_quat = parent.matrix_world.to_quaternion()
-
-        if data_layer.axis == "X":
-            axis = mathutils.Vector((1.0, 0.0, 0.0))
-        elif data_layer.axis == "Y":
-            axis = mathutils.Vector((0.0, 1.0, 0.0))
-        elif data_layer.axis == "Z":
-            axis = mathutils.Vector((0.0, 0.0, 1.0))
-        else:
-            axis = mathutils.Vector((0.0, 0.0, 0.0))
-
-        vector_to_bake = (parent_quat @ (axis * signed_axis))
-
-        if data_layer.component == "X":
-            data_to_bake = vector_to_bake.x
-        elif data_layer.component == "Y":
-            data_to_bake = vector_to_bake.y
-        elif data_layer.component == "Z":
-            data_to_bake = vector_to_bake.z
-        else:
-            data_to_bake = 0.0
-
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
-
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
-
-        attr = mesh.data.attributes[data_layer.ID]
-        attr.data.foreach_set('value', data_loop_ids)
-
-        bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
-        bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
-
-    return bake_min, bake_max
-
-def pre_bake_value(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
-    """
-    Intermediate bake function to store the value in the meshes' face corner attributes
-
-    :param context: Blender current execution context
-    :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
-    :rtype: tuple
-    """
-    settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
-
-    bake_min = None
-    bake_max = None
-
-    for mesh in meshes:
         data_to_bake = data_layer.x
 
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+        data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-        attr = mesh.data.attributes[data_layer.ID]
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
     bake_min = data_layer.x
     bake_max = data_layer.x
 
-    return bake_min, bake_max
+    (True, "", bake_min, bake_max)
 
-def pre_bake_custom_prop(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_custom_prop(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -2636,37 +2610,42 @@ def pre_bake_custom_prop(context: bpy.types.Context, data_layer: object, meshes:
     bake_min = None
     bake_max = None
 
-    for mesh in meshes:
-        mesh_source = mesh.get(custom_prop, mesh)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        prop = mesh_source.get(data_layer.name, None)
+        if data_layer.obj:
+            target = data_layer.obj
+        else:
+            target = eval_obj_to_bake.get(custom_prop, eval_obj_to_bake)
+
+        prop = target.get(data_layer.name, None)
         if prop and ((type(prop) is int) or (type(prop) is float)):
             data_to_bake = prop
         else:
             data_to_bake = 0.0
 
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+        data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
-        attr = mesh.data.attributes[data_layer.ID]
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_min = min(bake_min, data_to_bake) if bake_min else data_to_bake
         bake_max = max(bake_max, data_to_bake) if bake_max else data_to_bake
 
-    return bake_min, bake_max
+    (True, "", bake_min, bake_max)
 
-def pre_bake_frame(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_frame(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -2684,69 +2663,72 @@ def pre_bake_frame(context: bpy.types.Context, data_layer: object, meshes: list,
     bake_min = None
     bake_max = None
 
-    for mesh in meshes:
-        data_loop_ids = [0.0] * len(mesh.data.loops)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
 
-        mesh_source = mesh.get(custom_prop, mesh)
+        data_loop_ids = [0.0] * len(eval_mesh.loops)
+        target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
 
-        ############
-        # REF POSE #
-
-        context.scene.frame_set(bake_ref_frame)
+        context.scene.frame_set(data_layer.index)
         #context.view_layer.update()
 
-        ref_eval_obj = mesh_source.evaluated_get(dgraph)
-        ref_eval_mesh = ref_eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        ref_eval_mesh.transform(ref_eval_obj.matrix_world)
-        ref_eval_mesh_vertex_count = len(ref_eval_mesh.vertices)
-        ref_eval_mesh_vertices_pos = [v.co.copy() for v in ref_eval_mesh.vertices] # cache SOURCE vertices pos @NOTE .copy() seems necessary here
+        eval_obj = target.evaluated_get(dgraph)
+        eval_mesh_source = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
+        eval_mesh_source.transform(eval_obj.matrix_world)
 
-        ref_eval_obj.to_mesh_clear()
+        topology_mismatch  = len(eval_mesh.vertices) != len(eval_mesh_source.vertices)
+        topology_mismatch |= len(eval_mesh.loops) != len(eval_mesh_source.loops)
 
-        context.scene.frame_set(data_layer.index) # advance to frame
-        #context.view_layer.update()
+        # fall back to nearest search method
+        if topology_mismatch:
+            bm = bmesh.new()
+            bm.from_mesh(eval_mesh_source)
 
-        eval_posed_obj = mesh_source.evaluated_get(dgraph)
-        eval_posed_mesh = eval_posed_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        eval_posed_mesh.transform(eval_posed_obj.matrix_world)
-        eval_mesh_vertex_count = len(eval_posed_mesh.vertices)
+            BVH = BVHTree.FromBMesh(bm)
 
-        if eval_mesh_vertex_count != ref_eval_mesh_vertex_count:
-            return (False, "Vertex count mismatch in frame " + str(data_layer.index) + " for object " + mesh_source.name + ". It likely has a modifier that changes its topology during animation (i.e. a split edge modifier that suddenly splits an edge due to an increase angle).", [], [], None)
+            for loop_id in eval_mesh.loops:
+                vert_pos = eval_mesh.vertices[loop_id.vertex_index].co
+                closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vert_pos)
 
-        if data_layer.vertex_mode == "OFFSET":
-            for loop_id in eval_posed_mesh.loops:
-                vert_pos = eval_posed_mesh.vertices[loop_id.vertex_index].co
-                ref_vert_pos = ref_eval_mesh_vertices_pos[loop_id.vertex_index]
-                offset = vert_pos - ref_vert_pos
+                if data_layer.vertex_mode == "OFFSET":
+                    vector_to_bake = (vert_pos - closest_face_pos) * signed_scale
+                else:
+                    vector_to_bake = closest_face_nor.normalized() * signed_axis
 
                 if data_layer.component == "X":
-                    data_to_bake = offset.x
+                    data_to_bake = vector_to_bake.x
                 elif data_layer.component == "Y":
-                    data_to_bake = offset.y
+                    data_to_bake = vector_to_bake.y
                 else:
-                    data_to_bake = offset.z
-
-                data_loop_ids[loop_id.index] = data_to_bake
-        else: # NORMAL
-            for loop_id in eval_posed_mesh.loops:
-                vert_nor = eval_posed_mesh.vertices[loop_id.vertex_index].normal.normalized()
-
-                if data_layer.component == "X":
-                    data_to_bake = vert_nor.x
-                elif data_layer.component == "Y":
-                    data_to_bake = vert_nor.y
-                else:
-                    data_to_bake = vert_nor.z
+                    data_to_bake = vector_to_bake.z
 
                 data_loop_ids[loop_id.index] = data_to_bake
 
-        eval_posed_obj.to_mesh_clear()
+            bm.free()
+        else:
+            for loop_id in eval_mesh.loops:
+                if data_layer.vertex_mode == "OFFSET":
+                    vert_pos = eval_mesh.vertices[loop_id.vertex_index].co
+                    ref_vert_pos = eval_mesh_source.vertices[loop_id.vertex_index].co
+                    vector_to_bake = (vert_pos - ref_vert_pos) * signed_scale
+                else:
+                    vector_to_bake = eval_mesh_source.vertices[loop_id.vertex_index].normal.normalized() * signed_axis
 
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+                if data_layer.component == "X":
+                    data_to_bake = vector_to_bake.x
+                elif data_layer.component == "Y":
+                    data_to_bake = vector_to_bake.y
+                else:
+                    data_to_bake = vector_to_bake.z
 
-        attr = mesh.data.attributes[data_layer.ID]
+                data_loop_ids[loop_id.index] = data_to_bake
+
+        eval_obj.to_mesh_clear()
+
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
@@ -2755,9 +2737,9 @@ def pre_bake_frame(context: bpy.types.Context, data_layer: object, meshes: list,
     # restore initial frame
     context.scene.frame_set(bake_ref_frame)
 
-    return bake_min, bake_max
+    (True, "", bake_min, bake_max)
 
-def pre_bake_zeros(context: bpy.types.Context, data_layer: object, meshes: list, empties: list) -> tuple[float, float]:
+def pre_bake_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
     """
     Intermediate bake function to store the value in the meshes' face corner attributes
 
@@ -2766,10 +2748,10 @@ def pre_bake_zeros(context: bpy.types.Context, data_layer: object, meshes: list,
     2. template function to serve as an example to build your own
 
     :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
     :param data_layer: data layer to bake
-    :param meshes: list of duplicated meshes included in the bake
-    :param empties: list of duplicated empties included in the bake
-    :return: min, max
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, min, max
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
@@ -2792,17 +2774,22 @@ def pre_bake_zeros(context: bpy.types.Context, data_layer: object, meshes: list,
     bake_max = 0.0
 
     # iterate all duplicated meshes
-    for mesh in meshes:
-        # get source mesh
-        mesh_source = mesh.get(custom_prop, mesh)
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
+
+        # get user-specified mesh override, else get source mesh
+        if data_layer.obj:
+            target = data_layer.obj
+        else:
+            target = eval_obj_to_bake.get(custom_prop, eval_obj_to_bake)
 
         # you might want to evaluate the source mesh as the duplicated mesh was itself evaluated. This ensures vertex count/order are similar
-        #obj_eval = mesh_source.evaluated_get(dgraph)
+        #obj_eval = target.evaluated_get(dgraph)
         #mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         #mesh_eval.transform(obj_eval.matrix_world)
 
         # pre-allocate buffer
-        #data_loop_ids = [0.0] * len(mesh.data.loops)
+        #data_loop_ids = [0.0] * len(eval_mesh.loops)
 
         # you might want to iterate mesh loops, and access the corresponding vertices to bake values per loop indices
         #for loop_id in mesh_eval.loops:
@@ -2815,28 +2802,28 @@ def pre_bake_zeros(context: bpy.types.Context, data_layer: object, meshes: list,
         #data_to_bake = some_value
 
         # which could instead be used to initialize the buffer
-        #data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+        #data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
         # important to clear once you're done accessing the evaluated source mesh's data
         #obj_eval.to_mesh_clear()
 
         # bunch of zeros!
         data_to_bake = 0.0
-        data_loop_ids = [data_to_bake] * len(mesh.data.loops)
+        data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
 
         # create face corner attributes for this layer, if needed
-        if data_layer.ID not in mesh.data.attributes:
-            mesh.data.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
         # use buffer to set face corner attributes
-        attr = mesh.data.attributes[data_layer.ID]
+        attr = eval_mesh.attributes[data_layer.ID]
         attr.data.foreach_set('value', data_loop_ids)
 
         # keep track of min/max
         #bake_min = min(min(data_loop_ids), data_to_bake) if bake_min else min(data_loop_ids)
         #bake_max = max(max(data_loop_ids), data_to_bake) if bake_max else max(data_loop_ids)
 
-    return bake_min, bake_max
+    (False, "Unknown data layer mode", bake_min, bake_max)
 
 ##############
 ### MESHES ###

@@ -13,8 +13,6 @@
 
 import bpy
 
-from bpy.types import Operator, StringProperty
-
 from . import Functions
 from .Functions import bake, reset_bake_report, export_bake_report
 
@@ -25,7 +23,42 @@ import uuid
 #######################################################################################
 ###################################### OPERATORS ######################################
 #######################################################################################
-class DATABAKER_OT_BakeData(Operator):
+
+##############
+### PRESET ###
+class DATABAKER_OT_DataBaker_AddPreset(AddPresetBase, bpy.types.Operator):
+    bl_idname = 'databaker_databakerpanel.addpreset'
+    bl_label = 'Add preset'
+    preset_menu = 'DATABAKER_MT_DataBaker_Presets'
+
+    preset_defines = [ 'settings = bpy.context.scene.DataBakerSettings' ]
+    preset_values = [
+    'settings.data_layers',
+    'settings.data_layers_selected_index',
+    'settings.mesh_name',
+    'settings.scale',
+    'settings.invert_x',
+    'settings.invert_y',
+    'settings.invert_z',
+    'settings.origin_obj',
+    'settings.export_mesh',
+    'settings.export_mesh_file_name',
+    'settings.export_mesh_file_path',
+    'settings.export_mesh_file_override',
+    'settings.uvmap_name',
+    'settings.invert_v',
+    'settings.export_xml',
+    'settings.export_xml_mode',
+    'settings.export_xml_file_name',
+    'settings.export_xml_file_path',
+    'settings.export_xml_override'
+    ]
+
+    preset_subdir = 'operator/databaker_data'
+
+############
+### MAIN ###
+class DATABAKER_OT_BakeData(bpy.types.Operator):
     """Bakes various data such as pivots and axis into UVs or VCols."""
     bl_idname = "gametools.databaker_bakedata"
     bl_label = "Bake"
@@ -52,42 +85,9 @@ class DATABAKER_OT_BakeData(Operator):
             self.report({verbose}, msg)
             return {'CANCELLED'}
 
-##############
-### Preset ###
-class DATABAKER_OT_DataBaker_AddPreset(AddPresetBase, Operator):
-    bl_idname = 'databaker_databakerpanel.addpreset'
-    bl_label = 'Add preset'
-    preset_menu = 'DATABAKER_MT_DataBaker_Presets'
-
-    preset_defines = [ 'settings = bpy.context.scene.DataBakerSettings' ]
-    preset_values = [
-    'settings.data_layers',
-    'settings.data_layers_selected_index',
-    'settings.world_obj',
-    'settings.mesh_name',
-    'settings.scale',
-    'settings.invert_x',
-    'settings.invert_y',
-    'settings.invert_z',
-    'settings.origin',
-    'settings.export_mesh',
-    'settings.export_mesh_file_name',
-    'settings.export_mesh_file_path',
-    'settings.export_mesh_file_override',
-    'settings.uvmap_name',
-    'settings.invert_v',
-    'settings.export_xml',
-    'settings.export_xml_mode',
-    'settings.export_xml_file_name',
-    'settings.export_xml_file_path',
-    'settings.export_xml_override'
-    ]
-
-    preset_subdir = 'operator/databaker_data'
-
 ###################
 ### DATA LAYERS ###
-class DATABAKER_OT_NewSettings_NewItem(Operator):
+class DATABAKER_OT_NewSettings_NewItem(bpy.types.Operator):
     """Add a new item to the list."""
     bl_idname = "databaker_item.new_item"
     bl_label = "Add a new item"
@@ -166,7 +166,7 @@ class DATABAKER_OT_NewSettings_NewItem(Operator):
 
         return{'FINISHED'}
 
-class DATABAKER_OT_NewSettings_DeleteItem(Operator):
+class DATABAKER_OT_NewSettings_DeleteItem(bpy.types.Operator):
     """Delete the selected item from the list."""
     bl_idname = "databaker_item.delete_item"
     bl_label = "Deletes an item"
@@ -186,7 +186,7 @@ class DATABAKER_OT_NewSettings_DeleteItem(Operator):
 
         return{'FINISHED'}
 
-class DATABAKER_OT_NewSettings_MoveItem(Operator):
+class DATABAKER_OT_NewSettings_MoveItem(bpy.types.Operator):
     """Move an item in the list."""
     bl_idname = "databaker_item.move_item"
     bl_label = "Move an item in the list"
@@ -209,8 +209,8 @@ class DATABAKER_OT_NewSettings_MoveItem(Operator):
         return{'FINISHED'}
 
 ##############
-### Report ###
-class DATABAKER_OT_ExportReport(Operator):
+### REPORT ###
+class DATABAKER_OT_ExportReport(bpy.types.Operator):
     """Export the bake report to an XML file, according to the XML export settings."""
     bl_idname = "gametools.databaker_export_report"
     bl_label = "Export"
@@ -229,7 +229,7 @@ class DATABAKER_OT_ExportReport(Operator):
         else:
             return {'CANCELLED'}
 
-class DATABAKER_OT_ClearReport(Operator):
+class DATABAKER_OT_ClearReport(bpy.types.Operator):
     """Clear the bake report."""
     bl_idname = "gametools.databaker_clear_report"
     bl_label = "Clear"

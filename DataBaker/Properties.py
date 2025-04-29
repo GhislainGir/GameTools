@@ -34,8 +34,6 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("SHAPEKEY", "Shape key", "X/Y/Z offset/normal of the object's shapekey"),
         ("MASK", "Mask", "Linear/Spherical mask"),
         ("RANDOM", "Random", "Seeded random value per collection/object/face"),
-        ("PARENT_POS", "Parent Position", "X/Y/Z component of the object's parent position"),
-        ("PARENT_AXIS", "Parent Axis", "X/Y/Z component of the object's parent forward/right/up vector"),
         ("VALUE", "Value", "Fixed value"),
         ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
         ("FRAME", "Frame", "Vertex offset/normal of the object's vertices at a given frame based on the current frame (vertex count/order must be maintained)"),
@@ -105,6 +103,12 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
 
     name: StringProperty(name="Name", default="", description="")
 
+    obj_modes = [
+        ("SELF", "Self", "Each mesh points to itself"),
+        ("PARENT", "Parent", "Each mesh points to its parent, if it has any"),
+        ("CUSTOM", "Custom", "Point to a unique mesh"),
+    ]
+    obj_mode: EnumProperty(name="Source", items=obj_modes, default="SELF", description="")
     obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
 
     vertex_modes = [
@@ -195,9 +199,6 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="List of data layers")
     data_layers_selected_index: IntProperty(name="", default=0, description="Selected data layer")
 
-    # transform
-    world_obj: PointerProperty(type=bpy.types.Object, name="Object", description="Defaults to 'self'. Use this in the rare occasion that you want to bake the position/axis of a specific object into another object. Usually using 'self' is what you want (meaning, leave this empty)")
-
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="Name of the resulting baked mesh")
     mesh_target_prop: StringProperty(name="Property", default="BakeSource", description="Custom property name for duplicated objects to be able to point to their original objects")
@@ -205,7 +206,8 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    origin: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as baking origin")
+    origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
+    clear_attributes: BoolProperty(name="Clear Attributes", default=True, description="Enable this option to remove face corner attributes that store the raw vertex data for each layer. These attributes are named using each layer's unique ID, created and used internally during baking, and are unlikely to be useful after the bake is complete")
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported FBX file (without the .fbx extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
@@ -237,9 +239,10 @@ class DATABAKER_PG_DataLayerReportPropertyGroup(PropertyGroup):
     range_min: FloatVectorProperty(name="Min")
     range_max: FloatVectorProperty(name="Max")
     range_valid: BoolProperty(name="Valid")
+    range_unit: BoolProperty(name="Unit")
 
 class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
-    """Enhanced reporting properties for DataBaker with detailed feedback."""
+    """"""
 
     data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerReportPropertyGroup, description="")
     data_layers_selected_index: IntProperty(name="", default=0, description="")
@@ -264,20 +267,15 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     mesh_uvmap_invert_v: BoolProperty(name="Invert V", default=False, description="")
     mesh_uvmap_count: IntProperty(name="UV Map Count", default=0, description="")
 
-    meshes_count: IntProperty(name="Mesh Count", default=0, description="")
-    empties_count: IntProperty(name="Empty Count", default=0, description="")
-
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
-
-    world_obj: PointerProperty(type=bpy.types.Object, name="World", description="")
 
     mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="")
     scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="")
     invert_x: BoolProperty(name="Invert X", default=False, description="")
     invert_y: BoolProperty(name="Invert Y", default=True, description="")
     invert_z: BoolProperty(name="Invert Z", default=False, description="")
-    origin: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
+    origin_obj: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
 
     export_mesh: BoolProperty(name="Export", default=True, description="")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="")

@@ -22,22 +22,8 @@ from .Functions import get_data_layer_name, get_data_layer_icon, get_data_layer_
 ###################################### PANELS ######################################
 ####################################################################################
 
-###############
-### PRESETS ###
-class DATABAKER_MT_DataBaker_Presets(bpy.types.Menu):
-    bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/databaker_data'
-    preset_operator = 'script.execute_preset'
-    draw = bpy.types.Menu.draw_preset
-
-class DATABAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
-    bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/databaker_data'
-    preset_operator = 'script.execute_preset'
-    preset_add_operator = 'databaker_databakerpanel.addpreset'
-
 ############
-### DATA ###
+### MAIN ###
 class DATABAKER_UL_DataList(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
@@ -117,9 +103,6 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
         row.enabled = len(settings.data_layers) > 0
 
         row = layout.row()
-        row.prop(settings, "world_obj")
-
-        row = layout.row()
         row.template_list("DATABAKER_UL_DataList", "", settings, "data_layers", settings, "data_layers_selected_index", rows=5)
 
         col = row.column(align=True)
@@ -142,6 +125,15 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                         row = panel_body.row()
                         row.prop(data, "component")
 
+                        row = panel_body.row()
+                        row.prop(data, "obj_mode")
+                        
+                        if data.obj_mode == "CUSTOM":
+                            row = panel_body.row()
+                            row.prop(data, "obj")
+                        elif data.obj_mode == "PARENT":
+                            row = panel_body.row()
+                            row.prop(data, "index", text="Depth")
                     elif data.data == "AXIS":
                         row = panel_body.row()
                         row.prop(data, "axis", text="")
@@ -149,6 +141,15 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                         row = panel_body.row()
                         row.prop(data, "component")
 
+                        row = panel_body.row()
+                        row.prop(data, "obj_mode")
+                        
+                        if data.obj_mode == "CUSTOM":
+                            row = panel_body.row()
+                            row.prop(data, "obj")
+                        elif data.obj_mode == "PARENT":
+                            row = panel_body.row()
+                            row.prop(data, "index", text="Depth")
                     elif data.data == "SHAPEKEY":
                         row = panel_body.row()
                         row.prop(data, "name", text="Shapekey")
@@ -158,6 +159,13 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "component")
+
+                        row = panel_body.row()
+                        row.prop(data, "obj_mode")
+                        
+                        if data.obj_mode == "CUSTOM":
+                            row = panel_body.row()
+                            row.prop(data, "obj")
                     elif data.data == "MASK":
                         row = panel_body.row()
                         row.prop(data, "mask_mode")
@@ -167,7 +175,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
                         if data.origin_mode == "ORIGIN":
                             row = panel_body.row()
-                            row.prop(data, "obj", text="")
+                            row.prop(data, "obj")
 
                         if data.mask_mode == "SPHERE":
                             pass
@@ -193,36 +201,31 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                     elif data.data == "RANDOM":
                         row = panel_body.row()
                         row.prop(data, "rand_mode")
+
                         row = panel_body.row()
                         row.prop(data, "rand_seed")
+
                         row = panel_body.row()
                         row.prop(data, "rand_float_mode")
+
                         if data.rand_float_mode != "FLOAT":
                             row = panel_body.row()
                             row.prop(data, "component")
                         row = panel_body.row()
                         row.prop(data, "uniform")
-                    elif data.data == "PARENT_POS":
-                        row = panel_body.row()
-                        row.prop(data, "index", text="Depth")
-
-                        row = panel_body.row()
-                        row.prop(data, "component", text="")
-                    elif data.data == "PARENT_AXIS":
-                        row = panel_body.row()
-                        row.prop(data, "index", text="Depth")
-
-                        row = panel_body.row()
-                        row.prop(data, "axis", text="")
-
-                        row = panel_body.row()
-                        row.prop(data, "component")
                     elif data.data == "VALUE":
                         row = panel_body.row()
                         row.prop(data, "x", text="")
                     elif data.data == "CUSTOM_PROP":
                         row = panel_body.row()
                         row.prop(data, "name", text="Name")
+
+                        row = panel_body.row()
+                        row.prop(data, "obj_mode")
+                        
+                        if data.obj_mode == "CUSTOM":
+                            row = panel_body.row()
+                            row.prop(data, "obj")
                     elif data.data == "FRAME":
                         row = panel_body.row()
                         row.prop(data, "vertex_mode", text="Mode")
@@ -232,6 +235,13 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "component")
+
+                        row = panel_body.row()
+                        row.prop(data, "obj_mode")
+                        
+                        if data.obj_mode == "CUSTOM":
+                            row = panel_body.row()
+                            row.prop(data, "obj")
                     else:
                         pass
 
@@ -269,6 +279,20 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                         row = panel_body.row()
                         row.prop(data, "pack_only_if_non_null")
 
+###############
+### PRESETS ###
+class DATABAKER_MT_DataBaker_Presets(bpy.types.Menu):
+    bl_label = 'DATA Baker Presets'
+    preset_subdir = 'operator/databaker_data'
+    preset_operator = 'script.execute_preset'
+    draw = bpy.types.Menu.draw_preset
+
+class DATABAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
+    bl_label = 'DATA Baker Presets'
+    preset_subdir = 'operator/databaker_data'
+    preset_operator = 'script.execute_preset'
+    preset_add_operator = 'databaker_databakerpanel.addpreset'
+
 ##############
 ### MESHES ###
 class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
@@ -288,7 +312,7 @@ class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
         settings = scene.DataBakerSettings
 
         row = layout.row()
-        row.prop(settings, "origin")
+        row.prop(settings, "origin_obj")
 
         row = layout.row()
         row.prop(settings, "scale")
@@ -301,6 +325,9 @@ class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
         
         row = layout.row()
         row.prop(settings, "mesh_name")
+
+        row = layout.row()
+        row.prop(settings, "clear_attributes")
 
 class DATABAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_meshuvpanel"
@@ -535,20 +562,34 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
         layout.template_list("DATABAKER_UL_ReportDataList", "", report, "data_layers", report, "data_layers_selected_index", rows=6)
         if report.data_layers:
             data_layer = report.data_layers[report.data_layers_selected_index]
-            if data_layer and data_layer.packed_layers and len(data_layer.packed_layers) > 1:
-                layout.template_list("DATABAKER_UL_ReportDataSubList", "", data_layer, "packed_layers", data_layer, "packed_layers_selected_index", rows=3)
+
+            if data_layer and data_layer.packed_layers:
+                if data_layer.packed_layers_selected_index < len(data_layer.packed_layers):
+                    packed_data_layer = data_layer.packed_layers[data_layer.packed_layers_selected_index]
+                    if packed_data_layer:
+                        row = layout.row()
+                        row.prop(packed_data_layer, "ID")
+                        row.enabled = False
+
+                if len(data_layer.packed_layers) > 1:
+                    layout.template_list("DATABAKER_UL_ReportDataSubList", "", data_layer, "packed_layers", data_layer, "packed_layers_selected_index", rows=3)
+
+                    row = layout.row()
+                    row.label(text="Min: %.5f" % data_layer.range_min[data_layer.packed_layers_selected_index])
+                    row = layout.row()
+                    row.label(text="Max: %.5f" % data_layer.range_max[data_layer.packed_layers_selected_index])
+
+                if data_layer.packed_layers_selected_index < len(data_layer.packed_layers):
+                    packed_data_layer = data_layer.packed_layers[data_layer.packed_layers_selected_index]
+                    if packed_data_layer and packed_data_layer.packing_mode == "FRACTION":
+                        row = layout.row()
+                        row.prop(data_layer.packed_layers[data_layer.packed_layers_selected_index], "packing_precision")
+                        row.enabled = False
 
             row = layout.row()
-            row.prop(data_layer, "range_min")
+            row.prop(data_layer, "range_unit") # @TODO improve range!
             row.enabled = False
 
-            row = layout.row()
-            row.prop(data_layer, "range_max")
-            row.enabled = False
-
-            row = layout.row()
-            row.prop(data_layer, "packing_precision")
-            row.enabled = False
 
 class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_infomeshpanel"
@@ -564,7 +605,7 @@ class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
     def draw_header(self, context):
         report = context.scene.DataBakerReport
         row = self.layout.row(align=True)
-        if report.mesh or report.meshes_count > 0:
+        if report.mesh:
             row.label(text="", icon="CHECKMARK")
         else:
             row.label(text="", icon="X")
@@ -574,7 +615,7 @@ class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
         scene = context.scene
         report = scene.DataBakerReport
 
-        if report.mesh or report.meshes_count > 0:
+        if report.mesh:
             row = layout.row()
             row.prop(report, "mesh", text="")
             row.enabled = False
