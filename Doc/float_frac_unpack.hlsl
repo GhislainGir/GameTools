@@ -5,4 +5,4 @@ x = floor(inFracFloat);
 // [0:<1] to [0:1] using precision multiplier used during packing to prevent storing 1.0
 // in fractional part which would result in .0 and an erroneous value. It's then remapped
 // to its initial range.
-y = (frac(inFracFloat * inInvPrecision) * (inMax - inMin)) + inMin;
+y = (frac(inFracFloat) * inInvPrecision * (inMax - inMin)) + inMin;
