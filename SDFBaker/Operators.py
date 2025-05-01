@@ -13,8 +13,6 @@
 
 import bpy
 
-from bpy.types import Operator, StringProperty
-
 from . import Functions
 from .Functions import bake, reset_bake_report, export_bake_report, generate_geonodes_sdf_3d
 
@@ -25,9 +23,12 @@ import uuid
 #######################################################################################
 ###################################### OPERATORS ######################################
 #######################################################################################
-class SDFBAKER_OT_BakeData(Operator):
+
+############
+### MAIN ###
+class SDFBAKER_OT_BakeSDF(bpy.types.Operator):
     """Bakes a 2D or 3D SDF from the selected meshes."""
-    bl_idname = "gametools.sdfbaker_bakedata"
+    bl_idname = "gametools.sdfbaker_bakesdf"
     bl_label = "Bake"
     bl_category = "Game Tools"
     bl_options = {'REGISTER', 'UNDO'}
@@ -52,7 +53,7 @@ class SDFBAKER_OT_BakeData(Operator):
             self.report({verbose}, msg)
             return {'CANCELLED'}
 
-class SDFBAKER_OT_GenerateGeoNodes(Operator):
+class SDFBAKER_OT_GenerateGeoNodes(bpy.types.Operator):
     """Legacy way of baking SDF using geometry nodes (for educational purposes only)."""
     bl_idname = "gametools.sdfbaker_generategeonodes"
     bl_label = "GeoNodes (Legacy)"
@@ -80,11 +81,11 @@ class SDFBAKER_OT_GenerateGeoNodes(Operator):
             return {'CANCELLED'}
 
 ##############
-### Preset ###
-class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, Operator):
-    bl_idname = 'sdfbaker_sdfbakerpanel.addpreset'
+### PRESET ###
+class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, bpy.types.Operator):
+    bl_idname = 'databaker_sdfpanel.addpreset'
     bl_label = 'Add preset'
-    preset_menu = 'SDFBAKER_MT_SDFBaker_Presets'
+    preset_menu = 'SDFBAKER_MT_SDF_Presets'
 
     preset_defines = [ 'settings = bpy.context.scene.SDFBakerSettings' ]
     preset_values = [
@@ -122,11 +123,11 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, Operator):
     'settings.export_tex_override',
     ]
 
-    preset_subdir = 'operator/sdfbaker_data'
+    preset_subdir = 'operator/databaker_sdf'
 
 ##############
-### Report ###
-class SDFBAKER_OT_ExportReport(Operator):
+### REPORT ###
+class SDFBAKER_OT_ExportReport(bpy.types.Operator):
     """Export the bake report to an XML file, according to the XML export settings."""
     bl_idname = "gametools.sdfbaker_export_report"
     bl_label = "Export"
@@ -145,7 +146,7 @@ class SDFBAKER_OT_ExportReport(Operator):
         else:
             return {'CANCELLED'}
 
-class SDFBAKER_OT_ClearReport(Operator):
+class SDFBAKER_OT_ClearReport(bpy.types.Operator):
     """Clear the bake report."""
     bl_idname = "gametools.sdfbaker_clear_report"
     bl_label = "Clear"

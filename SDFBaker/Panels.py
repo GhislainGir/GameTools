@@ -21,18 +21,20 @@ from bl_ui.utils import PresetPanel
 
 ###############
 ### PRESETS ###
-class SDFBAKER_MT_DataBaker_Presets(bpy.types.Menu):
-    bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/sdfbaker_data'
+class SDFBAKER_MT_SDF_Presets(bpy.types.Menu):
+    bl_label = 'SDF Baker Presets'
+    preset_subdir = 'operator/databaker_sdf'
     preset_operator = 'script.execute_preset'
     draw = bpy.types.Menu.draw_preset
 
-class SDFBAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
-    bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/sdfbaker_data'
+class SDFBAKER_PT_SDF_Preset(PresetPanel, bpy.types.Panel):
+    bl_label = 'SDF Baker Presets'
+    preset_subdir = 'operator/databaker_sdf'
     preset_operator = 'script.execute_preset'
-    preset_add_operator = 'sdfbaker_sdfbakerpanel.addpreset'
+    preset_add_operator = 'databaker_sdfpanel.addpreset'
 
+############
+### MAIN ###
 class SDFBAKER_PT_SDFBAKER(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_sdfbakerpanel"
     bl_label = "SDF Baker"
@@ -58,7 +60,7 @@ class SDFBAKER_PT_SDFBAKER(bpy.types.Panel):
         return False
 
     def draw_header_preset(self, _context):
-        SDFBAKER_PT_DataBaker_Preset.draw_panel_header(self.layout)
+        SDFBAKER_PT_SDF_Preset.draw_panel_header(self.layout)
 
     def draw(self, context):
         layout = self.layout
@@ -67,7 +69,7 @@ class SDFBAKER_PT_SDFBAKER(bpy.types.Panel):
 
         row = layout.row()
         row.scale_y = 2.0 # bigger button
-        row.operator("gametools.sdfbaker_bakedata")
+        row.operator("gametools.sdfbaker_bakesdf")
 
 class SDFBAKER_PT_VoxelsPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_voxelspanel"
@@ -384,7 +386,7 @@ class SDFBAKER_PT_ReportPanel(bpy.types.Panel):
         row.label(text=report.name)
 
 class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
-    bl_idname = "SDFBAKER_PT_infotexpanel"
+    bl_idname = "SDFBAKER_PT_reporttexpanel"
     bl_parent_id = "SDFBAKER_PT_reportpanel"
     bl_label = "Texture"
     bl_space_type = 'VIEW_3D'
@@ -462,7 +464,7 @@ class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
         row.label(text="Tiles Sort: " + str(report.tile_sort_mode))
 
 class SDFBAKER_PT_ReportMeshPanel(bpy.types.Panel):
-    bl_idname = "SDFBAKER_PT_infomeshpanel"
+    bl_idname = "SDFBAKER_PT_reportmeshpanel"
     bl_parent_id = "SDFBAKER_PT_reportpanel"
     bl_label = "Mesh"
     bl_space_type = 'VIEW_3D'
@@ -524,7 +526,7 @@ class SDFBAKER_PT_ReportMeshPanel(bpy.types.Panel):
             row.label(text="None generated")
 
 class SDFBAKER_PT_ReportXMLPanel(bpy.types.Panel):
-    bl_idname = "SDFBAKER_PT_infoxmlpanel"
+    bl_idname = "SDFBAKER_PT_reportxmlpanel"
     bl_parent_id = "SDFBAKER_PT_reportpanel"
     bl_label = "XML"
     bl_space_type = 'VIEW_3D'
@@ -554,7 +556,7 @@ class SDFBAKER_PT_ReportXMLPanel(bpy.types.Panel):
             row.label(text="Not exported", icon="X")
 
 class SDFBAKER_PT_ReportUnitPanel(bpy.types.Panel):
-    bl_idname = "SDFBAKER_PT_infounitpanel"
+    bl_idname = "SDFBAKER_PT_reportunitpanel"
     bl_parent_id = "SDFBAKER_PT_reportpanel"
     bl_label = "Unit"
     bl_space_type = 'VIEW_3D'
