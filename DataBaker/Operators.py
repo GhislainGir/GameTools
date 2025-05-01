@@ -14,7 +14,7 @@
 import bpy
 
 from . import Functions
-from .Functions import bake, reset_bake_report, export_bake_report
+from .Functions import bake, reset_bake_report, export_bake_report, get_data_layer_name
 
 from bl_operators.presets import AddPresetBase
 
@@ -134,7 +134,6 @@ class DATABAKER_OT_NewSettings_NewItem(bpy.types.Operator):
 
                 to_data_layer.pack_x_y = from_data_layer.pack_x_y
                 to_data_layer.pack_x_y_z = from_data_layer.pack_x_y_z
-                to_data_layer.pack_only_if_non_null = from_data_layer.pack_only_if_non_null
 
                 to_data_layer.axis = from_data_layer.axis
                 to_data_layer.axis_mode = from_data_layer.axis_mode
@@ -207,6 +206,20 @@ class DATABAKER_OT_NewSettings_MoveItem(bpy.types.Operator):
         settings.data_layers_selected_index = max(0, min(settings.data_layers_selected_index + index_offset, len(settings.data_layers) - 1))
 
         return{'FINISHED'}
+
+class DATABAKER_OT_Layer_GenerateName(bpy.types.Operator):
+    """Automatically compute a layer's name."""
+    bl_idname = "databaker_layer.generate_name"
+    bl_label = "Automatically compute a layer's name"
+
+    def execute(self, context):
+        settings = bpy.context.scene.DataBakerSettings
+        if settings.data_layers:
+            data_layer = settings.data_layers[settings.data_layers_selected_index]
+            data_layer.display_name = get_data_layer_name(data_layer)
+
+        return{'FINISHED'}
+
 
 ##############
 ### REPORT ###

@@ -25,6 +25,7 @@ from .Functions import get_data_layer_name
 class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     """ """
 
+    display_name: StringProperty(name="Name", default="Layer", description="")
     ID: StringProperty(name="ID", default="", description="")
     ptr_ID: StringProperty(name="Ptr", default="", description="")
 
@@ -38,7 +39,7 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
         ("FRAME", "Frame", "Vertex offset/normal of the object's vertices at a given frame based on the current frame (vertex count/order must be maintained)"),
     ]
-    data: EnumProperty(name="Data", items=datas, default="POSITION", description="Value to bake")
+    data: EnumProperty(name="Data", items=datas, default="POSITION", description="Type of data to bake")
 
     component_x_y_z = [
         ("X", "X", "X-axis"),
@@ -55,7 +56,7 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("VCOL", "Vertex Color", "Bake data into vertex colors"),
         ("NORMAL", "Normal", "Bake data in mesh normals"),
     ]
-    packing_mode: EnumProperty(name="Mode", items=packing_modes, description="How to bake the value")
+    packing_mode: EnumProperty(name="Mode", items=packing_modes, description="How to store the value")
 
     uv_u_v = [
         ("U", "U", "U channel of UV map"),
@@ -72,20 +73,19 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     ]
     vcol_rgba: EnumProperty(name="Channel", items=vcol_r_g_b_a, default="R", description="Target RGBA channel")
 
-    normal_xyz: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Normal component to store value in")
+    normal_xyz: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Normal component to store the data in")
 
     pack_x_y = [
         ("X", "X", "Pack the data in the 'X' component"),
         ("Y", "Y", "Pack the data in the 'Y' component"),
     ]
-    pack_xy: EnumProperty(name="XY Mode", items=pack_x_y, default="Y", description="Method for baking data")
+    pack_xy: EnumProperty(name="XY Mode", items=pack_x_y, default="Y", description="Target packed component")
     pack_x_y_z = [
         ("X", "X", "Pack the data in the 'X' component"),
         ("Y", "Y", "Pack the data in the 'Y' component"),
         ("Z", "Z", "Pack the data in the 'Z' component"),
     ]
-    pack_xyz: EnumProperty(name="XYZ Mode", items=pack_x_y_z, default="Y", description="Method for baking data")
-    pack_only_if_non_null: BoolProperty(name="Pack Only If Non-Zero", default=True, description="Pack only if not (0,0,0), as it involves bit-packing and further 0-testing of the unpacked value in shaders could prove to be an unreliable operation. This is recommended, although it may lead to a false positive if the position to pack happens to be close enough to (0,0,0)") # @TODO
+    pack_xyz: EnumProperty(name="XYZ Mode", items=pack_x_y_z, default="Y", description="Target packed component")
 
     axis_x_y_z = [
         ("X", "Forward (X)", "X-axis"),
@@ -98,30 +98,30 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("WORLD", "World", ""),
         ("OBJECT", "Object", ""),
     ]
-    axis_mode: EnumProperty(name="Axis Mode", items=axis_modes, default="WORLD", description="")
+    axis_mode: EnumProperty(name="Axis Mode", items=axis_modes, default="WORLD", description="Coordinate system for the axis to bake")
     axis_obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
 
     name: StringProperty(name="Name", default="", description="")
 
     obj_modes = [
-        ("SELF", "Self", "Each mesh points to itself"),
-        ("PARENT", "Parent", "Each mesh points to its parent, if it has any"),
-        ("CUSTOM", "Custom", "Point to a unique mesh"),
+        ("SELF", "Self", "Itself"),
+        ("PARENT", "Parent", "Parent, if it has any"),
+        ("CUSTOM", "Custom", "Target Object"),
     ]
-    obj_mode: EnumProperty(name="Source", items=obj_modes, default="SELF", description="")
+    obj_mode: EnumProperty(name="Source", items=obj_modes, default="SELF", description="Source object to use")
     obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
 
     vertex_modes = [
         ("OFFSET", "Offset", ""),
         ("NORMAL", "Normal", "")
     ]
-    vertex_mode: EnumProperty(name="Type", items=vertex_modes, default="OFFSET", description="Shape key data to bake")
+    vertex_mode: EnumProperty(name="Type", items=vertex_modes, default="OFFSET", description="Vertex data to bake")
 
     mask_modes = [
         ("SPHERE", "Sphere", ""),
         ("LINEAR", "Linear", ""),
     ]
-    mask_mode: EnumProperty(name="Type", items=mask_modes, default="SPHERE", description="")
+    mask_mode: EnumProperty(name="Type", items=mask_modes, default="SPHERE", description="Mask mode")
 
     normalize: BoolProperty(name="Normalize", default=True, description="Normalize value to [0:1] range based on max value")
     clamp: BoolProperty(name="Clamp", default=False, description="Clamp value to [0:1] range")
@@ -135,7 +135,7 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("SELECTION", "Selection", "Compute gradient from the center of selected objects"),
         ("PARENT", "Parent", "Compute gradient from each object's parent origin, if any, else from each object's own origin")
     ]
-    origin_mode: EnumProperty(name="Origin", items=origin_modes, default="OBJECT", description="Origin")
+    origin_mode: EnumProperty(name="Origin", items=origin_modes, default="OBJECT", description="Origin mode")
 
     rand_modes = [
         ("COLLECTION", "Per Collection", "Random value per collection"),
@@ -154,43 +154,47 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     x: FloatProperty(name="X Value", default=1.0, description="")
     y: FloatProperty(name="Y Value", default=1.0, description="")
     z: FloatProperty(name="Z Value", default=1.0, description="")
-    index: IntProperty(name="Depth", default=1, min=1, description="Hierarchy depth to bake")
-
-    packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="Primiraly used to remap values ranging from [0:1] to [0:<1] for packing when using the 'fraction' mode")
+    index: IntProperty(name="Depth", default=1, min=1, description="")
 
 class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     """ """
 
     # generate enum on demand to omit the selected layer, as it cannot be picked to prevent targeting self
     def get_data_layers_ptr_items(self, context):
-        settings = bpy.context.scene.DataBakerSettings
         items = []
-        for data_layer_index, data_layer in enumerate(settings.data_layers):
-            if settings.data_layers_selected_index < len(settings.data_layers):
-                data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
-                if data_layer_selected != data_layer and data_layer.packing_mode != "XY" and data_layer.packing_mode != "XYZ" and data_layer.packing_mode != "FRACTION":
-                    items.append((data_layer.ID, get_data_layer_name(data_layer), data_layer.ID))
+        for data_layer in self.data_layers:
+            include_layer = True
+
+            if self.data_layers_selected_index < len(self.data_layers):
+                data_layer_selected = self.data_layers[self.data_layers_selected_index]
+                if (data_layer_selected == data_layer):
+                    include_layer = False
+
+            if include_layer and (data_layer.packing_mode == "XY" or data_layer.packing_mode == "XYZ" or data_layer.packing_mode == "FRACTION"):
+                include_layer = False
+
+            if include_layer:
+                items.append((data_layer.ID, data_layer.ID, ""))
+
         return items
 
     # getting the enum value is based on the selected layer's ptr_id matching any of the available enum items, else 0
     def get_data_layers_ptr(self):
-        settings = bpy.context.scene.DataBakerSettings
-        if settings.data_layers and settings.data_layers_selected_index < len(settings.data_layers):
-            data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
+        if self.data_layers and (self.data_layers_selected_index < len(self.data_layers)):
+            data_layer_selected = self.data_layers[self.data_layers_selected_index]
 
-            items = settings.get_data_layers_ptr_items(bpy.context)
+            items = self.get_data_layers_ptr_items(bpy.context)
             for item_index, item in enumerate(items):
                 if item[0] == data_layer_selected.ptr_ID: # ID match
                     return item_index
 
-        return -1
+        return 0
 
     # setting the enum value sets the selected layer's ptr_id
     def set_data_layers_ptr(self, value):
-        settings = bpy.context.scene.DataBakerSettings
-        if settings.data_layers and settings.data_layers_selected_index < len(settings.data_layers):
-            data_layer_selected = settings.data_layers[settings.data_layers_selected_index]
-            data_layer_selected.ptr_ID = settings.get_data_layers_ptr_items(bpy.context)[value][0]
+        if self.data_layers and self.data_layers_selected_index < len(self.data_layers):
+            data_layer_selected = self.data_layers[self.data_layers_selected_index]
+            data_layer_selected.ptr_ID = self.get_data_layers_ptr_items(bpy.context)[value][0]
         return
 
     # used to expose a picker for data_layers to target all other data_layers but themselves
@@ -208,6 +212,7 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
     clear_attributes: BoolProperty(name="Clear Attributes", default=True, description="Enable this option to remove face corner attributes that store the raw vertex data for each layer. These attributes are named using each layer's unique ID, created and used internally during baking, and are unlikely to be useful after the bake is complete")
+    packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="Primiraly used to remap values ranging from [0:1] to [0:<1] for packing when using the 'fraction' mode")
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported FBX file (without the .fbx extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
@@ -233,13 +238,15 @@ class DATABAKER_PG_DataLayerReportPropertyGroup(PropertyGroup):
     """ """
     active_layer_ID: StringProperty(name="ID", default="", description="")
 
+    packed_mode: StringProperty(name="Packing", default="", description="")
     packed_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="")
     packed_layers_selected_index: IntProperty(name="", default=0, description="")
 
-    range_min: FloatVectorProperty(name="Min")
-    range_max: FloatVectorProperty(name="Max")
+    range_offset: FloatVectorProperty(name="Offset")
+    range: FloatVectorProperty(name="Range")
     range_valid: BoolProperty(name="Valid")
-    range_unit: BoolProperty(name="Unit")
+    range_unit_vector: BoolProperty(name="Unit")
+    range_high_precision: BoolProperty(name="HighPrecision")
 
 class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     """"""
@@ -260,6 +267,7 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="")
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
+    packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="")
 
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")

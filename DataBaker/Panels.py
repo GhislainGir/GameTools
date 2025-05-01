@@ -114,9 +114,33 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
         col.operator("databaker_item.move_item", text="", icon="TRIA_UP").direction = "UP"
         col.operator("databaker_item.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
 
+class DATABAKER_PT_LayerPanel(bpy.types.Panel):
+    bl_idname = "DATABAKER_PT_layerpanel"
+    bl_parent_id = "DATABAKER_PT_databakerpanel"
+    bl_label = "Layer"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 0
+    
+    #bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.DataBakerSettings
+
         if settings.data_layers:
             data = settings.data_layers[settings.data_layers_selected_index]
+
             if data:
+                row = layout.row()
+                row.prop(settings, "data_layers")
+
+                row = layout.row()
+                row.prop(data, "display_name")
+                row.operator("databaker_layer.generate_name", text="", icon="AUTO")
+
                 panel_header, panel_body = layout.panel("position")
                 if panel_header:
                     panel_header.prop(data, "data")
@@ -127,7 +151,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "obj_mode")
-                        
+
                         if data.obj_mode == "CUSTOM":
                             row = panel_body.row()
                             row.prop(data, "obj")
@@ -143,7 +167,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "obj_mode")
-                        
+
                         if data.obj_mode == "CUSTOM":
                             row = panel_body.row()
                             row.prop(data, "obj")
@@ -162,7 +186,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "obj_mode")
-                        
+
                         if data.obj_mode == "CUSTOM":
                             row = panel_body.row()
                             row.prop(data, "obj")
@@ -269,15 +293,12 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
                             row.prop(data, "pack_xyz", text="")
                         elif data.packing_mode == "FRACTION":
                             row = panel_body.row()
-                            row.prop(settings, "pack_precision")
+                            row.prop(settings, "packing_precision")
                         else:
                             pass
                         
                         row = panel_body.row()
                         row.prop(settings, "data_layers_ptr", text="Layer")
-
-                        row = panel_body.row()
-                        row.prop(data, "pack_only_if_non_null")
 
 ###############
 ### PRESETS ###
@@ -523,17 +544,23 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 500
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
         return context.scene.DataBakerReport.baked
-    
+
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         report = scene.DataBakerReport
+
+        row = layout.row()
+        if report.success:
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
+        else:
+            row.label(text=report.name + " : Fail", icon="ERROR")
 
         if report.baked:
             row = layout.row()
@@ -544,23 +571,31 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
             col.operator("gametools.databaker_clear_report")
 
         row = layout.row()
-        if report.success:
-            row.label(text="Success", icon="CHECKMARK")
-        else:
-            row.label(text="Fail", icon="ERROR")
-
-        row = layout.row()
         row.prop(report, "ID")
 
         if not report.success:
             row = layout.row()
             row.label(text=report.msg)
 
-        row = layout.row()
-        row.label(text=report.name)
-
         layout.template_list("DATABAKER_UL_ReportDataList", "", report, "data_layers", report, "data_layers_selected_index", rows=6)
-        if report.data_layers:
+
+class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
+    bl_idname = "DATABAKER_PT_reportlayerpanel"
+    bl_parent_id = "DATABAKER_PT_reportpanel"
+    bl_label = "Layer"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 0
+
+    #bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.DataBakerReport
+        
+        if report.data_layers and (report.data_layers_selected_index < len(report.data_layers)):
             data_layer = report.data_layers[report.data_layers_selected_index]
 
             if data_layer and data_layer.packed_layers:
@@ -568,31 +603,56 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
                     packed_data_layer = data_layer.packed_layers[data_layer.packed_layers_selected_index]
                     if packed_data_layer:
                         row = layout.row()
-                        row.prop(packed_data_layer, "ID")
+                        row.prop(packed_data_layer, "ID", text="")
                         row.enabled = False
 
                 if len(data_layer.packed_layers) > 1:
-                    layout.template_list("DATABAKER_UL_ReportDataSubList", "", data_layer, "packed_layers", data_layer, "packed_layers_selected_index", rows=3)
-
                     row = layout.row()
-                    row.label(text="Min: %.5f" % data_layer.range_min[data_layer.packed_layers_selected_index])
+                    row.label(text="Packing: " + str(data_layer.packed_mode))
+                else:
                     row = layout.row()
-                    row.label(text="Max: %.5f" % data_layer.range_max[data_layer.packed_layers_selected_index])
+                    row.label(text="Packing: None")
+                    row.enabled = False
+                
+                layout.template_list("DATABAKER_UL_ReportDataSubList", "", data_layer, "packed_layers", data_layer, "packed_layers_selected_index", rows=3)
 
                 if data_layer.packed_layers_selected_index < len(data_layer.packed_layers):
                     packed_data_layer = data_layer.packed_layers[data_layer.packed_layers_selected_index]
-                    if packed_data_layer and packed_data_layer.packing_mode == "FRACTION":
+                    if packed_data_layer:
+                        icon = "CHECKMARK" if data_layer.range_valid else "ERROR"
+
+                        layer_remapped = False
+
+                        if packed_data_layer.packing_mode == "FRACTION" or packed_data_layer.packing_mode == "XY" or packed_data_layer.packing_mode == "XYZ":
+                            layer_remapped = True
+
                         row = layout.row()
-                        row.prop(data_layer.packed_layers[data_layer.packed_layers_selected_index], "packing_precision")
-                        row.enabled = False
+                        if data_layer.range_high_precision:
+                            row.label(text="Requires 32 bit: Yes")
+                        else:
+                            row.label(text="Requires 32 bit: No")
+                            row.enabled = False
 
-            row = layout.row()
-            row.prop(data_layer, "range_unit") # @TODO improve range!
-            row.enabled = False
+                        row = layout.row()
+                        if layer_remapped:
+                            row.label(text="Requires remapping: Yes")
+                        else:
+                            row.label(text="Requires remapping: No")
+                            row.enabled = False
 
+                        row = layout.row()
+                        row.label(text="Offset: %.5f" % data_layer.range_offset[data_layer.packed_layers_selected_index], icon="DOT")
+                        row.enabled = layer_remapped
+                        row = layout.row()
+                        row.label(text="Range: %.5f" % data_layer.range[data_layer.packed_layers_selected_index], icon=icon)
+                        row.enabled = layer_remapped
+
+                        if packed_data_layer.packing_mode == "NORMAL":
+                            row = layout.row()
+                            row.label(text=str(data_layer.range_unit_vector))
 
 class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
-    bl_idname = "DATABAKER_PT_infomeshpanel"
+    bl_idname = "DATABAKER_PT_reportmeshpanel"
     bl_parent_id = "DATABAKER_PT_reportpanel"
     bl_label = "Mesh"
     bl_space_type = 'VIEW_3D'
@@ -638,7 +698,7 @@ class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
             row.label(text="None generated")
 
 class DATABAKER_PT_ReportXMLPanel(bpy.types.Panel):
-    bl_idname = "DATABAKER_PT_infoxmlpanel"
+    bl_idname = "DATABAKER_PT_reportxmlpanel"
     bl_parent_id = "DATABAKER_PT_reportpanel"
     bl_label = "XML"
     bl_space_type = 'VIEW_3D'
@@ -668,7 +728,7 @@ class DATABAKER_PT_ReportXMLPanel(bpy.types.Panel):
             row.label(text="Not exported", icon="X")
 
 class DATABAKER_PT_ReportUnitPanel(bpy.types.Panel):
-    bl_idname = "DATABAKER_PT_infounitpanel"
+    bl_idname = "DATABAKER_PT_reportunitpanel"
     bl_parent_id = "DATABAKER_PT_reportpanel"
     bl_label = "Unit"
     bl_space_type = 'VIEW_3D'
