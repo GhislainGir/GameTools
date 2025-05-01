@@ -19,6 +19,9 @@ from bl_ui.utils import PresetPanel
 ####################################################################################
 ###################################### PANELS ######################################
 ####################################################################################
+
+###############
+### PRESETS ###
 class VATBAKER_MT_VertexAnimation_Presets(bpy.types.Menu):
     bl_label = 'VAT Baker Presets'
     preset_subdir = 'operator/databaker_vat'
@@ -31,6 +34,8 @@ class VATBAKER_PT_VertexAnimation_Preset(PresetPanel, bpy.types.Panel):
     preset_operator = 'script.execute_preset'
     preset_add_operator = 'databaker_vatpanel.addpreset'
 
+############
+### MAIN ###
 class VATBAKER_PT_VertexAnimation(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_vatpanel"
     bl_label = "VAT Baker"
@@ -541,7 +546,7 @@ class VATBAKER_PT_ReportPanel(bpy.types.Panel):
         row.label(text="Name: " + report.name)
 
 class VATBAKER_PT_ReportTexPanel(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_infotexpanel"
+    bl_idname = "VATBAKER_PT_reporttexpanel"
     bl_parent_id = "VATBAKER_PT_reportpanel"
     bl_label = "Textures"
     bl_space_type = 'VIEW_3D'
@@ -644,7 +649,7 @@ class VATBAKER_PT_ReportTexPanel(bpy.types.Panel):
             row.label(text="None generated", icon="X")
 
 class VATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_infomeshpanel"
+    bl_idname = "VATBAKER_PT_reportmeshpanel"
     bl_parent_id = "VATBAKER_PT_reportpanel"
     bl_label = "Mesh"
     bl_space_type = 'VIEW_3D'
@@ -725,7 +730,7 @@ class VATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
             row.label(text="None generated")
 
 class VATBAKER_PT_ReportXMLPanel(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_infoxmlpanel"
+    bl_idname = "VATBAKER_PT_reportxmlpanel"
     bl_parent_id = "VATBAKER_PT_reportpanel"
     bl_label = "XML"
     bl_space_type = 'VIEW_3D'
@@ -755,7 +760,7 @@ class VATBAKER_PT_ReportXMLPanel(bpy.types.Panel):
             row.label(text="Not exported", icon="X")
 
 class VATBAKER_PT_ReportAnimsPanel(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_infoanimspanel"
+    bl_idname = "VATBAKER_PT_reportanimspanel"
     bl_parent_id = "VATBAKER_PT_reportpanel"
     bl_label = "Anims"
     bl_space_type = 'VIEW_3D'
@@ -842,7 +847,7 @@ class VATBAKER_UL_ReportAnimsObjsList(bpy.types.UIList):
             layout.label(text="", icon="OBJECT_DATA")
 
 class VATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_infoframespanel"
+    bl_idname = "VATBAKER_PT_reportframespanel"
     bl_parent_id = "VATBAKER_PT_reportpanel"
     bl_label = "Frames"
     bl_space_type = 'VIEW_3D'
@@ -898,7 +903,7 @@ class VATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
             row.enabled = report.tex_overflow
 
 class VATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_infounitpanel"
+    bl_idname = "VATBAKER_PT_reportunitpanel"
     bl_parent_id = "VATBAKER_PT_reportpanel"
     bl_label = "Unit"
     bl_space_type = 'VIEW_3D'

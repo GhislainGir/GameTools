@@ -866,7 +866,9 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
             obj = obj_target if obj_target and obj_target.type == "MESH" else obj_to_bake
 
             eval_obj = obj.evaluated_get(dgraph)
-            eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
+            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph).copy() # @TODO this was tweaked
+            eval_obj.to_mesh_clear() # @TODO this was tweaked
+            #eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
             eval_mesh.transform(eval_obj.matrix_world)
             eval_meshes[obj_index] = eval_mesh
 
@@ -888,7 +890,9 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
             eval_meshes_vertices += len(eval_mesh.vertices) # increment vertex count to offset UVs per object
     else: # settings.bake_mode == "MESHSEQUENCE"
         eval_obj = objs_to_bake[0].evaluated_get(dgraph)
-        eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
+        eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph).copy() # @TODO this was tweaked
+        eval_obj.to_mesh_clear() # @TODO this was tweaked
+        #eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
         eval_mesh.transform(eval_obj.matrix_world)
 
         success, msg, eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, 0)
@@ -988,7 +992,6 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
     tags = { "ObjectName" : bake_name}
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
-        # export selection and assume selection was properly handled outside of this function @TODO ensure this works
         bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
     else:
         return (False, msg, None, -1)
@@ -3626,10 +3629,10 @@ def get_inverted_buffers(vertices_offsets: list, vertices_normals: list, tex_wid
     vertices_offsets_inv = []
     vertices_normals_inv = []
     for i in reversed(range(tex_height)): # @NOTE performance & pythonify
-        Row = tex_width * 4
-        RowOffset = i * Row
-        vertices_offsets_inv.extend(vertices_offsets[RowOffset:RowOffset + Row])
-        vertices_normals_inv.extend(vertices_normals[RowOffset:RowOffset + Row])
+        row = tex_width * 4
+        row_offset = i * row
+        vertices_offsets_inv.extend(vertices_offsets[row_offset:row_offset + row])
+        vertices_normals_inv.extend(vertices_normals[row_offset:row_offset + row])
 
     return (vertices_offsets_inv, vertices_normals_inv)
 

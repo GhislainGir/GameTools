@@ -13,7 +13,6 @@
 
 import bpy
 
-from bpy.types import Operator
 from bpy.props import StringProperty
 from bl_operators.presets import AddPresetBase
 
@@ -23,7 +22,10 @@ from .Functions import bake, reset_bake_report, export_bake_report
 #######################################################################################
 ###################################### OPERATORS ######################################
 #######################################################################################
-class VATBAKER_OT_Bake(Operator):
+
+############
+### MAIN ###
+class VATBAKER_OT_Bake(bpy.types.Operator):
     """ Bakes object & skeletal animations of the active mesh into textures, storing positional & normal data per vertex. """
     bl_idname = "gametools.vatbaker_bakevat"
     bl_label = "Bake"
@@ -54,7 +56,7 @@ class VATBAKER_OT_Bake(Operator):
             return {'CANCELLED'}
 
 ##############
-### Preset ###
+### PRESET ###
 class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
     bl_idname = 'databaker_vatpanel.addpreset'
     bl_label = 'Add preset'
@@ -114,8 +116,8 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
     preset_subdir = 'operator/databaker_vat'
 
 #####################
-### NLA Exclusion ###
-class VATBAKER_OT_NLAExclusion_NewItem(Operator):
+### NLA EXCLUSION ###
+class VATBAKER_OT_NLAExclusion_NewItem(bpy.types.Operator):
     """Add a new item to the list."""
     bl_idname = "frame_range_nla_exclusion.new_item"
     bl_label = "Add a new item"
@@ -133,7 +135,7 @@ class VATBAKER_OT_NLAExclusion_NewItem(Operator):
 
         return{'FINISHED'}
 
-class VATBAKER_OT_NLAExclusion_DeleteItem(Operator):
+class VATBAKER_OT_NLAExclusion_DeleteItem(bpy.types.Operator):
     """Delete the selected item from the list."""
     bl_idname = "frame_range_nla_exclusion.delete_item"
     bl_label = "Deletes an item"
@@ -148,7 +150,7 @@ class VATBAKER_OT_NLAExclusion_DeleteItem(Operator):
         settings.frame_range_nla_exclusion_selected_index = min(max(0, settings.frame_range_nla_exclusion_selected_index), len(settings.frame_range_nla_exclusion) - 1)
         return{'FINISHED'}
 
-class VATBAKER_OT_NLAExclusion_MoveItem(Operator):
+class VATBAKER_OT_NLAExclusion_MoveItem(bpy.types.Operator):
     """Move an item in the list."""
     bl_idname = "frame_range_nla_exclusion.move_item"
     bl_label = "Move an item in the list"
@@ -171,8 +173,8 @@ class VATBAKER_OT_NLAExclusion_MoveItem(Operator):
         return{'FINISHED'}
 
 ##############
-### Report ###
-class VATBAKER_OT_ExportReport(Operator):
+### REPORT ###
+class VATBAKER_OT_ExportReport(bpy.types.Operator):
     """ """
     bl_idname = "gametools.vatbaker_export_report"
     bl_label = "Export"
@@ -191,7 +193,7 @@ class VATBAKER_OT_ExportReport(Operator):
         else:
             return {'CANCELLED'}
 
-class VATBAKER_OT_ClearReport(Operator):
+class VATBAKER_OT_ClearReport(bpy.types.Operator):
     """ """
     bl_idname = "gametools.vatbaker_clear_report"
     bl_label = "Clear"
