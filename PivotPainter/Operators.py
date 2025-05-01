@@ -13,15 +13,18 @@
 
 import bpy
 
-from bpy.types import Operator
-
 from . import Functions
 from .Functions import *
+
+from bl_operators.presets import AddPresetBase
 
 #######################################################################################
 ###################################### OPERATORS ######################################
 #######################################################################################
-class PIVOTPAINTER_OT_CreateSelectOrder(Operator):
+
+############
+### MAIN ###
+class PIVOTPAINTER_OT_CreateSelectOrder(bpy.types.Operator):
 	bl_label = "Start selection order"
 	bl_idname = "gametools.pivotpainter_create_select_order"
 	bl_category = "Game Tools"
@@ -71,7 +74,7 @@ class PIVOTPAINTER_OT_CreateSelectOrder(Operator):
 		context.window_manager.modal_handler_add(self)
 		return {'RUNNING_MODAL'}
 
-class PIVOTPAINTER_OT_CreateTextures(Operator):
+class PIVOTPAINTER_OT_CreateTextures(bpy.types.Operator):
 	bl_label = "Bake"
 	bl_idname = "gametools.pivotpainter_create_textures"
 	bl_category = "Game Tools"
@@ -187,3 +190,17 @@ class PIVOTPAINTER_OT_CreateTextures(Operator):
 			else:
 				self.report({'INFO'}, "Pivot Painter done with WARNING, total time: "+ str(time.time() - t1) + ". See info area or system console for more info")
 			return {'FINISHED'}
+		
+##############
+### PRESET ###
+class PIVOTPAINTER_OT_Pivot_AddPreset(AddPresetBase, bpy.types.Operator):
+    bl_idname = 'databaker_pivotpainterpanel.addpreset'
+    bl_label = 'Add preset'
+    preset_menu = 'PIVOTPAINTER_MT_Pivot_Presets'
+
+    # preset_defines = [ 'settings = bpy.context.scene.PivotPainterSettings' ]
+    # preset_values = [
+    #     'settings.bake_mode',
+    # ] @TODO presets
+
+    preset_subdir = 'operator/databaker_pivotpainter'

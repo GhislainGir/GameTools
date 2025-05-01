@@ -13,12 +13,29 @@
 
 import bpy
 
-from bpy.types import Panel
+from bl_ui.utils import PresetPanel
 
 ####################################################################################
 ###################################### PANELS ######################################
 ####################################################################################
-class PIVOTPAINTER_PT_MainPanel(Panel):
+
+###############
+### PRESETS ###
+class PIVOTPAINTER_MT_Pivot_Presets(bpy.types.Menu):
+    bl_label = 'Pivot Painter Presets'
+    preset_subdir = 'operator/databaker_pivotpainter'
+    preset_operator = 'script.execute_preset'
+    draw = bpy.types.Menu.draw_preset
+
+class PIVOTPAINTER_PT_Pivot_Preset(PresetPanel, bpy.types.Panel):
+    bl_label = 'Pivot Painter Presets'
+    preset_subdir = 'operator/databaker_pivotpainter'
+    preset_operator = 'script.execute_preset'
+    preset_add_operator = 'databaker_pivotpainterpanel.addpreset'
+
+############
+### MAIN ###
+class PIVOTPAINTER_PT_MainPanel(bpy.types.Panel):
 	bl_idname = "PIVOTPAINTER_PT_ppbpanel"
 	bl_label = "Pivot Painter"		
 	bl_space_type = 'VIEW_3D'
@@ -35,7 +52,10 @@ class PIVOTPAINTER_PT_MainPanel(Panel):
 			return False
 		
 		return True
-		
+
+	def draw_header_preset(self, _context):
+		PIVOTPAINTER_PT_Pivot_Preset.draw_panel_header(self.layout)
+
 	def draw(self, context):
 		Layout = self.layout
 

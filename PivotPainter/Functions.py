@@ -141,10 +141,6 @@ def reset_bake_report():
     report.xml_path = ""
 
     # mesh
-    report.duplicate_mesh = False
-    report.make_single_user = False
-    report.merge_mesh = False
-    report.clean_bake = False
     report.mesh_name = ""
     report.scale = 0.0
     report.invert_x = False
@@ -646,8 +642,7 @@ def get_pivot_painter_bake_none(context, obj, counter, size, pixels, hdr):
 	""" 0 as rgb values , to avoid Null problems (used at the end to fill empty pixels) """
 	settings = context.scene.PivotPainterSettings
 
-	rgb = ( 0, 0, 0)
-	return rgb # @TODO weird
+	return (0.0,0.0,0.0)
 
 #########################
 ### PATHS & FILENAMES ###

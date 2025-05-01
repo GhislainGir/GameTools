@@ -85,7 +85,7 @@ class PIVOTPAINTERR_PG_ReportPropertyGroup(PropertyGroup):
     unit_system: StringProperty(name="Unit System", default="", description="")
     unit_unit: StringProperty(name="Unit", default="", description="")
     unit_length: FloatProperty(name="Unit Length", default=0.0, description="")
-    unit_scale: FloatProperty(name="Scale Factor", default=0.0, description="")
+    unit_scale: FloatProperty(name="Unit Scale", default=0.0, description="")
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="")
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
@@ -97,19 +97,12 @@ class PIVOTPAINTERR_PG_ReportPropertyGroup(PropertyGroup):
     mesh_uvmap_invert_v: BoolProperty(name="Invert V", default=False, description="")
     mesh_uvmap_count: IntProperty(name="UV Map Count", default=0, description="")
 
-    meshes_count: IntProperty(name="Mesh Count", default=0, description="")
-    empties_count: IntProperty(name="Empty Count", default=0, description="")
-
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
 
     # mesh
-    duplicate_mesh: BoolProperty(name="Duplicate Mesh", default=True, description="")
-    make_single_user: BoolProperty(name="Make Single-User", default=True, description="")
-    merge_mesh: BoolProperty(name="Merge Meshes", default=True, description="")
-    clean_bake: BoolProperty(name="Clean Up", default=True, description="")
     mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="")
-    scale: FloatProperty(name="Scale Factor", min=0.001, default=100.0, description="")
+    scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="")
     invert_x: BoolProperty(name="Invert X", default=False, description="")
     invert_y: BoolProperty(name="Invert Y", default=True, description="")
     invert_z: BoolProperty(name="Invert Z", default=False, description="")
