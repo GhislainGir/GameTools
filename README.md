@@ -2,7 +2,15 @@
   <img src="https://github.com/GhislainGir/BlenderGameTools/blob/main/Logo.png?raw=true" alt="blender game tools"/>
 </p>
 
-A blender addon packing several professional-grade techniques commonly used in the video game industry. Head over to the [documentation](../../wiki) for more information. Enjoy!
+A blender addon packing several **professional-grade techniques** commonly used in the **video game industry**:
+- Vertex Animation Textures
+- Bone Animation Textures
+- Object Animation Textures
+- Pivot Painter 2.0 (Renamed 'Object Attributes')
+- Signed Distance Field Baker
+- UV Pivots, and more.
+
+Head over to the [documentation](../../wiki) for more information. Enjoy!
 
 > [!WARNING]
 > This addon & documentation is still a HEAVY WORK IN PROGRESS. It is not feature complete yet and bugs have surely still to be found :)
