@@ -67,7 +67,7 @@ class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
     textures_selected_index: IntProperty(name="Selected", default=0)
 
     depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="Enable to prevent the hierarchy from going too deep. At the specified depth, childs will be treated as their parent and will share their object data, such as position, axis etc., as if they were a part of the parent mesh")
-    depth_limit: IntProperty(name="Limit", default=3, min=1, description="Maximum depth the hierarchy is allowed to have.\n- 1 to allow the tree to contain a parent and children.\n- 2 to allow the tree to contain a parent, children and grand-children.\n- etc.")
+    depth_limit: IntProperty(name="Limit", default=3, min=0, description="Maximum depth the hierarchy is allowed to have.\n- 1 to allow the tree to contain a parent and children.\n- 2 to allow the tree to contain a parent, children and grand-children.\n- etc.")
     use_pivot_painter_packing: BoolProperty(name="Use Pivot Painter Packing", default=True, description="Enable to use pivot painter's 16 bit integer to 16 bit float packing algorithm, store index as-is in float otherwise")
 
     mesh_name: StringProperty(name="Name", default="BakedMesh.OA", description="Name of the resulting baked mesh")
@@ -132,6 +132,7 @@ class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
     mesh_uvmap: IntProperty(name="UV Map", default=0, description="")
+    mesh_num_indices: IntProperty(name="Num Indices", default=0, description="")
 
     tex_width: IntProperty(name="Texture Width", default=0, description="")
     tex_height: IntProperty(name="Texture Height", default=0, description="")

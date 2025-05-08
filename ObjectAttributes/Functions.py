@@ -78,6 +78,7 @@ def reset_bake_report():
     report.mesh_uvmap = 0
     report.mesh_export = False
     report.mesh_path = ""
+    report.mesh_num_indices = 0
 
     report.xml = False
     report.xml_path = ""
@@ -228,16 +229,6 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
          return (False, "Too many objects to bake", None, None)
 
     """
-    hierarchy in selected objects must lead to a single root object @NOTE this is no longer a requirement @TODO investigate
-    """
-    roots = [object for object in objs_to_bake if object.parent is None]
-    # if roots is None or len(roots) <= 0:
-    #     return (False, "Hierarchy: selected objects all have a parent, couldn't find root", None, None)
-
-    # if len(roots) > 1:
-    #     return (False, "Hierarchy: found multiple objects that have no parent, couldn't derive single root", None, None,)
-
-    """
     we'll need to create a UVMap to assign a texel per unique element so we need to ensure objects can be safely merged without creating UVMap conflicts.
     This involves gathering uvmaps of all selected objects to build a list of maps as if objects were joined and checking if the amount of uvmaps exceed
     the maximum amount in case we need to create one.
@@ -258,81 +249,17 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
         if len(uvmaps) >= 8: # ensure UVMap can be created
             return (False, "Joined mesh is projected to have more than the maximum amount of uvmaps", None, None)
 
+    """ """
     for obj_to_bake in objs_to_bake: # deselect objects for now
         obj_to_bake.select_set(False)
 
     context.view_layer.objects.active = None # blank canvas
 
     if active_obj is None:
+        roots = [object for object in objs_to_bake if object.parent is None]
         active_obj = roots[0] if len(roots) > 0 else objs_to_bake[0]
 
     return (True, "", objs_to_bake, active_obj)
-
-def get_bake_selection_hierarchy(context: bpy.types.Context, objs_to_bake: list, eval_objs_to_bake: list) -> tuple[bool, str, int]:
-    """
-    Scan the selected hierarchy and assign each object two custom integer attributes: the tree depth and the element index.
-
-    :param context: Blender current execution context
-    :param objs_to_bake: filtered list of meshes to bake
-    :param eval_objs_to_bake: filtered list of meshes to bake, duplicated & depsgraph evaluated
-    :return: the function's success, potential error message, number of unique elements (depth limited)
-    :rtype: tuple
-    """
-
-    settings = context.scene.ObjectAttributesSettings
-
-    """
-    assign hierarchy depth to each object
-    """
-    hierarchy_root = None
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
-        obj = objs_to_bake[eval_obj_to_bake_index] # find original object
-        depth = 0
-        if obj.parent:
-            parent = obj.parent
-            while parent:
-                depth += 1
-                parent = parent.parent
-        else:
-            hierarchy_root = eval_obj_to_bake
-        eval_obj_to_bake["ObjectAttributesHierarchyDepth"] = depth
-
-    """
-    create list of (parent, [childs])
-    """
-    childs = [None] * len(eval_objs_to_bake)
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
-        obj = objs_to_bake[eval_obj_to_bake_index] # find original object
-        parent = obj.parent
-        if parent: # only IF obj has parent!
-            parent_index = objs_to_bake.index(parent) # find parent index in original list
-            if childs[parent_index] is None: # update, or create child list at parent index
-                childs[parent_index] = [eval_obj_to_bake]
-            else:
-                childs[parent_index].append(eval_obj_to_bake)
-
-    """
-    - create list of (parent, child)
-    - create list of parent indices, as a look up table for the tuple list above
-    """
-    hierarchy_parent_child = []
-    hierarchy_parent_indices = []
-    for child in childs:
-        if child:
-            obj = objs_to_bake[eval_objs_to_bake.index(child[0])]
-            shared_parent = obj.parent
-            shared_parent_index = objs_to_bake.index(shared_parent) # find parent index in original list
-            parent = eval_objs_to_bake[shared_parent_index]
-            
-            hierarchy_parent_child.append((parent, child))
-            hierarchy_parent_indices.append(parent)
-
-    if (len(hierarchy_parent_indices) != len(hierarchy_parent_child)):
-        return (False, "Divergence in pairings/indices", 0.0)
-
-    num_indices = pre_process_bake_selection_hierarchy(hierarchy_root, hierarchy_parent_indices, hierarchy_parent_child, 0, 0, settings.depth_limit_use, settings.depth_limit)
-
-    return (True, "", num_indices)
 
 def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -> str:
     """
@@ -351,94 +278,122 @@ def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -
     name = replace_tags(name, tags)
     return name
 
-def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, list]:
+def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, list, int]:
     """
     Generate and return copies of all depsgraph-evaluated meshes to be included in the bake.
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to bake
-    :return: the function's success, potential error message, list of duplicated, evaluated mesh objects to include in the bake
+    :return: the function's success, potential error message, list of duplicated depsgraph-evaluated mesh objects to include in the bake, num of unique indices to account for
     :rtype: tuple
     """
+    
+    settings = context.scene.ObjectAttributesSettings
+
     dgraph = bpy.context.evaluated_depsgraph_get()
 
-    eval_objs_to_bake = [None] * len(objs_to_bake)
-    for obj_to_bake_index, obj_to_bake in enumerate(objs_to_bake):
+    """
+    duplicate depsgraph-evaluated filtered selection & forward initial transform
+    """
+    source_objs_to_eval = {}
+    eval_objs_to_bake = []
+    for obj_to_bake in objs_to_bake:
         col = context.scene.collection
         if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
             col = obj_to_bake.users_collection[0]
 
         eval_obj = obj_to_bake.evaluated_get(dgraph)
         eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        eval_mesh.transform(eval_obj.matrix_world)
+        #eval_mesh.transform(eval_obj.matrix_world) # not needed if matrix_world is forwarded
 
-        duped_obj = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
+        eval_obj_to_bake = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
+        eval_obj_to_bake.matrix_world = eval_obj.matrix_world # forward initial transform
 
         for key in obj_to_bake.keys():
             if key != "_RNA_UI":
-                duped_obj[key] = obj_to_bake[key]
+                eval_obj_to_bake[key] = obj_to_bake[key]
 
         eval_obj.to_mesh_clear()
 
-        col.objects.link(duped_obj)
-        eval_objs_to_bake[obj_to_bake_index] = duped_obj
+        col.objects.link(eval_obj_to_bake)
+        eval_objs_to_bake.append(eval_obj_to_bake)
+
+        eval_obj_to_bake["BakedSource"] = obj_to_bake
+        source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
 
     """
-    once all objects to bake are evaluated and duplicated, we must find to which other evaluated and duplicated object they
-    should be parented to, based on the initial non-evaluated object's parent
+    iterate depsgraph-evaluated objects to find to which other depsgraph-evaluated objects they need to be parented to.
+    this involves getting the unevaluated source object and walking up the hierarchy until we find the first valid parent,
+    meaning one that is included in the filtered objs_to_bake list. 
     """
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
-        obj_parent = objs_to_bake[eval_obj_to_bake_index].parent # find initial parent object
+    for eval_obj_to_bake in eval_objs_to_bake:
+        obj_parent = eval_obj_to_bake["BakedSource"].parent
+        while obj_parent and obj_parent not in objs_to_bake:
+            obj_parent = obj_parent.parent
+
         if obj_parent:
-            obj_parent_index = objs_to_bake.index(obj_parent) # find index of parent in object list # @TODO what happens if parented object is an non-mesh??!
-            eval_obj_parent = eval_objs_to_bake[obj_parent_index] # get evaluated object at that index
-
+            eval_obj_parent = source_objs_to_eval[obj_parent]
             eval_obj_to_bake.parent = eval_obj_parent
-        #eval_obj_to_bake.data.transform(eval_obj_parent.matrix_world.inverted()) duplicated parent all have idendity matrix!
+            eval_obj_to_bake.matrix_parent_inverse = eval_obj_parent.matrix_world.inverted()
 
-    context.view_layer.objects.active = objs_to_bake[0]
-
-    return (True, "", eval_objs_to_bake)
-
-def pre_process_bake_selection_hierarchy(obj, hierarchy_parent_indices, hierarchy_parent_child, current_index, current_depth, depth_limit_use, depth_limit) -> int:
     """
-    Recursively assign a depth and element index as integers to an object and all of its children.
-
-    :param obj: object to pre process
-    :param hierarchy_parent_indices: list of obj indices, as a look up table for the 'hierarchy_parent_child' list
-    :param hierarchy_parent_child: list of (obj, child)
-    :param current_index: current element index
-    :param current_depth: current element depth
-    :param depth_limit_use: use depth limit
-    :param depth_limit: depth limit
-    :return: last processed element index
-    :rtype: int
+    evaluate hierarchy just this once
     """
-    # assign unique hierarchy index
-    obj["ObjectAttributesHierarchyIndex"] = current_index
+    hierarchy = []
+    for eval_obj_to_bake in eval_objs_to_bake:
+        """
+        1. get the depth the object is at in the hierarchy
+        """
+        depth = 0
+        eval_obj_to_bake_parent = eval_obj_to_bake
+        while eval_obj_to_bake_parent:
+            eval_obj_to_bake_parent = eval_obj_to_bake_parent.parent
+            depth += 1
+        eval_obj_to_bake["ObjectAttributesHierarchyDepth"] = depth
 
-    # get clamped hierarchy depth
-    hierarchy_depth = obj["ObjectAttributesHierarchyDepth"] if "ObjectAttributesHierarchyDepth" in obj else 0
-    if depth_limit_use and (hierarchy_depth > depth_limit):
-        pass
-    else:
-        hierarchy_depth = current_depth
+        """
+        2. populate unique list of objects per depth: [[all root objects], [all children], [all grand children], ...]
+        """
+        while (depth - 1) >= len(hierarchy):
+            hierarchy.append(None)
 
-        # increment hierarchy counter ONLY if NOT exceeding max hierarchy depth!
-        current_index += 1
+        if hierarchy[(depth - 1)] is None:
+            hierarchy[(depth - 1)] = [eval_obj_to_bake]
+        else:
+            hierarchy[(depth - 1)].append(eval_obj_to_bake)
 
-    try: # has parent? find its index!
-        parent_index = hierarchy_parent_indices.index(obj)
-    except: # leaf! return incremented index!
-        return(current_index)
+    """
+    3. assign a unique element index to each object but depth-limit has to be accounted for
+       let's assume the following hierarchy, with the associated unique element index:
+    
+        trunk (0) -> branch (1) -> twig (2) -> leaf (3)
+                                            -> leaf (4)
 
-    # find tuple(parent, child) at this index
-    parent, childs = hierarchy_parent_child[parent_index]
-    # repeat this for every child to go deeper into the hierarchy
-    for child in childs:
-        current_index = pre_process_bake_selection_hierarchy(child, hierarchy_parent_indices, hierarchy_parent_child, current_index, hierarchy_depth, depth_limit_use, depth_limit)
+       setting a depth limit of 1 requires the following change in assigning element index:
 
-    return current_index
+        trunk (0) -> branch (1) -> twig (1) -> leaf (1)
+                                            -> leaf (1)
+
+       this element index will be used to generate the UV map and center UV on the necessary
+       texel corresponding to the element's index. Depth limit essentially makes the algorithm
+       see leaves and twig as if they were part of the branch object. This simply involves
+       assigning a unique element index per depth:
+        - first all root objects
+        - second all children...
+       for each depth, check if max depth is reached, and if so, unique element index to assign
+       is simply the parent element's index
+    """
+    element_index = 0
+    for depth_index, depth_objs in enumerate(hierarchy):
+        if settings.depth_limit_use and depth_index > settings.depth_limit:
+            for obj in depth_objs:
+                obj["ObjectAttributesHierarchyIndex"] = obj.parent["ObjectAttributesHierarchyIndex"]
+        else:
+            for obj in depth_objs:
+                obj["ObjectAttributesHierarchyIndex"] = element_index
+                element_index += 1
+
+    return (True, "", eval_objs_to_bake, element_index)
 
 def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: list, tex_width: int, tex_height: int) -> tuple[bool, str]:
     """
@@ -451,6 +406,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     :return: the function's success and potential error message
     :rtype: tuple
     """
+    #return (True, "")
     settings = context.scene.ObjectAttributesSettings
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.OA"
@@ -490,13 +446,13 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
             uvmap.name = mesh_uvmap_name
 
         if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
-            hierarchy_index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
         else:
             return(False, "Hierarchy index")
 
-        u = (hierarchy_index % tex_width) * texel_size_x
+        u = (index % tex_width) * texel_size_x
         u += half_texel_size_x
-        v = (hierarchy_index // tex_width) * texel_size_y
+        v = (index // tex_width) * texel_size_y
         v += half_texel_size_y
         if settings.unit_invert_v:
             v = 1.0 - v
@@ -507,7 +463,9 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
         """
         duplicate mesh
         """
+        eval_obj_to_bake.data.transform(eval_obj_to_bake.matrix_world)
         bm.from_mesh(eval_obj_to_bake.data)
+        
         bm.verts.ensure_lookup_table()
         bm.faces.ensure_lookup_table()
 
@@ -581,21 +539,14 @@ def bake(context: bpy.types.Context):
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
-    success, msg, eval_objs_to_bake = pre_process_bake_selection(context, objs_to_bake)
-    if not success:
-        add_bake_report("success", False)
-        add_bake_report("msg", msg)
-        return (False, 'ERROR', msg)
-
     wm.progress_update(3)
 
-    success, msg, num_indices = get_bake_selection_hierarchy(context, objs_to_bake, eval_objs_to_bake)
+    success, msg, eval_objs_to_bake, num_indices = pre_process_bake_selection(context, objs_to_bake)
     if not success:
-        clear_bake_selection(eval_objs_to_bake)
-
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
+    add_bake_report("mesh_num_indices", num_indices)
 
     wm.progress_update(5)
 
@@ -622,7 +573,7 @@ def bake(context: bpy.types.Context):
     bake_progress = 10
     bake_progress_step = (1.0 / (len(textures) * 4 * 3)) * 80
     for texture in textures:
-        buffer = get_texture_buffer(context, dgraph, texture, objs_to_bake, eval_objs_to_bake, tex_width, tex_height)
+        buffer = get_texture_buffer(context, dgraph, texture, objs_to_bake, eval_objs_to_bake, tex_width, tex_height, num_indices)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
@@ -713,7 +664,7 @@ def get_texture_buffer_function(texture_channel: object) -> callable:
 
     return texture_buffer_zeros
 
-def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture: object, objs_to_bake: list, eval_objs_to_bake: list, tex_width: int, tex_height: int) -> list:
+def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture: object, objs_to_bake: list, eval_objs_to_bake: list, tex_width: int, tex_height: int, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture RGBA channels
 
@@ -724,6 +675,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
     :param tex_width: OA's texture width
     :param tex_height: OA's texture height
+    :param attr_buffer_length: length of attribute buffer to create
     :return: buffer (one set of RGBA values per object)
     :rtype: list
     """
@@ -741,7 +693,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
             continue
 
         pre_bake_func = get_texture_buffer_function(texture_channel)
-        obj_attr_buffer = pre_bake_func(context, dgraph, texture_channel, objs_to_bake, eval_objs_to_bake)
+        obj_attr_buffer = pre_bake_func(context, dgraph, texture_channel, objs_to_bake, eval_objs_to_bake, attr_buffer_length)
         if obj_attr_buffer:
             for attr_index in range(len(obj_attr_buffer)):
                 buffer[(attr_index * 4) + texture_channel_index] = obj_attr_buffer[attr_index]
@@ -767,7 +719,7 @@ def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> list:
 
     return buffer_inv
 
-def get_texture_buffer_obj_source_obj(texture_channel: object, index: int, source_objs: bpy.types.Object, eval_objs: bpy.types.Object, depth_limit_use: bool, depth_limit: int) -> bpy.types.Object:
+def get_texture_buffer_obj_source_obj(texture_channel: object, eval_obj_to_bake: int, depth_limit_use: bool, depth_limit: int) -> bpy.types.Object:
     """
     Returns the object to get attributes from:
     - a user-specified mesh, defined in the texture_channel
@@ -775,58 +727,41 @@ def get_texture_buffer_obj_source_obj(texture_channel: object, index: int, sourc
     - the mesh itself, found in the provided list at the given index
 
     :param texture_channel: The texture channel currently being processed.
-    :param index: Index of the mesh to get from the source & eval obj lists
-    :param source_objs: List of source objects (un-evaluated). Length & order must match eval_objs'
-    :param eval_objs: List of duplicated objects (evaluated). Length & order must match source_objs'
-    :param depth_limit_use: True to filter 'self' by hierarchy depth, and retrieve the first valid source parent instead
+    :param eval_obj_to_bake: depsgraph-evaluated object to bake
+    :param depth_limit_use: Enable to filter by hierarchy depth
     :param depth_limit: Allowed maximum hierarchy depth
     :return: the source object to use for retrieving its attributes (position, axis, etc.)
     :rtype: bpy.types.Object
     """
 
-    # user-specified object override
     if texture_channel.obj_mode == "CUSTOM" and texture_channel.obj:
-        return texture_channel.obj
-    # parent object
-    elif texture_channel.obj_mode == "PARENT" and source_objs[index].parent:
-        # walk up hierarchy
-        parent = source_objs[index]
-        for depth in range(max(1, texture_channel.depth)):
-            if parent.parent:
-                parent = parent.parent
+        eval_obj_to_bake = texture_channel.obj
+    elif texture_channel.obj_mode == "PARENT":
+        depth = 0
+        while eval_obj_to_bake and (depth < max(1, texture_channel.depth)):
+            depth += 1
+            if eval_obj_to_bake.parent:
+                eval_obj_to_bake = eval_obj_to_bake.parent
             else:
-                return source_objs[index]
+                break
 
-        return parent
-    # source object
+    if depth_limit_use and "ObjectAttributesHierarchyDepth" in eval_obj_to_bake:
+        depth = eval_obj_to_bake["ObjectAttributesHierarchyDepth"]
+        while eval_obj_to_bake and (depth >= max(1, depth_limit)): # @TODO test
+            depth -= 1
+            if eval_obj_to_bake.parent:
+                eval_obj_to_bake = eval_obj_to_bake.parent
+            else:
+                break
+
+    if "BakedSource" in eval_obj_to_bake:
+        return eval_obj_to_bake["BakedSource"]
     else:
-        if depth_limit_use:
-            hierarchy_limited_obj = eval_objs[index]
-            if "ObjectAttributesHierarchyDepth" in hierarchy_limited_obj:
-                hierarchy_depth = hierarchy_limited_obj["ObjectAttributesHierarchyDepth"]
-                # walk up hierarchy until depth limit isn't exceeded anymore
-                while hierarchy_limited_obj and (hierarchy_depth > max(1, depth_limit)):
-                    hierarchy_limited_obj = hierarchy_limited_obj.parent
-
-                    # ensure depth stored in parent is actually lower than previous depth, else we might
-                    # get stuck in an infinite loop
-                    if (hierarchy_limited_obj["ObjectAttributesHierarchyDepth"] < hierarchy_depth):
-                        hierarchy_depth = hierarchy_limited_obj["ObjectAttributesHierarchyDepth"]
-                    else:
-                        break
-
-                try:
-                    index = eval_objs.index(hierarchy_limited_obj)
-                except:
-                    pass
-
-                return source_objs[index]
-
-        return source_objs[index]
+        return eval_obj_to_bake
 
 ########################
 ### BUFFER FUNCTIONS ###
-def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list) -> list:
+def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -845,9 +780,14 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
                                     -1.0 if settings.unit_invert_z else 1.0))
     signed_scale = signed_axis * settings.unit_scale
 
-    obj_attr_buffer = [0.0] * len(eval_objs_to_bake)
+    obj_attr_buffer = [0.0] * attr_buffer_length
     for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
-        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake_index, objs_to_bake, eval_objs_to_bake, settings.depth_limit_use, settings.depth_limit)
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit)
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
@@ -865,11 +805,14 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
         else:
             data_to_bake = 0.0
 
-        obj_attr_buffer[eval_obj_to_bake_index] = data_to_bake
+        try:
+            obj_attr_buffer[index] = data_to_bake
+        except:
+            pass
     
     return obj_attr_buffer
 
-def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list) -> list:
+def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -888,9 +831,14 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
                                     -1.0 if settings.unit_invert_z else 1.0))
     signed_scale = signed_axis * settings.unit_scale
 
-    obj_attr_buffer = [0.0] * len(eval_objs_to_bake)
+    obj_attr_buffer = [0.0] * attr_buffer_length
     for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
-        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake_index, objs_to_bake, eval_objs_to_bake, settings.depth_limit_use, settings.depth_limit)
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit)
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
@@ -918,11 +866,14 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
         else:
             data_to_bake = 0.0
 
-        obj_attr_buffer[eval_obj_to_bake_index] = data_to_bake
+        try:
+            obj_attr_buffer[index] = data_to_bake
+        except:
+            pass
     
     return obj_attr_buffer
 
-def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list) -> list:
+def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -941,9 +892,14 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
                                     -1.0 if settings.unit_invert_z else 1.0))
     signed_scale = signed_axis * settings.unit_scale
 
-    obj_attr_buffer = [0.0] * len(eval_objs_to_bake)
+    obj_attr_buffer = [0.0] * attr_buffer_length
     for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
-        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake_index, objs_to_bake, eval_objs_to_bake, settings.depth_limit_use, settings.depth_limit)
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit)
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
@@ -969,11 +925,14 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
 
         uneval_obj_source.to_mesh_clear()
 
-        obj_attr_buffer[eval_obj_to_bake_index] = data_to_bake
+        try:
+            obj_attr_buffer[index] = data_to_bake
+        except:
+            pass
 
     return obj_attr_buffer
 
-def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list) -> list:
+def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -987,8 +946,13 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
     """
     settings = context.scene.ObjectAttributesSettings
 
-    obj_attr_buffer = [0.0] * len(eval_objs_to_bake)
+    obj_attr_buffer = [0.0] * attr_buffer_length
     for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
         parent_hierarchy_index = 0
 
         # try to reach desired parent to get its index
@@ -1006,11 +970,14 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
         if settings.use_pivot_painter_packing:
             parent_hierarchy_index = get_bitpacked_integer(parent_hierarchy_index)
 
-        obj_attr_buffer[eval_obj_to_bake_index] = parent_hierarchy_index
+        try:
+            obj_attr_buffer[index] = parent_hierarchy_index
+        except:
+            pass
 
     return obj_attr_buffer
 
-def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list) -> list:
+def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -1022,7 +989,7 @@ def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
     :return: buffer, one value per object
     :rtype: list
     """
-    obj_attr_buffer = [0.0] * len(eval_objs_to_bake)
+    obj_attr_buffer = [0.0] * attr_buffer_length
 
     return obj_attr_buffer
 
@@ -1049,7 +1016,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str) -> tuple[b
 
     return (True, "", export_path)
 
-def select_depth(context: bpy.types.Context):
+def filter_selection_depth(context: bpy.types.Context):
     """
     Configure the depth limit, select all objects to bake and press to deselect all objects that do *not* exceed the depth limit.\n\n
     These objects will be treated as if part of their last valid parent. This operator helps identify what will happen during the bake.
@@ -1070,9 +1037,14 @@ def select_depth(context: bpy.types.Context):
             parent = selected_obj
             while parent:
                 parent = parent.parent
-                current_depth += 1
 
-            selected_obj.select_set(current_depth > settings.depth_limit + 1)
+                # @TODO account for non mesh?! only increment for meshes?
+                if parent and parent.type == "MESH":
+                    current_depth += 1
+                else:
+                    pass
+
+            selected_obj.select_set(current_depth > settings.depth_limit)
 
     if len(context.selected_objects) <= 0:
         return (True, "INFO", "No mesh object exceed the depth limit")
@@ -1135,7 +1107,7 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, file_path
     :rtype: tuple
     """
 
-    tags = { "TextureName": texture_name, "BakeName": bake_name} # @TODO
+    tags = { "TextureName": texture_name, "BakeName": bake_name}
     success, msg, tex_path = get_path(file_path, file_name, ".exr", tags, override_file)
     if success:
         image.filepath_raw = tex_path

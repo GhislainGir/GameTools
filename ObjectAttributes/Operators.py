@@ -84,15 +84,13 @@ class OBJECTATTRIBUTES_OT_SelectDepth(bpy.types.Operator):
     #     return Object and Object.type == 'MESH' and Object.mode == 'OBJECT'
 
     def execute(self, context):
-        success, verbose, msg = select_depth(context)
+        success, verbose, msg = filter_selection_depth(context)
         if success:
             self.report({verbose}, msg)
             return {'FINISHED'}
         else:
             self.report({verbose}, msg)
             return {'CANCELLED'}
-
-
 
 ###################
 ### TEXTURES ###
