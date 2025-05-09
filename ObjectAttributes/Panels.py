@@ -12,12 +12,27 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import bpy
+from pathlib import Path
 
 from bl_ui.utils import PresetPanel
 
 ####################################################################################
 ###################################### PANELS ######################################
 ####################################################################################
+
+###############
+### PRESETS ###
+class OBJECTATTRIBUTES_MT_ObjectAttributes_Presets(bpy.types.Menu):
+    bl_label = 'Object Attributes Presets'
+    preset_subdir = 'operator/databaker_OA'
+    preset_operator = 'script.execute_preset'
+    draw = bpy.types.Menu.draw_preset
+
+class OBJECTATTRIBUTES_PT_ObjectAttributes_Preset(PresetPanel, bpy.types.Panel):
+    bl_label = 'Object Attributes Presets'
+    preset_subdir = 'operator/databaker_OA'
+    preset_operator = 'script.execute_preset'
+    preset_add_operator = 'databaker_ObjectAttributespanel.addpreset'
 
 ############
 ### MAIN ###
@@ -99,14 +114,14 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
             texture = settings.textures[settings.textures_selected_index]
 
             if texture:
-                textures = [
+                channels = [
                     (texture.R, "R"),
                     (texture.G, "G"),
                     (texture.B, "B"),
                     (texture.A, "A"),
                     ]
 
-                for tex_data, tex_name in textures:
+                for tex_data, tex_name in channels:
                     if tex_data.channel_mode == "NONE":
                         row = layout.row()
                         row.prop(tex_data, "channel_mode", text=tex_name)
@@ -151,9 +166,6 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
                                     row = panel_body.row()
                                     row.prop(tex_data, "obj")
                             elif tex_data.channel_mode == "EXTENTS":
-                                row = panel_body.row()
-                                row.prop(tex_data, "component")
-
                                 row = panel_body.row()
                                 row.prop(tex_data, "axis")
                                 row = panel_body.row()
@@ -454,16 +466,302 @@ class OBJECTATTRIBUTES_PT_XMLExportPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(settings, "export_xml_override")
 
-###############
-### PRESETS ###
-class OBJECTATTRIBUTES_MT_ObjectAttributes_Presets(bpy.types.Menu):
-    bl_label = 'Object Attributes Presets'
-    preset_subdir = 'operator/databaker_OA'
-    preset_operator = 'script.execute_preset'
-    draw = bpy.types.Menu.draw_preset
+##############
+### REPORT ###
+class OBJECTATTRIBUTES_PT_ReportPanel(bpy.types.Panel):
+    bl_idname = "OBJECTATTRIBUTES_PT_reportpanel"
+    bl_parent_id = "OBJECTATTRIBUTES_PT_mainpanel"
+    bl_label = "Report"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 500
 
-class OBJECTATTRIBUTES_PT_ObjectAttributes_Preset(PresetPanel, bpy.types.Panel):
-    bl_label = 'Object Attributes Presets'
-    preset_subdir = 'operator/databaker_OA'
-    preset_operator = 'script.execute_preset'
-    preset_add_operator = 'databaker_ObjectAttributespanel.addpreset'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.ObjectAttributesReport.baked
+
+    # def draw_header(self, context):
+    #     report = context.ObjectAttributesReport
+    #     row = self.layout.row(align=True)
+    #     if report.success:
+    #         row.label(text="", icon="CHECKMARK")
+    #     else:
+    #         row.label(text="", icon="ERROR")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.ObjectAttributesReport
+
+        if report.baked:
+            row = layout.row()
+            row.scale_y = 2.0
+            col = row.split()
+            col.operator("gametools.objectattributes_export_report")
+            col = row.split()
+            col.operator("gametools.objectattributes_clear_report")
+
+        row = layout.row()
+        if report.success:
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
+        else:
+            row.label(text=report.name + " : Fail", icon="ERROR")
+            row = layout.row()
+            row.label(text=report.msg)
+
+        row = layout.row()
+        row.prop(report, "ID", text="")
+        row.enabled = False
+
+class OBJECTATTRIBUTES_UL_ReportTexturesList(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            if item.name:
+                layout.label(text=item.name, translate=False, icon="ANIM_DATA")
+            else:
+                layout.label(text="", translate=False, icon="ANIM_DATA")
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon="ANIM_DATA")
+
+class OBJECTATTRIBUTES_PT_ReportTexPanel(bpy.types.Panel):
+    bl_idname = "OBJECTATTRIBUTES_PT_reporttexpanel"
+    bl_parent_id = "OBJECTATTRIBUTES_PT_reportpanel"
+    bl_label = "Textures"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.ObjectAttributesReport
+
+        layout.template_list("OBJECTATTRIBUTES_UL_ReportTexturesList", "", report, "textures", report, "textures_selected_index", rows=3)
+        if report.textures:
+            texture = report.textures[report.textures_selected_index]
+            if texture:
+                row = layout.row()
+                row.prop(texture, "ID", text="")
+                row.enabled = False
+                
+                row = layout.row()
+                col = row.split()
+                col.label(text="Width: " + str(report.tex_width))
+                col.label(text="Height: " + str(report.tex_height))
+
+                if texture.exported:
+                    row = layout.row()
+                    row.label(text="File: " + texture.path, icon="FILE")
+
+                texture_channels = [
+                    ("texture_channel_R", "R", texture.R),
+                    ("texture_channel_G", "G", texture.G),
+                    ("texture_channel_B", "B", texture.B),
+                    ("texture_channel_A", "A", texture.A)
+                ]
+                for texture_channel_name, texture_channel_prefix, texture_channel in texture_channels:
+                    panel_header, panel_body = layout.panel(texture_channel_name)
+                    if panel_header:
+                        panel_header.prop(texture_channel, "channel_mode", text=texture_channel_prefix)
+                        panel_header.enabled = False
+                    if panel_body:
+                        panel_body.enabled = False
+                        if texture_channel.channel_mode == "POSITION":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "component")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "obj_mode")
+
+                            if texture_channel.obj_mode == "SELF":
+                                pass
+                            elif texture_channel.obj_mode == "PARENT":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "depth")
+                            else:
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj")
+                        elif texture_channel.channel_mode == "AXIS":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "component")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis")
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis_mode", text="Mode")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "obj_mode")
+
+                            if texture_channel.obj_mode == "SELF":
+                                pass
+                            elif texture_channel.obj_mode == "PARENT":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "depth")
+                            else:
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj")
+                        elif texture_channel.channel_mode == "EXTENTS":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis")
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis_mode", text="Mode")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "obj_mode")
+
+                            if texture_channel.obj_mode == "SELF":
+                                pass
+                            elif texture_channel.obj_mode == "PARENT":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "depth")
+                            else:
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj")
+                        elif texture_channel.channel_mode == "HIERARCHY":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "depth")
+                        else:
+                            pass
+
+class OBJECTATTRIBUTES_PT_ReportMeshPanel(bpy.types.Panel):
+    bl_idname = "OBJECTATTRIBUTES_PT_reportmeshpanel"
+    bl_parent_id = "OBJECTATTRIBUTES_PT_reportpanel"
+    bl_label = "Mesh"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        report = context.scene.ObjectAttributesReport
+        row = self.layout.row(align=True)
+        if report.mesh:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="X")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.ObjectAttributesReport
+
+        if report.mesh:
+            row = layout.row()
+            row.prop(report, "mesh", text="")
+            row.enabled = False
+
+            row = layout.row()
+            if report.mesh_export:
+                row.label(text="File: " + report.mesh_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="UVMap")
+            icon = "QUESTION" if report.mesh_uvmap == 0 else "DOT"
+            row = layout.row()
+            row.label(text="Index: " + str(report.mesh_uvmap), icon=icon)
+
+            icon = "CHECKMARK" if report.unit_invert_v else "X"
+            row = layout.row()
+            row.label(text="Invert V: " + str(report.unit_invert_v), icon=icon)
+            row.enabled = report.unit_invert_v
+
+        else:
+            row = layout.row()
+            row.label(text="Verts: " + str(report.num_verts))
+
+            row = layout.row()
+            row.label(text="None generated")
+
+class OBJECTATTRIBUTES_PT_ReportXMLPanel(bpy.types.Panel):
+    bl_idname = "OBJECTATTRIBUTES_PT_reportxmlpanel"
+    bl_parent_id = "OBJECTATTRIBUTES_PT_reportpanel"
+    bl_label = "XML"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 3
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        report = context.scene.ObjectAttributesReport
+        row = self.layout.row(align=True)
+        if report.xml:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="X")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.ObjectAttributesReport
+
+        row = layout.row()
+        if report.xml:
+            row.label(text="File: " + report.xml_path, icon="FILE")
+        else:
+            row.label(text="Not exported", icon="X")
+
+class OBJECTATTRIBUTES_PT_ReportUnitPanel(bpy.types.Panel):
+    bl_idname = "OBJECTATTRIBUTES_PT_reportunitpanel"
+    bl_parent_id = "OBJECTATTRIBUTES_PT_reportpanel"
+    bl_label = "Unit"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 14
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.ObjectAttributesReport
+
+        row = layout.row()
+        row.label(text="System: " + report.unit_system)
+        row.enabled = report.unit_system != "METRIC"
+
+        row = layout.row()
+        row.label(text="Unit: " + report.unit_unit)
+        row.enabled = report.unit_unit != "METERS"
+
+        row = layout.row()
+        row.label(text="Length: " + str(report.unit_length))
+        row.enabled = report.unit_length != 1.0
+
+        row = layout.row()
+        row.label(text="Scale: " + str(report.unit_scale))
+
+        layout.separator()
+        row = layout.row()
+        row.label(text="Invert")
+
+        icon = "CHECKMARK" if report.unit_invert_x else "X"
+        row = layout.row()
+        row.label(text="X: " + str(report.unit_invert_x), icon=icon)
+        row.enabled = report.unit_invert_x
+
+        icon = "CHECKMARK" if report.unit_invert_y else "X"
+        row = layout.row()
+        row.label(text="Y: " + str(report.unit_invert_y), icon=icon)
+        row.enabled = report.unit_invert_y
+
+        icon = "CHECKMARK" if report.unit_invert_z else "X"
+        row = layout.row()
+        row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
+        row.enabled = report.unit_invert_z

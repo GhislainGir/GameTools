@@ -87,7 +87,7 @@ def add_bake_report(prop_name: str, prop_value: float|int|str):
     """ """
     setattr(bpy.context.scene.ObjectAttributesReport, prop_name, prop_value)
 
-def add_bake_texture_report(texture: object):
+def add_bake_texture_report(texture: object, img: bpy.types.Image):
     """
     Set values in the bake report to describe a texture
 
@@ -98,6 +98,10 @@ def add_bake_texture_report(texture: object):
     report = bpy.context.scene.ObjectAttributesReport
 
     report_texture = report.textures.add()
+    report_texture.name = texture.name
+    report_texture.exported = False
+    report_texture.path = ""
+    report_texture.img = img
 
     # copy all attributes
     if hasattr(texture, "__annotations__"):
@@ -107,18 +111,35 @@ def add_bake_texture_report(texture: object):
             except (AttributeError, TypeError):
                 pass
 
+        channels = [texture.R, texture.G, texture.B, texture.A]
+        report_channels = [report_texture.R, report_texture.G, report_texture.B, report_texture.A]
+        for channel_index, channel in enumerate(channels):
+            for prop_name in channel.__annotations__.keys():
+                try:
+                    setattr(report_channels[channel_index], prop_name, getattr(channels[channel_index], prop_name))
+                except (AttributeError, TypeError):
+                    pass
+
     return report_texture
 
-def edit_bake_texture_report_name(texture: object, name: str):
+def edit_bake_texture_report_prop(texture: object, value, prop_name: str):
     """ """
     report = bpy.context.scene.ObjectAttributesReport
     
     for report_texture in report.textures:
         if report_texture == texture:
-            report_texture.name = name
+            setattr(report_texture, prop_name, value)
             return True
 
     return False
+
+def edit_bake_texture_report_path(texture: object, path: str):
+    """ """
+    return edit_bake_texture_report_prop(texture, path, "path")
+
+def edit_bake_texture_report_exported(texture: object, exported: bool):
+    """ """
+    return edit_bake_texture_report_prop(texture, exported, "exported")
 
 def clear_bake_texture_report(texture) -> bool:
     """
@@ -573,7 +594,7 @@ def bake(context: bpy.types.Context):
     bake_progress = 10
     bake_progress_step = (1.0 / (len(textures) * 4 * 3)) * 80
     for texture in textures:
-        buffer = get_texture_buffer(context, dgraph, texture, objs_to_bake, eval_objs_to_bake, tex_width, tex_height, num_indices)
+        buffer = get_texture_buffer(context, dgraph, texture, eval_objs_to_bake, tex_width, tex_height, num_indices)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
@@ -587,7 +608,7 @@ def bake(context: bpy.types.Context):
             add_bake_report("success", False)
             add_bake_report("msg", msg)
             return (False, 'ERROR', msg)
-        report_texture = add_bake_texture_report(texture)
+        report_texture = add_bake_texture_report(texture, tex)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
@@ -599,7 +620,8 @@ def bake(context: bpy.types.Context):
                 add_bake_report("success", False)
                 add_bake_report("msg", msg)
                 return (False, 'ERROR', msg)
-            edit_bake_texture_report_name(report_texture, tex_path)
+            edit_bake_texture_report_path(report_texture, tex_path)
+            edit_bake_texture_report_exported(report_texture, True)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
@@ -664,14 +686,13 @@ def get_texture_buffer_function(texture_channel: object) -> callable:
 
     return texture_buffer_zeros
 
-def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture: object, objs_to_bake: list, eval_objs_to_bake: list, tex_width: int, tex_height: int, attr_buffer_length: int) -> list:
+def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture: object, eval_objs_to_bake: list, tex_width: int, tex_height: int, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture RGBA channels
 
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param objs_to_bake: List of source objects (un-evaluated). Length & order must match eval_objs'
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
     :param tex_width: OA's texture width
     :param tex_height: OA's texture height
@@ -693,7 +714,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
             continue
 
         pre_bake_func = get_texture_buffer_function(texture_channel)
-        obj_attr_buffer = pre_bake_func(context, dgraph, texture_channel, objs_to_bake, eval_objs_to_bake, attr_buffer_length)
+        obj_attr_buffer = pre_bake_func(context, dgraph, texture_channel, eval_objs_to_bake, attr_buffer_length)
         if obj_attr_buffer:
             for attr_index in range(len(obj_attr_buffer)):
                 buffer[(attr_index * 4) + texture_channel_index] = obj_attr_buffer[attr_index]
@@ -719,7 +740,7 @@ def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> list:
 
     return buffer_inv
 
-def get_texture_buffer_obj_source_obj(texture_channel: object, eval_obj_to_bake: int, depth_limit_use: bool, depth_limit: int) -> bpy.types.Object:
+def get_texture_buffer_obj_source_obj(texture_channel: object, eval_obj_to_bake: int, depth_limit_use: bool, depth_limit: int, return_source: bool = True) -> bpy.types.Object:
     """
     Returns the object to get attributes from:
     - a user-specified mesh, defined in the texture_channel
@@ -735,41 +756,45 @@ def get_texture_buffer_obj_source_obj(texture_channel: object, eval_obj_to_bake:
     """
 
     if texture_channel.obj_mode == "CUSTOM" and texture_channel.obj:
-        eval_obj_to_bake = texture_channel.obj
+        source_obj = texture_channel.obj
     elif texture_channel.obj_mode == "PARENT":
         depth = 0
-        while eval_obj_to_bake and (depth < max(1, texture_channel.depth)):
+        source_obj = eval_obj_to_bake
+        while source_obj and (depth < max(1, texture_channel.depth)):
             depth += 1
-            if eval_obj_to_bake.parent:
-                eval_obj_to_bake = eval_obj_to_bake.parent
+            if source_obj.parent:
+                source_obj = source_obj.parent
             else:
                 break
-
-    if depth_limit_use and "ObjectAttributesHierarchyDepth" in eval_obj_to_bake:
-        depth = eval_obj_to_bake["ObjectAttributesHierarchyDepth"]
-        while eval_obj_to_bake and (depth >= max(1, depth_limit)): # @TODO test
-            depth -= 1
-            if eval_obj_to_bake.parent:
-                eval_obj_to_bake = eval_obj_to_bake.parent
-            else:
-                break
-
-    if "BakedSource" in eval_obj_to_bake:
-        return eval_obj_to_bake["BakedSource"]
     else:
-        return eval_obj_to_bake
+        source_obj = eval_obj_to_bake
+
+    if depth_limit_use and "ObjectAttributesHierarchyDepth" in source_obj:
+        depth = eval_obj_to_bake["ObjectAttributesHierarchyDepth"]
+        source_obj = eval_obj_to_bake
+        while source_obj and (depth > (depth_limit + 1)):
+            depth -= 1
+            if source_obj.parent:
+                source_obj = source_obj.parent
+            else:
+                break
+
+    if "BakedSource" in source_obj and return_source:
+        return source_obj["BakedSource"]
+    else:
+        return source_obj
 
 ########################
 ### BUFFER FUNCTIONS ###
-def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param objs_to_bake: List of source objects (un-evaluated). Length & order must match eval_objs'
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: Number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -812,15 +837,15 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
     
     return obj_attr_buffer
 
-def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param objs_to_bake: List of source objects (un-evaluated). Length & order must match eval_objs'
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: Number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -873,15 +898,15 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
     
     return obj_attr_buffer
 
-def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param objs_to_bake: List of source objects (un-evaluated). Length & order must match eval_objs'
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: Number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -932,15 +957,15 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
 
     return obj_attr_buffer
 
-def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param objs_to_bake: List of source objects (un-evaluated). Length & order must match eval_objs'
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: Number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -953,19 +978,11 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
         else:
             continue
 
-        parent_hierarchy_index = 0
-
-        # try to reach desired parent to get its index
-        parent = eval_obj_to_bake
-        target_depth = max(1, texture_channel.depth)
-        for depth in range(target_depth):
-            
-            if parent.parent:
-                parent = parent.parent
-                if "ObjectAttributesHierarchyIndex" in parent:
-                    parent_hierarchy_index = parent["ObjectAttributesHierarchyIndex"]
-            else:
-                break
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit, False)
+        if uneval_obj_source.parent:
+            parent_hierarchy_index = uneval_obj_source.parent["ObjectAttributesHierarchyIndex"]
+        else:
+            parent_hierarchy_index = uneval_obj_source["ObjectAttributesHierarchyIndex"]
 
         if settings.use_pivot_painter_packing:
             parent_hierarchy_index = get_bitpacked_integer(parent_hierarchy_index)
@@ -977,15 +994,15 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
 
     return obj_attr_buffer
 
-def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, objs_to_bake: list, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param objs_to_bake: List of source objects (un-evaluated). Length & order must match eval_objs'
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: Number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -1018,8 +1035,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str) -> tuple[b
 
 def filter_selection_depth(context: bpy.types.Context):
     """
-    Configure the depth limit, select all objects to bake and press to deselect all objects that do *not* exceed the depth limit.\n\n
-    These objects will be treated as if part of their last valid parent. This operator helps identify what will happen during the bake.
+    Filters the active selection to highlight objects that'd be depth-limited according to the current settings. Depth-limited objects behave as if they were an integral part of their parent.
 
     :param context: Blender current execution context
     :return: success, message verbose, message
@@ -1037,8 +1053,6 @@ def filter_selection_depth(context: bpy.types.Context):
             parent = selected_obj
             while parent:
                 parent = parent.parent
-
-                # @TODO account for non mesh?! only increment for meshes?
                 if parent and parent.type == "MESH":
                     current_depth += 1
                 else:

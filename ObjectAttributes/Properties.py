@@ -66,9 +66,9 @@ class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
     textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_TexLayerPropertyGroup)
     textures_selected_index: IntProperty(name="Selected", default=0)
 
-    depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="Enable to prevent the hierarchy from going too deep. At the specified depth, childs will be treated as their parent and will share their object data, such as position, axis etc., as if they were a part of the parent mesh")
-    depth_limit: IntProperty(name="Limit", default=3, min=0, description="Maximum depth the hierarchy is allowed to have.\n- 1 to allow the tree to contain a parent and children.\n- 2 to allow the tree to contain a parent, children and grand-children.\n- etc.")
-    use_pivot_painter_packing: BoolProperty(name="Use Pivot Painter Packing", default=True, description="Enable to use pivot painter's 16 bit integer to 16 bit float packing algorithm, store index as-is in float otherwise")
+    depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="Enable this option to prevent the hierarchy from becoming too deep. At the specified depth, children will be treated as part of their parent and will share the parent’s object data—such as position, axis, and more—as if they were part of the same mesh. Non-mesh objects within the hierarchy will be discarded and treated as if they do not exist by the algorithm, without affecting the transforms of their children")
+    depth_limit: IntProperty(name="Limit", default=3, min=0, description="Specifies the maximum depth allowed for the hierarchy. A value of 1 allows the tree to contain a parent and its children; a value of 2 includes a parent, children, and grandchildren, and so on")
+    use_pivot_painter_packing: BoolProperty(name="Use Pivot Painter Packing", default=True, description="Enable the use of Pivot Painter’s 16-bit integer to 16-bit float packing algorithm to store the index. If disabled, the index will be stored as-is in a float. When packing is enabled, the index must be decoded before use; otherwise, it can be read directly. Note that 16-bit floats can only reliably store integers as-is up to 2048")
 
     mesh_name: StringProperty(name="Name", default="BakedMesh.OA", description="Name of the resulting baked mesh")
     mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.OA", description="UVMap to get or create for setting up the mesh UVs")
@@ -97,14 +97,27 @@ class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion. Only available if the Blender file is saved")
-    export_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_<TextureName>", description="Name for the texture file (without the .exr extension). <TextureName> is a placeholder tag that can be used to be replaced with the texture's custom name")
+    export_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_<TextureName>", description="Name for the texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name. <TextureName> is a placeholder tag that can be used to be replaced with the texture's custom name")
     export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
-    export_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=256, description="Maximum allowed texture width. Exceeding this may cancel the bake. 256 is recommended, as 256^2 allows the baking of up to 65K of elements, more than the precision offered by Pivot Painter's packing algorithm.")
-    export_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=256, description="Maximum allowed texture height. Exceeding this may cancel the bake. 256 is recommended, as 256^2 allows the baking of up to 65K of elements, more than the precision offered by Pivot Painter's packing algorithm.")
+    export_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=256, description="Maximum allowed texture width. Exceeding this may cancel the bake. 256 is recommended, as 256^2 allows the baking of up to 65K of elements, more than the precision offered by Pivot Painter's packing algorithm")
+    export_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=256, description="Maximum allowed texture height. Exceeding this may cancel the bake. 256 is recommended, as 256^2 allows the baking of up to 65K of elements, more than the precision offered by Pivot Painter's packing algorithm")
 
-    tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported.")
-    tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases.")
+    tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported")
+    tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases")
+
+class OBJECTATTRIBUTES_PG_TexLayerReportPropertyGroup(PropertyGroup):
+    """ """
+    ID: StringProperty(name="ID", default="", description="")
+    name: StringProperty(name="name", default="Texture", description="")
+    exported: BoolProperty(name="Exported", default=False)
+    path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH')
+    img: PointerProperty(type=bpy.types.Image)
+
+    R: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    G: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    B: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    A: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
 
 class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
     """"""
@@ -136,7 +149,7 @@ class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
 
     tex_width: IntProperty(name="Texture Width", default=0, description="")
     tex_height: IntProperty(name="Texture Height", default=0, description="")
-    textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_TexLayerPropertyGroup)
+    textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_TexLayerReportPropertyGroup)
     textures_selected_index: IntProperty(name="Selected", default=0)
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
