@@ -29,17 +29,48 @@ class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Op
     bl_label = 'Add preset'
     preset_menu = 'OBJECTATTRIBUTES_MT_ObjectAttributes_Presets'
 
-    # preset_defines = [ 'settings = bpy.context.scene.ObjectAttributesSettings' ]
-    # preset_values = [
-    #     'settings.bake_mode',
-    # ] @TODO presets
+    preset_defines = [ 'settings = bpy.context.scene.ObjectAttributesSettings' ]
+    preset_values = [
+        'settings.textures',
+        'settings.textures_selected_index',
+        'settings.depth_limit_use',
+        'settings.depth_limit',
+        'settings.use_pivot_painter_packing',
+        'settings.mesh_name',
+        'settings.mesh_uvmap_name',
+        'settings.mesh_count_limit',
+        'settings.unit_scale',
+        'settings.unit_invert_x',
+        'settings.unit_invert_y',
+        'settings.unit_invert_z',
+        'settings.unit_invert_v',
+        'settings.origin_obj',
+        'settings.export_mesh',
+        'settings.export_mesh_file_name',
+        'settings.export_mesh_file_path',
+        'settings.export_mesh_file_override',
+        'settings.export_xml',
+        'settings.export_xml_modes',
+        'settings.export_xml_mode',
+        'settings.export_xml_file_name',
+        'settings.export_xml_file_path',
+        'settings.export_xml_override',
+        'settings.export_tex',
+        'settings.export_tex_file_name',
+        'settings.export_tex_file_path',
+        'settings.export_tex_override',
+        'settings.export_tex_max_width',
+        'settings.export_tex_max_height',
+        'settings.tex_force_power_of_two',
+        'settings.tex_force_power_of_two_square'
+    ]
 
     preset_subdir = 'operator/databaker_OA'
 
 ############
 ### MAIN ###
 class OBJECTATTRIBUTES_OT_BakeData(bpy.types.Operator):
-    """Bakes various object attributes, such as position, axis, hierarchy, into Texture(s)."""
+    """Bakes various object attributes, such as position, axis, hierarchy, into texture(s)."""
     bl_idname = "gametools.databaker_bakeoa"
     bl_label = "Bake"
     bl_category = "Game Tools"
@@ -66,7 +97,7 @@ class OBJECTATTRIBUTES_OT_BakeData(bpy.types.Operator):
             return {'CANCELLED'}
 
 class OBJECTATTRIBUTES_OT_SelectDepth(bpy.types.Operator):
-    """Configure the depth limit, select all objects to bake and press to deselect all objects that do *not* exceed the depth limit.\n\nThese objects will be treated as if part of their last valid parent. This operator helps identify what will happen during the bake."""
+    """Configure the depth limit, select all objects to bake and press Filter to deselect all objects that do *not* exceed the depth limit.\n\nThese objects will be treated as if part of their last valid parent. This operator helps identify what will happen during the bake."""
     bl_idname = "gametools.databaker_selectdepth"
     bl_label = "Filter Selection"
     bl_category = "Game Tools"

@@ -427,7 +427,6 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     :return: the function's success and potential error message
     :rtype: tuple
     """
-    #return (True, "")
     settings = context.scene.ObjectAttributesSettings
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.OA"
@@ -496,7 +495,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     # create a new object from the new mesh
     obj = bpy.data.objects.new(name, merged_mesh)
     if settings.origin_obj:
-        obj.matrix_world = settings.origin_obj.matrix_world
+        #obj.matrix_world = settings.origin_obj.matrix_world
         merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
     context.scene.collection.objects.link(obj)
 
@@ -816,7 +815,7 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
-            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
         eval_obj_source_loc = eval_obj_source_mat.to_translation()
 
         vector_to_bake = eval_obj_source_loc * signed_scale
@@ -867,7 +866,7 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
-            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
         eval_obj_source_euler = eval_obj_source_mat.to_euler()
 
         if texture_channel.axis == "X":
@@ -928,7 +927,7 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
-            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
         eval_obj_source_loc = eval_obj_source_mat.to_translation()
         eval_obj_source_euler = eval_obj_source_mat.to_euler()
 
@@ -942,10 +941,11 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
             axis = mathutils.Vector((0.0, 0.0, 0.0))
 
         axis.rotate(eval_obj_source_euler)
-        extent_axis = axis * signed_axis
+        extent_axis = axis
 
         eval_mesh_source = uneval_obj_source.to_mesh()
-        vertices_delta = [(vertex.co - eval_obj_source_loc).dot(extent_axis) for vertex in eval_mesh_source.vertices] # @TODO this is probably wrong
+        eval_mesh_source.transform(eval_obj_source.matrix_world)
+        vertices_delta = [(vertex.co - eval_obj_source_loc).dot(extent_axis) for vertex in eval_mesh_source.vertices]
         data_to_bake = abs(max(vertices_delta, key=abs))
 
         uneval_obj_source.to_mesh_clear()
@@ -978,11 +978,19 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
         else:
             continue
 
-        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit, False)
-        if uneval_obj_source.parent:
-            parent_hierarchy_index = uneval_obj_source.parent["ObjectAttributesHierarchyIndex"]
+        uneval_obj_source = eval_obj_to_bake
+        uneval_obj_source_parent = uneval_obj_source
+
+        for depth in range(texture_channel.depth):
+            if uneval_obj_source_parent.parent:
+                uneval_obj_source_parent = uneval_obj_source_parent.parent
+            else:
+                break
+
+        if "ObjectAttributesHierarchyIndex" in uneval_obj_source_parent:
+            parent_hierarchy_index = uneval_obj_source_parent["ObjectAttributesHierarchyIndex"]
         else:
-            parent_hierarchy_index = uneval_obj_source["ObjectAttributesHierarchyIndex"]
+            continue
 
         if settings.use_pivot_painter_packing:
             parent_hierarchy_index = get_bitpacked_integer(parent_hierarchy_index)
@@ -1007,6 +1015,8 @@ def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
     :rtype: list
     """
     obj_attr_buffer = [0.0] * attr_buffer_length
+
+    # @TODO template function
 
     return obj_attr_buffer
 
