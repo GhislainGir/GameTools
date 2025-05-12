@@ -52,9 +52,10 @@ const int CompressionBits = 10;
 // gives us the binary number 001111111111, or 1023 in decimal, creating a 10 bit integer mask
 const int CompressionMask = (1 << CompressionBits) - 1;
 
+
 // encode the index of the largest -discarded- component, shifting it to the most significant bits. The index ranges
 // from 0 to 3, so two bits are required to represent it (32-2 = 30 bits for the smallest components).
-EncodeQuat = MaxAbsQuatComponentIndex << 30; // II000000000000000000000000000000
+uint EncodedQuat = MaxAbsQuatComponentIndex << 30; // II000000000000000000000000000000
 
 // encode the three smallest components into the 32-bit packed format using bitwise operations. Each component is scaled
 // by 1023 (CompressionMask) and converted to the nearest integer to best make use of the 10 bits of precision.
