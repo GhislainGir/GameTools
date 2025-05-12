@@ -48,10 +48,10 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_system", context.scene.unit_settings.system)
     add_bake_report("unit_unit", context.scene.unit_settings.length_unit)
     add_bake_report("unit_length", context.scene.unit_settings.scale_length)
-    add_bake_report("unit_scale", settings.scale)
-    add_bake_report("unit_invert_x", settings.invert_x)
-    add_bake_report("unit_invert_y", settings.invert_y)
-    add_bake_report("unit_invert_z", settings.invert_z)
+    add_bake_report("unit_scale", settings.unit_scale)
+    add_bake_report("unit_invert_x", settings.unit_invert_x)
+    add_bake_report("unit_invert_y", settings.unit_invert_y)
+    add_bake_report("unit_invert_z", settings.unit_invert_z)
     add_bake_report("packing_precision", settings.packing_precision)
 
     add_bake_report("origin_obj", settings.origin_obj)
@@ -86,23 +86,12 @@ def reset_bake_report():
     report.mesh = None
     report.mesh_export = False
     report.mesh_path = ""
-    report.mesh_uvmap_invert_v = False
+    report.unit_invert_v = False
 
     report.xml = False
     report.xml_path = ""
 
     report.origin_obj = None
-
-    report.mesh_name = ""
-    report.scale = 0.0
-    report.invert_x = False
-    report.invert_y = False
-    report.invert_z = False
-
-    report.export_mesh = False
-    report.export_mesh_file_name = ""
-    report.export_mesh_file_path = ""
-    report.export_mesh_file_override = False
 
 def add_bake_report(prop_name: str, prop_value: float|int|str):
     """
@@ -524,8 +513,8 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
 
     active_obj = context.view_layer.objects.active
 
-    if settings.invert_v:
-        add_bake_report("mesh_uvmap_invert_v", True)
+    if settings.unit_invert_v:
+        add_bake_report("unit_invert_v", True)
 
     # blank canvas
     for obj in objs_to_bake:
@@ -535,9 +524,9 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
 
     return (True, "", objs_to_bake, active_obj)
 
-def get_bake_name(context: bpy.types.Context, active_object:bpy.types.Object) -> str:
+def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -> str:
     """
-    Return the name to give to the mesh to generate.
+    Return the name to give to the bake operation.
 
     :param context: Blender current execution context
     :param active_object: object to derive name from
@@ -548,7 +537,7 @@ def get_bake_name(context: bpy.types.Context, active_object:bpy.types.Object) ->
     settings = context.scene.DataBakerSettings
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.Data"
-    tags = { "ObjectName" : active_object.name if active_object is not None else ""}
+    tags = { "BakeName" : active_object.name if active_object is not None else ""}
     name = replace_tags(name, tags)
     return name
 
@@ -563,7 +552,6 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
     """
 
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     """
     scan layers for a shapekey layer! If so we probably want to ensure it is set to 0.0 and assume the baked object
@@ -582,46 +570,58 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
 
     dgraph = bpy.context.evaluated_depsgraph_get() # refresh shapekeys
 
+    """
+    duplicate depsgraph-evaluated filtered selection & forward initial transform
+    """
+    source_objs_to_eval = {}
     eval_objs_to_bake = []
     for obj_to_bake in objs_to_bake:
         col = context.scene.collection
         if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
             col = obj_to_bake.users_collection[0]
 
-        if obj_to_bake.type == "MESH":
-            """
-            evaluate object, as to apply modifiers, shapekeys etc! Data is baked assuming this 'pose' is the 'rest pose'
-            """
-            eval_obj = obj_to_bake.evaluated_get(dgraph)
-            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-            eval_mesh.transform(eval_obj.matrix_world)
+        eval_obj = obj_to_bake.evaluated_get(dgraph)
+        eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
+        #eval_mesh.transform(eval_obj.matrix_world) # not needed if matrix_world is forwarded
 
-            duped_obj = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
-
-            eval_obj.to_mesh_clear()
-        else:
-            continue
-
-        #duped_obj.parent = obj_to_bake.parent # @TODO this is what causes the transform thingy to be related to its parent!! get rid of it?!
+        eval_obj_to_bake = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
+        eval_obj_to_bake.matrix_world = eval_obj.matrix_world # forward initial transform
 
         for key in obj_to_bake.keys():
             if key != "_RNA_UI":
-                duped_obj[key] = obj_to_bake[key]
+                eval_obj_to_bake[key] = obj_to_bake[key]
+
+        eval_obj.to_mesh_clear()
+
+        col.objects.link(eval_obj_to_bake)
+        eval_objs_to_bake.append(eval_obj_to_bake)
 
         """
         create pairing with original obj. Ideally, we'd use the evaluated objects as-is, and get the original via their
         built-in .original pointer, but I do prefer to work on actual meshes so I can tweak mesh attributes etc without
         risking modifying the original in a destructive manner
         """
-        duped_obj[custom_prop] = obj_to_bake
-        duped_obj.id_properties_ensure()
-        property_manager = duped_obj.id_properties_ui(custom_prop)
+        eval_obj_to_bake["BakedSource"] = obj_to_bake
+        eval_obj_to_bake.id_properties_ensure()
+        property_manager = eval_obj_to_bake.id_properties_ui("BakedSource")
         property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
 
-        col.objects.link(duped_obj)
-        eval_objs_to_bake.append(duped_obj)
+        source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
 
-    context.view_layer.objects.active = objs_to_bake[0]
+    """
+    iterate depsgraph-evaluated objects to find to which other depsgraph-evaluated objects they need to be parented to.
+    this involves getting the unevaluated source object and walking up the hierarchy until we find the first valid parent,
+    meaning one that is included in the filtered objs_to_bake list. 
+    """
+    for eval_obj_to_bake in eval_objs_to_bake:
+        obj_parent = eval_obj_to_bake["BakedSource"].parent
+        while obj_parent and obj_parent not in objs_to_bake:
+            obj_parent = obj_parent.parent
+
+        if obj_parent:
+            eval_obj_parent = source_objs_to_eval[obj_parent]
+            eval_obj_to_bake.parent = eval_obj_parent
+            eval_obj_to_bake.matrix_parent_inverse = eval_obj_parent.matrix_world.inverted()
 
     """
     restore modified shapekey values, if needed
@@ -653,7 +653,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
 
     bm = bmesh.new()
     for eval_obj_to_bake in eval_objs_to_bake:
-        obj_eval = eval_obj_to_bake.evaluated_get(dgraph)
+        obj_eval = eval_obj_to_bake.evaluated_get(dgraph) # @TODO they are already evaluated!?
         mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         mesh_eval.transform(obj_eval.matrix_world)
 
@@ -683,7 +683,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     add_bake_report("mesh", obj)
 
     obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
+    context.view_layer.objects.active = obj
 
     clear_bake_selection(eval_objs_to_bake)
 
@@ -710,7 +710,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE is this necessary?
+    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? @TODO fails when no active selection
 
     settings = context.scene.DataBakerSettings
     new_bake_report(context)
@@ -1125,7 +1125,7 @@ def get_data_layer_icon(data_layer: object, details: bool = False) -> str:
 
     return (False, "X")
 
-def get_data_layer_pre_bake_function(data_layer: object):
+def get_data_layer_pre_bake_function(data_layer: object) -> callable:
     """
     Return the bake function associated with the given data layer
 
@@ -1179,7 +1179,7 @@ def get_data_layer_range(values: list, precision: float = 0.0001) -> tuple[bool,
 
     return bake_range_valid, bake_range_offset, bake_range
 
-def get_data_layer_obj_source_obj(data_layer: object, prop_name: str, obj: bpy.types.Object) -> bool:
+def get_data_layer_obj_source_obj(data_layer: object, obj: bpy.types.Object) -> bool:
     """
     Returns the source mesh to process for the given data layer's mesh.  
     The source can be:
@@ -1189,10 +1189,8 @@ def get_data_layer_obj_source_obj(data_layer: object, prop_name: str, obj: bpy.t
     - or the parent mesh.
 
     :param data_layer: The data layer currently being processed.  
-    :param prop_name: The name of the custom property that stores the source mesh of the duplicated mesh.  
     :param obj: The duplicated mesh currently being processed.
     """
-    custom_prop = prop_name if prop_name != "" else "BakeSource"
 
     # user-specified object override
     if data_layer.obj_mode == "CUSTOM" and data_layer.obj:
@@ -1200,17 +1198,17 @@ def get_data_layer_obj_source_obj(data_layer: object, prop_name: str, obj: bpy.t
     # parent object
     elif data_layer.obj_mode == "PARENT" and obj.parent:
         # walk up hierarchy
-        parent = obj.get(custom_prop, obj)
+        parent = obj.get("BakedSource", obj)
         for depth in range(max(1, data_layer.index)):
             if parent.parent:
                 parent = parent.parent
             else:
-                return obj.get(custom_prop, obj) # @NOTE fall back to self?
+                return obj.get("BakedSource", obj) # @NOTE fall back to self?
 
         return parent
     # source object
     else:
-        return obj.get(custom_prop, obj)
+        return obj.get("BakedSource", obj)
 
 ######################
 ### BAKE FUNCTIONS ###
@@ -1301,16 +1299,16 @@ def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
 
             """ 1. prepare UV channel(s) """
             uv_index = 0 if data_layer_uv.uv_channel == "U" else 1
-            one_minus = False if data_layer_uv.uv_channel == "U" else settings.invert_v
+            one_minus = False if data_layer_uv.uv_channel == "U" else settings.unit_invert_v
 
             while (data_layer_uv.uv_index > (len(eval_mesh.uv_layers) - 1)):
                 eval_mesh.uv_layers.new()
 
-                zero_uv = (0.0, 1.0 if settings.invert_v else 0.0)
+                zero_uv = (0.0, 1.0 if settings.unit_invert_v else 0.0)
                 for loop_id in eval_mesh.loops:
                     eval_mesh.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv = zero_uv
 
-            uv_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData"
+            uv_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData"
             uv_name += "." + str(data_layer_uv.uv_index)
             eval_mesh.uv_layers[data_layer_uv.uv_index].name = uv_name
 
@@ -1414,9 +1412,9 @@ def bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals):
 
     """
     settings = context.scene.DataBakerSettings
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
 
     if not data_layers_normals or len(data_layers_normals) <= 0:
         return
@@ -1615,17 +1613,17 @@ def pre_bake_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
     """
     settings = context.scene.DataBakerSettings
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-    signed_scale = signed_axis * settings.scale
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
 
     bake_range_values = []
 
     for eval_obj_to_bake in eval_objs_to_bake:
         eval_mesh = eval_obj_to_bake.data
 
-        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
@@ -1668,18 +1666,17 @@ def pre_bake_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
 
     bake_range_values = []
 
     for eval_obj_to_bake in eval_objs_to_bake:
         eval_mesh = eval_obj_to_bake.data
 
-        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
@@ -1732,10 +1729,10 @@ def pre_bake_shapekey(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
     """
     settings = context.scene.DataBakerSettings
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-    signed_scale = signed_axis * settings.scale
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
 
     dgraph = bpy.context.evaluated_depsgraph_get()
 
@@ -1746,7 +1743,7 @@ def pre_bake_shapekey(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
 
         data_loop_ids = [0.0] * len(eval_mesh.loops)
 
-        target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
         if not target:
             return (False, "Shapekey: No source object found", None)
         if target.type != "MESH":
@@ -1765,7 +1762,7 @@ def pre_bake_shapekey(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
                 shapekey_world_pos = target_mesh.shape_keys.key_blocks[data_layer.name].data[vertex_index].co
                 vertex.co = shapekey_world_pos
 
-            mesh_name = "MyMesh"
+            mesh_name = "MyMesh" # @TODO
             object_name = "MyObject"
             mesh = bpy.data.meshes.new(mesh_name)
             bm.to_mesh(mesh)
@@ -1848,12 +1845,11 @@ def pre_bake_mask(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-    signed_scale = signed_axis * settings.scale
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
 
     origin_mode = "WORLD"
     if data_layer.origin_mode == origin_mode:
@@ -1871,7 +1867,7 @@ def pre_bake_mask(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
         origin_mode = data_layer.origin_mode
 
     if data_layer.mask_mode == "SPHERE":
-        return pre_bake_mask_sphere(dgraph, data_layer, eval_objs_to_bake, custom_prop, origin_mode, signed_scale)
+        return pre_bake_mask_sphere(dgraph, data_layer, eval_objs_to_bake, "BakedSource", origin_mode, signed_scale)
     elif data_layer.mask_mode == "LINEAR":
         if data_layer.axis == "X":
             world_axis = mathutils.Vector((1.0, 0.0, 0.0))
@@ -1885,7 +1881,7 @@ def pre_bake_mask(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
         if settings.origin_obj:
             world_axis = settings.origin_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj
 
-        return pre_bake_mask_linear(dgraph, data_layer, eval_objs_to_bake, custom_prop, origin_mode, signed_scale, world_axis)
+        return pre_bake_mask_linear(dgraph, data_layer, eval_objs_to_bake, "BakedSource", origin_mode, signed_scale, world_axis)
     else:
         return (False, "Unknown mask mode", None)
 
@@ -2066,7 +2062,7 @@ def pre_bake_mask_linear(dgraph: bpy.types.Depsgraph, data_layer: object, eval_o
 
         data_loop_ids = [0.0] * len(eval_mesh.loops)
 
-        mesh_source = eval_mesh.get(custom_prop, eval_mesh)
+        mesh_source = eval_mesh.get(custom_prop, eval_obj_to_bake)
         obj_eval = mesh_source.evaluated_get(dgraph)
         mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         mesh_eval.transform(obj_eval.matrix_world)
@@ -2130,6 +2126,8 @@ def pre_bake_mask_linear(dgraph: bpy.types.Depsgraph, data_layer: object, eval_o
 
             data_loop_ids[loop_id.index] = data_to_bake
 
+        obj_eval.to_mesh_clear()
+
         if data_layer.ID not in eval_mesh.attributes:
             eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
 
@@ -2173,7 +2171,6 @@ def pre_bake_random_float(context: bpy.types.Context, dgraph: bpy.types.Depsgrap
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     uniform_values = []
     uniform_length = 0
@@ -2184,7 +2181,7 @@ def pre_bake_random_float(context: bpy.types.Context, dgraph: bpy.types.Depsgrap
         # pre pass
         cols = []
         for eval_obj_to_bake in eval_objs_to_bake:
-            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
             for col in target.users_collection:
                 if col not in cols:
                     cols.append(col)
@@ -2203,7 +2200,7 @@ def pre_bake_random_float(context: bpy.types.Context, dgraph: bpy.types.Depsgrap
         for eval_obj_to_bake in eval_objs_to_bake:
             eval_mesh = eval_obj_to_bake.data
 
-            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
             if target.users_collection:
                 col_index = -1
                 try:
@@ -2307,7 +2304,6 @@ def pre_bake_random_float2(context: bpy.types.Context, dgraph: bpy.types.Depsgra
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     bake_range_values = []
 
@@ -2315,7 +2311,7 @@ def pre_bake_random_float2(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         # pre pass
         cols = []
         for eval_obj_to_bake in eval_objs_to_bake:
-            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
             for col in target.users_collection:
                 if col not in cols:
                     cols.append(col)
@@ -2324,7 +2320,7 @@ def pre_bake_random_float2(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         for eval_obj_to_bake in eval_objs_to_bake:
             eval_mesh = eval_obj_to_bake.data
 
-            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
             if target.users_collection:
                 col_index = cols.index(target.users_collection[0])
                 if col_index >= 0:
@@ -2429,7 +2425,6 @@ def pre_bake_random_float3(context: bpy.types.Context, dgraph: bpy.types.Depsgra
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     bake_range_values = []
 
@@ -2437,7 +2432,7 @@ def pre_bake_random_float3(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         # pre pass
         cols = []
         for eval_obj_to_bake in eval_objs_to_bake:
-            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
             for col in target.users_collection:
                 if col not in cols:
                     cols.append(col)
@@ -2446,7 +2441,7 @@ def pre_bake_random_float3(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         for eval_obj_to_bake in eval_objs_to_bake:
             eval_mesh = eval_obj_to_bake.data
 
-            target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+            target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
             if target.users_collection:
                 col_index = cols.index(target.users_collection[0])
                 if col_index >= 0:
@@ -2587,7 +2582,6 @@ def pre_bake_custom_prop(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     bake_range_values = []
 
@@ -2597,7 +2591,7 @@ def pre_bake_custom_prop(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
         if data_layer.obj:
             target = data_layer.obj
         else:
-            target = eval_obj_to_bake.get(custom_prop, eval_obj_to_bake)
+            target = eval_obj_to_bake.get("BakedSource", eval_obj_to_bake)
 
         prop = target.get(data_layer.name, None)
         if prop and ((type(prop) is int) or (type(prop) is float)):
@@ -2629,12 +2623,11 @@ def pre_bake_frame(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data
     :rtype: tuple
     """
     settings = context.scene.DataBakerSettings
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
-    signed_scale = signed_axis * settings.scale
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
 
     bake_ref_frame = context.scene.frame_current
 
@@ -2646,7 +2639,7 @@ def pre_bake_frame(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data
         eval_mesh = eval_obj_to_bake.data
 
         data_loop_ids = [0.0] * len(eval_mesh.loops)
-        target = get_data_layer_obj_source_obj(data_layer, settings.mesh_target_prop, eval_obj_to_bake)
+        target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
 
         context.scene.frame_set(data_layer.index)
         #context.view_layer.update()
@@ -2737,14 +2730,13 @@ def pre_bake_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data
 
     # mesh was evaluated & stored in a new object that has no transform. That object however has an object custom
     # property that points to the initial source mesh to still access the object's position etc.
-    custom_prop = settings.mesh_target_prop if settings.mesh_target_prop != "" else "BakeSource"
 
     # to apply to unit vectors
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
     # to apply to non-unit vectors such as positions etc.
-    signed_scale = signed_axis * settings.scale
+    signed_scale = signed_axis * settings.unit_scale
 
     # for source mesh evaluation
     dgraph = bpy.context.evaluated_depsgraph_get()
@@ -2759,7 +2751,7 @@ def pre_bake_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data
         if data_layer.obj:
             target = data_layer.obj
         else:
-            target = eval_obj_to_bake.get(custom_prop, eval_obj_to_bake)
+            target = eval_obj_to_bake.get("BakedSource", eval_obj_to_bake)
 
         # you might want to evaluate the source mesh as the duplicated mesh was itself evaluated. This ensures vertex count/order are similar
         #obj_eval = target.evaluated_get(dgraph)
@@ -2816,7 +2808,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str) -> tuple[b
     """
     settings = context.scene.DataBakerSettings
 
-    tags = { "ObjectName" : bake_name}
+    tags = { "BakeName" : bake_name}
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
         # export selection and assume selection was properly handled outside of this function
@@ -2849,14 +2841,14 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             system=report.unit_system,
                             unit=str(report.unit_unit),
                             length=str(report.unit_length),
-                            scale=str(report.unit_scale),
-                            invert_x=str(report.unit_invert_x),
-                            invert_y=str(report.unit_invert_y),
-                            invert_z=str(report.unit_invert_z))
+                            unit_scale=str(report.unit_scale),
+                            unit_invert_x=str(report.unit_invert_x),
+                            unit_invert_y=str(report.unit_invert_y),
+                            unit_invert_z=str(report.unit_invert_z))
 
     # uv info
     uv_el = ET.SubElement(root, "UV",
-                          invert_v=str(report.mesh_uvmap_invert_v))
+                          unit_invert_v=str(report.unit_invert_v))
 
     # data layers info
     if report.data_layers:
@@ -2905,16 +2897,16 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 #########################
 ### PATHS & FILENAMES ###
-def get_path(path: str, file_name: str, file_ext: str, tags: dict, override_file: bool) -> tuple[bool, str, str]:
+def get_path(file_path: str, file_name: str, file_ext: str, tags: list, override_file: bool) -> tuple[bool, str, str]:
     """
-    Compile file path/name/extension into a path and perform a couples of safety checks
-
-    :param path: export path
+    Compile path/name/extension into a path on disk, and performs a couples of safety checks
+    
+    :param file_path: file path
     :param file_name: file name
-    :param file_ext: file extension
-    :param tags: dict of tags to look for and what they should be replaced with
-    :param override_file: if any existing file at the computed path should be overriden
-    :return: the function's success, potential error message, export path
+    :param file_ext: file extention
+    :param tags: tags to search for and replace in the file_name
+    :param override_file: if False, function fails if computed path lead to an existing file
+    :return: the function's success, potential error message, path
     :rtype: tuple
     """
     
@@ -2923,45 +2915,44 @@ def get_path(path: str, file_name: str, file_ext: str, tags: dict, override_file
         return (False, "Invalid File Extension", "")
 
     file_name = replace_tags(file_name, tags)
-    export_path = os.path.abspath(os.path.join(bpy.path.abspath(path), file_name + file_ext))
+    export_path = os.path.abspath(os.path.join(bpy.path.abspath(file_path), file_name + file_ext))
     success, msg = check_path(export_path, override_file)
     
     return (success, msg, export_path)
 
-def replace_tags(name: str, tags: dict) -> str:
+def replace_tags(file_name: str, tags: list) -> str:
     """
-    Check for tags and replace them with their associated value
-
-    :param name: string to search tags in
-    :param tags: dict of tags to look for and what they should be replaced with
-    :return: the modified name
+    Scan the provided string and replace any <tag> with the provided tags dictionnary
+    
+    :param file_name: string to modify
+    :param tags: tags to search for and replace in the file_name
+    :return: the modified file_name
     :rtype: str
     """
-    # check tags
     for tag_key, tag_value in tags.items():
         tag = "<"+tag_key+">"
-        if (tag in name):
-            name = name.replace(tag, tag_value)
+        if (tag in file_name):
+            file_name = file_name.replace(tag, tag_value)
 
-    return name
+    return file_name
 
-def check_path(path: str, override_file: str) -> tuple[bool, str]:
+def check_path(disk_path: str, override_file: str) -> tuple[bool, str]:
     """
-    Check for tags and replace them with their associated value
+    Check that the directory exists and is writable, and check that the file can be overriden, if any exist at that location
 
-    :param path: export path
-    :param override_file: if any existing file at the given path should be overriden
-    :return: the path's validity and potential error message
+    :param disk_path: path to validate
+    :param override_file: if False, function fails if computed path lead to an existing file
+    :return: the path's validity, potential error message
     :rtype: tuple
     """
-    dir = os.path.dirname(path)
+    dir = os.path.dirname(disk_path)
     if not os.path.isdir(dir):
         return (False, f"Directory does not exist: {dir}")
     
     if not os.access(dir, os.W_OK):
         return (False, f"Directory is not writable: {dir}")
 
-    if os.path.isfile(path) and not override_file:
-        return (False, f"File already exists: {path}")
+    if os.path.isfile(disk_path) and not override_file:
+        return (False, f"File already exists: {disk_path}")
 
     return (True, "")

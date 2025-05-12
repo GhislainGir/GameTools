@@ -38,13 +38,14 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
         ("VALUE", "Value", "Fixed value"),
         ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
         ("FRAME", "Frame", "Vertex offset/normal of the object's vertices at a given frame based on the current frame (vertex count/order must be maintained)"),
+        ("HIERARCHY", "Hierarchy", "Object's parent index")
     ]
     data: EnumProperty(name="Data", items=datas, default="POSITION", description="Type of data to bake")
 
     component_x_y_z = [
-        ("X", "X", "X-axis"),
-        ("Y", "Y", "Y-axis"),
-        ("Z", "Z", "Z-axis")
+        ("X", "X", "The vector's X component"),
+        ("Y", "Y", "The vector's Y component"),
+        ("Z", "Z", "The vector's Z component")
     ]
     component: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Component to bake")
 
@@ -205,23 +206,22 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="Name of the resulting baked mesh")
-    mesh_target_prop: StringProperty(name="Property", default="BakeSource", description="Custom property name for duplicated objects to be able to point to their original objects")
-    scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale applied during baking (e.g. meters to centimeters)")
-    invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
-    invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
-    invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
+    unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale applied during baking (e.g. meters to centimeters)")
+    unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
+    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
+    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
+    origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and unit_scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
     clear_attributes: BoolProperty(name="Clear Attributes", default=True, description="Enable this option to remove face corner attributes that store the raw vertex data for each layer. These attributes are named using each layer's unique ID, created and used internally during baking, and are unlikely to be useful after the bake is complete")
     packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="Primiraly used to remap values ranging from [0:1] to [0:<1] for packing when using the 'fraction' mode")
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
-    export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported FBX file (without the .fbx extension). <ObjectName> is a placeholder tag that can be used to be replaced with the object's name")
+    export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
     export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
 
     # uv
-    uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData", description="UVMap to get or create for setting up the mesh UVs")
-    invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
+    mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData", description="UVMap to get or create for setting up the mesh UVs")
+    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
 
     # xml
     export_xml: BoolProperty(name="Export", default=True, description="True to export an XML file containing informations relative to the bake (recommended). Only available if the Blender file is saved")
@@ -230,7 +230,7 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
         ("CUSTOMPATH", "Custom Path", "Specify a custom xml file name & path")
     ]
     export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
-    export_xml_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="Name for the exported XML file (without the .xml extension)")
+    export_xml_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported XML file (without the .xml extension)")
     export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
@@ -272,21 +272,20 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
-    mesh_uvmap_invert_v: BoolProperty(name="Invert V", default=False, description="")
-    mesh_uvmap_count: IntProperty(name="UV Map Count", default=0, description="")
+    unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
 
-    mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="")
-    scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="")
-    invert_x: BoolProperty(name="Invert X", default=False, description="")
-    invert_y: BoolProperty(name="Invert Y", default=True, description="")
-    invert_z: BoolProperty(name="Invert Z", default=False, description="")
+    mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="") # @TODO duplicate?!
+    unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="") # @TODO duplicate?!
+    unit_invert_x: BoolProperty(name="Invert X", default=False, description="") # @TODO duplicate?!
+    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="") # @TODO duplicate?!
+    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="") # @TODO duplicate?!
     origin_obj: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
 
     export_mesh: BoolProperty(name="Export", default=True, description="")
-    export_mesh_file_name: StringProperty(name="Name", default="SM_<ObjectName>", description="")
+    export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="")
     export_mesh_file_path: StringProperty(name="Path", default="//", description="")
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="")
 

@@ -36,23 +36,23 @@ class DATABAKER_OT_DataBaker_AddPreset(AddPresetBase, bpy.types.Operator):
     'settings.data_layers',
     'settings.data_layers_selected_index',
     'settings.mesh_name',
-    'settings.scale',
-    'settings.invert_x',
-    'settings.invert_y',
-    'settings.invert_z',
+    'settings.unit_scale',
+    'settings.unit_invert_x',
+    'settings.unit_invert_y',
+    'settings.unit_invert_z',
+    'settings.unit_invert_v',
     'settings.origin_obj',
     'settings.export_mesh',
     'settings.export_mesh_file_name',
     'settings.export_mesh_file_path',
     'settings.export_mesh_file_override',
-    'settings.uvmap_name',
-    'settings.invert_v',
+    'settings.mesh_uvmap_name',
     'settings.export_xml',
     'settings.export_xml_mode',
     'settings.export_xml_file_name',
     'settings.export_xml_file_path',
     'settings.export_xml_override'
-    ]
+    ] # @TODO
 
     preset_subdir = 'operator/databaker_data'
 
@@ -219,7 +219,6 @@ class DATABAKER_OT_Layer_GenerateName(bpy.types.Operator):
             data_layer.display_name = get_data_layer_name(data_layer)
 
         return{'FINISHED'}
-
 
 ##############
 ### REPORT ###

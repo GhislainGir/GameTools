@@ -135,9 +135,6 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
 
             if data:
                 row = layout.row()
-                row.prop(settings, "data_layers")
-
-                row = layout.row()
                 row.prop(data, "display_name")
                 row.operator("databaker_layer.generate_name", text="", icon="AUTO")
 
@@ -336,13 +333,13 @@ class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
         row.prop(settings, "origin_obj")
 
         row = layout.row()
-        row.prop(settings, "scale")
+        row.prop(settings, "unit_scale")
         
         row = layout.row()
         row.label(text="Invert")
-        row.prop(settings, "invert_x", text="X")
-        row.prop(settings, "invert_y", text="Y")
-        row.prop(settings, "invert_z", text="Z")
+        row.prop(settings, "unit_invert_x", text="X")
+        row.prop(settings, "unit_invert_y", text="Y")
+        row.prop(settings, "unit_invert_z", text="Z")
         
         row = layout.row()
         row.prop(settings, "mesh_name")
@@ -367,10 +364,10 @@ class DATABAKER_PT_MeshUVPanel(bpy.types.Panel):
         settings = scene.DataBakerSettings
 
         row = layout.row()
-        row.prop(settings, "uvmap_name", text="Name")
+        row.prop(settings, "mesh_uvmap_name", text="Name")
 
         row = layout.row()
-        row.prop(settings, "invert_v")
+        row.prop(settings, "unit_invert_v")
 
 class DATABAKER_PT_MeshExportPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_meshexportpanel"
@@ -556,12 +553,6 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
         scene = context.scene
         report = scene.DataBakerReport
 
-        row = layout.row()
-        if report.success:
-            row.label(text=report.name + " : Success", icon="CHECKMARK")
-        else:
-            row.label(text=report.name + " : Fail", icon="ERROR")
-
         if report.baked:
             row = layout.row()
             row.scale_y = 2.0
@@ -571,11 +562,16 @@ class DATABAKER_PT_ReportPanel(bpy.types.Panel):
             col.operator("gametools.databaker_clear_report")
 
         row = layout.row()
-        row.prop(report, "ID")
-
-        if not report.success:
+        if report.success:
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
+        else:
+            row.label(text=report.name + " : Fail", icon="ERROR")
             row = layout.row()
             row.label(text=report.msg)
+
+        row = layout.row()
+        row.prop(report, "ID", text="")
+        row.enabled = False
 
         layout.template_list("DATABAKER_UL_ReportDataList", "", report, "data_layers", report, "data_layers_selected_index", rows=6)
 
@@ -688,10 +684,10 @@ class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
 
             layout.separator()
 
-            icon = "CHECKMARK" if report.mesh_uvmap_invert_v else "X"
+            icon = "CHECKMARK" if report.unit_invert_v else "X"
             row = layout.row()
-            row.label(text="Invert V: " + str(report.mesh_uvmap_invert_v), icon=icon)
-            row.enabled = report.mesh_uvmap_invert_v
+            row.label(text="Invert V: " + str(report.unit_invert_v), icon=icon)
+            row.enabled = report.unit_invert_v
 
         else:
             row = layout.row()
