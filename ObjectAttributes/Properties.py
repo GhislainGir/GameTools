@@ -19,11 +19,13 @@ from bpy.types import PropertyGroup
 class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
     """ """
     channel_modes = [
-        ("NONE", "None", ""),
-        ("POSITION", "Position", ""),
-        ("AXIS", "Axis", ""),
-        ("EXTENTS", "Extents", ""),
-        ("HIERARCHY", "Hierarchy", "")
+        ("NONE", "None", "Write 0 to the channel"),
+        ("POSITION", "Position", "X/Y/Z component of the object's position"),
+        ("AXIS", "Axis", "X/Y/Z component of the object's forward/right/up vector"),
+        ("EXTENTS", "Extents", "Length of the object along its forward/right/up vector"),
+        ("HIERARCHY", "Hierarchy", "Object's linear index in the hierarchy"),
+        ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
+        ("QUATERNION", "Quaternion", "X/Y/Z/W component of the object's orientation, or the XYZW components bit-packed into a single float using the smallest-three method")
     ]
     channel_mode : EnumProperty( items=channel_modes, name="Mode", description= "", default="NONE")
 
@@ -33,6 +35,15 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
         ("Z", "Z", "The vector's Z component")
     ]
     component: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Component to bake")
+
+    quat_x_y_z_w = [
+        ("X", "X", "The quaternion's X component"),
+        ("Y", "Y", "The quaternion's Y component"),
+        ("Z", "Z", "The quaternion's Z component"),
+        ("W", "W", "The quaternion's W component"),
+        ("XYZW", "XYZW", "The quaternion's XYZW components bit-packed into a single float using the smallest-three method"),
+    ]
+    quat: EnumProperty(name="Component", items=quat_x_y_z_w, default="XYZW", description="Component to bake")
 
     axis_x_y_z = [
         ("X", "Forward (X)", "X-axis"),
@@ -50,6 +61,10 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
     obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
 
     depth: IntProperty(name="Depth", default=1, min=1, description="1 to bake the element index of the parent, 2 for the grand-parent, etc.")
+
+    name: StringProperty(name="Name", default="")
+
+    remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
 class OBJECTATTRIBUTES_PG_TexLayerPropertyGroup(PropertyGroup):
     """ """
@@ -73,7 +88,10 @@ class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
     mesh_name: StringProperty(name="Name", default="BakedMesh.OA", description="Name of the resulting baked mesh")
     mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.OA", description="UVMap to get or create for setting up the mesh UVs")
     mesh_count_limit: IntProperty(name="Limit", default=32768, description="Cancel the bake if the amount of objects to bake exceed this limit. This is because Pivot Painter's algorithm has limited precision")
-    
+    mesh_merge: BoolProperty(name="Merge", default=True, description="Enable merging of the duplicated selection once baking is complete. Otherwise, keep them separated to allow for additional bakes on the individual objects")
+    mesh_duplicate: BoolProperty(name="Duplicate", default=True, description="Enable this option to preserve the original selection and bake data on the duplicated mesh. Disable it at your own risk—doing so will modify the selection, which may lead to unwanted changes to the source data and unpredictable bake results if data blocks are shared")
+    mesh_single_user: BoolProperty(name="Single User", default=True, description="If the selection isn't duplicated, the bake may not work as expected when data blocks are shared. This ensures that meshes are made 'single user' to prevent conflicts during the baking process")
+
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale applied during baking (e.g. meters to centimeters)")
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
@@ -115,9 +133,21 @@ class OBJECTATTRIBUTES_PG_TexLayerReportPropertyGroup(PropertyGroup):
     img: PointerProperty(type=bpy.types.Image)
 
     R: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    R_range_offset: FloatProperty(name="Offset", default=0.0)
+    R_range: FloatProperty(name="Range", default=1.0)
+    R_range_valid: BoolProperty(name="Valid", default=False)
     G: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    G_range_offset: FloatProperty(name="Offset", default=0.0)
+    G_range: FloatProperty(name="Range", default=1.0)
+    G_range_valid: BoolProperty(name="Valid", default=False)
     B: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    B_range_offset: FloatProperty(name="Offset", default=0.0)
+    B_range: FloatProperty(name="Range", default=1.0)
+    B_range_valid: BoolProperty(name="Valid", default=False)
     A: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    A_range_offset: FloatProperty(name="Offset", default=0.0)
+    A_range: FloatProperty(name="Range", default=1.0)
+    A_range_valid: BoolProperty(name="Valid", default=False)
 
 class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
     """"""

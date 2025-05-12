@@ -16,6 +16,9 @@ from pathlib import Path
 
 from bl_ui.utils import PresetPanel
 
+from . import Functions
+from .Functions import get_texture_channel_allow_remap
+
 ####################################################################################
 ###################################### PANELS ######################################
 ####################################################################################
@@ -121,72 +124,106 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
                     (texture.A, "A"),
                     ]
 
-                for tex_data, tex_name in channels:
-                    if tex_data.channel_mode == "NONE":
+                for texture_channel, texture_channel_name in channels:
+                    if texture_channel.channel_mode == "NONE":
                         row = layout.row()
-                        row.prop(tex_data, "channel_mode", text=tex_name)
+                        row.prop(texture_channel, "channel_mode", text=texture_channel_name)
                     else:
-                        panel_header, panel_body = layout.panel(tex_name)
+                        panel_header, panel_body = layout.panel(texture_channel_name)
                         if panel_header:
-                            panel_header.prop(tex_data, "channel_mode", text=tex_name)
+                            panel_header.prop(texture_channel, "channel_mode", text=texture_channel_name)
                         if panel_body:
-                            if tex_data.channel_mode == "POSITION":
+                            if texture_channel.channel_mode == "POSITION":
                                 row = panel_body.row()
-                                row.prop(tex_data, "component")
+                                row.prop(texture_channel, "component")
 
                                 row = panel_body.row()
-                                row.prop(tex_data, "obj_mode")
+                                row.prop(texture_channel, "obj_mode")
 
-                                if tex_data.obj_mode == "SELF":
+                                if texture_channel.obj_mode == "SELF":
                                     pass
-                                elif tex_data.obj_mode == "PARENT":
+                                elif texture_channel.obj_mode == "PARENT":
                                     row = panel_body.row()
-                                    row.prop(tex_data, "depth")
+                                    row.prop(texture_channel, "depth")
                                 else:
                                     row = panel_body.row()
-                                    row.prop(tex_data, "obj")
-                            elif tex_data.channel_mode == "AXIS":
+                                    row.prop(texture_channel, "obj")
+                            elif texture_channel.channel_mode == "AXIS":
                                 row = panel_body.row()
-                                row.prop(tex_data, "component")
+                                row.prop(texture_channel, "component")
 
                                 row = panel_body.row()
-                                row.prop(tex_data, "axis")
+                                row.prop(texture_channel, "axis")
                                 row = panel_body.row()
-                                row.prop(tex_data, "axis_mode", text="Mode")
+                                row.prop(texture_channel, "axis_mode", text="Mode")
 
                                 row = panel_body.row()
-                                row.prop(tex_data, "obj_mode")
+                                row.prop(texture_channel, "obj_mode")
 
-                                if tex_data.obj_mode == "SELF":
+                                if texture_channel.obj_mode == "SELF":
                                     pass
-                                elif tex_data.obj_mode == "PARENT":
+                                elif texture_channel.obj_mode == "PARENT":
                                     row = panel_body.row()
-                                    row.prop(tex_data, "depth")
+                                    row.prop(texture_channel, "depth")
                                 else:
                                     row = panel_body.row()
-                                    row.prop(tex_data, "obj")
-                            elif tex_data.channel_mode == "EXTENTS":
+                                    row.prop(texture_channel, "obj")
+                            elif texture_channel.channel_mode == "EXTENTS":
                                 row = panel_body.row()
-                                row.prop(tex_data, "axis")
+                                row.prop(texture_channel, "axis")
                                 row = panel_body.row()
-                                row.prop(tex_data, "axis_mode", text="Mode")
+                                row.prop(texture_channel, "axis_mode", text="Mode")
 
                                 row = panel_body.row()
-                                row.prop(tex_data, "obj_mode")
+                                row.prop(texture_channel, "obj_mode")
 
-                                if tex_data.obj_mode == "SELF":
+                                if texture_channel.obj_mode == "SELF":
                                     pass
-                                elif tex_data.obj_mode == "PARENT":
+                                elif texture_channel.obj_mode == "PARENT":
                                     row = panel_body.row()
-                                    row.prop(tex_data, "depth")
+                                    row.prop(texture_channel, "depth")
                                 else:
                                     row = panel_body.row()
-                                    row.prop(tex_data, "obj")
-                            elif tex_data.channel_mode == "HIERARCHY":
+                                    row.prop(texture_channel, "obj")
+                            elif texture_channel.channel_mode == "HIERARCHY":
                                 row = panel_body.row()
-                                row.prop(tex_data, "depth")
+                                row.prop(texture_channel, "depth")
+                            elif texture_channel.channel_mode == "CUSTOM_PROP":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "name")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj_mode")
+
+                                if texture_channel.obj_mode == "SELF":
+                                    pass
+                                elif texture_channel.obj_mode == "PARENT":
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "depth")
+                                else:
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "obj")
+                            elif texture_channel.channel_mode == "QUATERNION":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "quat")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj_mode")
+
+                                if texture_channel.obj_mode == "SELF":
+                                    pass
+                                elif texture_channel.obj_mode == "PARENT":
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "depth")
+                                else:
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "obj")
                             else:
                                 pass
+                            
+                            if get_texture_channel_allow_remap(texture_channel):
+                                row = panel_body.row()
+                                row.prop(texture_channel, "remapping")
 
 class OBJECTATTRIBUTES_PT_HierarchyPanel(bpy.types.Panel):
     bl_idname = "OBJECTATTRIBUTES_PT_hierarchypanel"
@@ -252,6 +289,16 @@ class OBJECTATTRIBUTES_PT_MeshMainPanel(bpy.types.Panel):
         
         row = layout.row()
         row.prop(settings, "mesh_name")
+
+        row = layout.row()
+        row.prop(settings, "mesh_merge")
+        row = layout.row()
+        col = row.split()
+        col.prop(settings, "mesh_duplicate")
+        col = row.split()
+        col.prop(settings, "mesh_single_user")
+        if settings.mesh_duplicate:
+            col.enabled = False
 
 class OBJECTATTRIBUTES_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "OBJECTATTRIBUTES_PT_meshuvpanel"
@@ -561,12 +608,12 @@ class OBJECTATTRIBUTES_PT_ReportTexPanel(bpy.types.Panel):
                     row.label(text="File: " + texture.path, icon="FILE")
 
                 texture_channels = [
-                    ("texture_channel_R", "R", texture.R),
-                    ("texture_channel_G", "G", texture.G),
-                    ("texture_channel_B", "B", texture.B),
-                    ("texture_channel_A", "A", texture.A)
+                    ("texture_channel_R", "R", texture.R, texture.R_range_offset, texture.R_range, texture.R_range_valid),
+                    ("texture_channel_G", "G", texture.G, texture.G_range_offset, texture.G_range, texture.G_range_valid),
+                    ("texture_channel_B", "B", texture.B, texture.B_range_offset, texture.B_range, texture.B_range_valid),
+                    ("texture_channel_A", "A", texture.A, texture.A_range_offset, texture.A_range, texture.A_range_valid)
                 ]
-                for texture_channel_name, texture_channel_prefix, texture_channel in texture_channels:
+                for texture_channel_name, texture_channel_prefix, texture_channel, texture_channel_range_offset, texture_channel_range, texture_channel_range_valid in texture_channels:
                     panel_header, panel_body = layout.panel(texture_channel_name)
                     if panel_header:
                         panel_header.prop(texture_channel, "channel_mode", text=texture_channel_prefix)
@@ -628,8 +675,46 @@ class OBJECTATTRIBUTES_PT_ReportTexPanel(bpy.types.Panel):
                         elif texture_channel.channel_mode == "HIERARCHY":
                             row = panel_body.row()
                             row.prop(texture_channel, "depth")
+                        elif texture_channel.channel_mode == "CUSTOM_PROP":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "name")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "obj_mode")
+
+                            if texture_channel.obj_mode == "SELF":
+                                pass
+                            elif texture_channel.obj_mode == "PARENT":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "depth")
+                            else:
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj")
+                        elif texture_channel.channel_mode == "QUATERNION":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "quat")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "obj_mode")
+
+                                if texture_channel.obj_mode == "SELF":
+                                    pass
+                                elif texture_channel.obj_mode == "PARENT":
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "depth")
+                                else:
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "obj")
                         else:
                             pass
+
+                        icon = "CHECKMARK" if texture_channel_range_valid else "ERROR"
+                        row = layout.row()
+                        row.label(text="Offset: %.5f" % texture_channel_range_offset, icon="DOT")
+                        row.enabled = texture_channel.remapping and get_texture_channel_allow_remap(texture_channel)
+                        row = layout.row()
+                        row.label(text="Range: %.5f" % texture_channel_range, icon=icon)
+                        row.enabled = texture_channel.remapping and get_texture_channel_allow_remap(texture_channel)
 
 class OBJECTATTRIBUTES_PT_ReportMeshPanel(bpy.types.Panel):
     bl_idname = "OBJECTATTRIBUTES_PT_reportmeshpanel"
@@ -680,9 +765,6 @@ class OBJECTATTRIBUTES_PT_ReportMeshPanel(bpy.types.Panel):
             row.enabled = report.unit_invert_v
 
         else:
-            row = layout.row()
-            row.label(text="Verts: " + str(report.num_verts))
-
             row = layout.row()
             row.label(text="None generated")
 

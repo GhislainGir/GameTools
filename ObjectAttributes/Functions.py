@@ -87,13 +87,17 @@ def add_bake_report(prop_name: str, prop_value: float|int|str):
     """ """
     setattr(bpy.context.scene.ObjectAttributesReport, prop_name, prop_value)
 
-def add_bake_texture_report(texture: object, img: bpy.types.Image):
+def add_bake_texture_report(texture: object, img: bpy.types.Image, buffer_ranges_offsets: list, buffer_ranges: list, buffer_ranges_valid: list) -> object:
     """
     Set values in the bake report to describe a texture
 
-    :param texture: 
-    :return:
-    :rtype:
+    :param texture: texture to generate report for
+    :param img: image generated for baking the provided texture
+    :param buffer_ranges_offsets: R/G/B/A min
+    :param buffer_ranges: R/G/B/A max-min
+    :param buffer_ranges_valid: R/G/B/A range valid
+    :return: the report texture object created
+    :rtype: object
     """
     report = bpy.context.scene.ObjectAttributesReport
 
@@ -102,6 +106,19 @@ def add_bake_texture_report(texture: object, img: bpy.types.Image):
     report_texture.exported = False
     report_texture.path = ""
     report_texture.img = img
+
+    report_texture.R_range_offset = buffer_ranges_offsets[0]
+    report_texture.R_range = buffer_ranges[0]
+    report_texture.R_range_valid = buffer_ranges_valid[0]
+    report_texture.G_range_offset = buffer_ranges_offsets[1]
+    report_texture.G_range = buffer_ranges[1]
+    report_texture.G_range_valid = buffer_ranges_valid[0]
+    report_texture.B_range_offset = buffer_ranges_offsets[2]
+    report_texture.B_range = buffer_ranges[2]
+    report_texture.B_range_valid = buffer_ranges_valid[0]
+    report_texture.A_range_offset = buffer_ranges_offsets[3]
+    report_texture.A_range = buffer_ranges[3]
+    report_texture.A_range_valid = buffer_ranges_valid[0]
 
     # copy all attributes
     if hasattr(texture, "__annotations__"):
@@ -192,6 +209,175 @@ def get_bitpacked_integer(index):
 	cp = pointer(c_int(index))
 	fp = cast(cp, POINTER(c_float))
 	return fp.contents.value
+
+##############
+# QUATERNION #
+##############
+def get_compressed_quat(quat):
+    '''Quaternion packing using the three smallest component method (from quat to 32bits float)'''
+    abs_quat_component = 0.0
+    max_abs_quat_component = -1000.0
+    max_abs_quat_component_index = 0
+
+    # re-order quat components... wth is the W component first in Blender??!!
+    quat_components = [
+        quat.x,
+        quat.y,
+        quat.z,
+        quat.w
+    ]
+
+    # get quat's largest absolute component
+    for quat_component_index in range(4):
+        abs_quat_component = abs(quat_components[quat_component_index])
+
+        if abs_quat_component > max_abs_quat_component:
+            max_abs_quat_component = abs_quat_component
+
+            max_abs_quat_component_index = quat_component_index
+
+    # ensure quat's largest component is positive so we don't have to save sign
+    quat_largest_component_sign = -1.0 if quat_components[max_abs_quat_component_index] < 0.0 else 1.0
+    quat_components[0] *= quat_largest_component_sign
+    quat_components[1] *= quat_largest_component_sign
+    quat_components[2] *= quat_largest_component_sign
+    quat_components[3] *= quat_largest_component_sign
+
+    packed_quat = mathutils.Vector((0.0,0.0,0.0))
+    # pack the smallest 3 components - fourth can be later reconstructed due to quaternions' property
+    if max_abs_quat_component_index == 0: # X component is largest!!
+        packed_quat = mathutils.Vector((quat_components[1], quat_components[2], quat_components[3]))
+        bitstring_index = "00"
+    elif max_abs_quat_component_index == 1: # Y component is largest!!
+        packed_quat = mathutils.Vector((quat_components[0], quat_components[2], quat_components[3]))
+        bitstring_index = "01"
+    elif max_abs_quat_component_index == 2: # Z component is largest!!
+        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[3]))
+        bitstring_index = "10"
+    else: # W component is largest!!
+        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+        bitstring_index = "11"
+
+    # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it can be remapped to increase accuracy
+    quat_normalization_offset = 0.707106781
+    quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
+
+    packed_quat.x = min(1.0, max(0.0, (packed_quat.x + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
+
+    # 2 bits for the index to reconstruct, 10 each for the others
+    compression_bits = 10
+    compression_mask = 1023.0 # 1023, precision mask
+
+    # XYZ component converted into [0:1023] integer range to be packed into 10 bits
+    int_packed_quat_x = math.floor(packed_quat.x * compression_mask)
+    int_packed_quat_y = math.floor(packed_quat.y * compression_mask)
+    int_packed_quat_z = math.floor(packed_quat.z * compression_mask)
+
+    bitstring_x = str(bin(int_packed_quat_x))
+    bitstring_x = bitstring_x[2:] # get rid of 0b
+    bitstring_x = bitstring_x.zfill(10) # ensure it's 10 char long
+
+    bitstring_y = str(bin(int_packed_quat_y))
+    bitstring_y = bitstring_y[2:] # get rid of 0b
+    bitstring_y = bitstring_y.zfill(10) # ensure it's 10 char long
+
+    bitstring_z = str(bin(int_packed_quat_z))
+    bitstring_z = bitstring_z[2:] # get rid of 0b
+    bitstring_z = bitstring_z.zfill(10) # ensure it's 10 char long
+
+    bits_string = "0b" + bitstring_index + bitstring_x + bitstring_y + bitstring_z
+
+    print(bits_string)
+    cp = pointer(c_int(int(bits_string, 0)))
+    fp = cast(cp, POINTER(c_float))
+    return fp.contents.value
+
+def get_uncompressed_quat(float_quat):
+    ''' Quaternion unpacking using the three smallest component method (from 32bits float to quaternion) '''
+    quat_components = [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+    ] # X, Y, Z, W
+
+    cp = pointer(c_float(float_quat)) # @TODO check
+    fp = cast(cp, POINTER(c_int))
+    encoded_quat = fp.contents.value
+
+    # 2 bits for the index to reconstruct, 10 each for the others
+    max_abs_quat_component_index = encoded_quat >> (30)
+    compression_bits = 10
+    compression_mask = 1023 # 1023, precision mask
+
+    # unpack the smallest 3 components - fourth is going to be reconstructed next due to quaternions' property
+    quat_components[0] = float( (encoded_quat >> (compression_bits * 2) ) & compression_mask ) / compression_mask
+    quat_components[1] = float( (encoded_quat >> (compression_bits * 1) ) & compression_mask ) / compression_mask
+    quat_components[2] = float( (encoded_quat >> (compression_bits * 0) ) & compression_mask ) / compression_mask
+
+    # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it has been remapped to increase accuracy
+    quat_normalization_offset = 0.707106781
+    quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
+
+    quat_components[0] = (quat_components[0] * quat_normalization_scale) - quat_normalization_offset
+    quat_components[1] = (quat_components[1] * quat_normalization_scale) - quat_normalization_offset
+    quat_components[2] = (quat_components[2] * quat_normalization_scale) - quat_normalization_offset
+
+    # reconstruct fourth component
+    QuatVector = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+    quat_components[3] = math.sqrt(max(0.0, 1.0 + (QuatVector @ -QuatVector)))
+
+    # reorder quaternion if needed, depending on first two bits that contains max component index
+    if max_abs_quat_component_index == 0: # wxyz
+        quat_components = (quat_components[3], quat_components[0], quat_components[1], quat_components[2])
+    elif max_abs_quat_component_index == 1: # xwyz
+        quat_components = (quat_components[0], quat_components[3], quat_components[1], quat_components[2])
+    elif max_abs_quat_component_index == 2: # xywz
+        quat_components = (quat_components[0], quat_components[1], quat_components[3], quat_components[2])
+
+    # WXYZ order... -_-
+    return mathutils.Quaternion((quat_components[3], quat_components[0], quat_components[1], quat_components[2]))
+
+def get_quattoaxisangle_atan(quat):
+    ''' One possible way to convert a quaternion into an axis & an angle, using Atan2 '''
+    axis_and_angle = mathutils.Vector((0.0, 0.0, 0.0, 0.0))
+
+    sin_half_angle = math.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z)
+
+    if sin_half_angle > 0.0:
+        axis_and_angle.x = quat.x / sin_half_angle
+        axis_and_angle.y = quat.y / sin_half_angle
+        axis_and_angle.z = quat.z / sin_half_angle
+    else:
+        axis_and_angle.x = 0.0
+        axis_and_angle.y = 0.0
+        axis_and_angle.z = 1.0
+    
+    axis_and_angle.w = 2.0 * math.atan2(sin_half_angle, quat.w)
+
+    return axis_and_angle
+
+def get_quattoaxisangle_acos(quat):
+    ''' One possible way to convert a quaternion into an axis & an angle, using ACos '''
+    axis_and_angle = mathutils.Vector((0.0, 0.0, 0.0, 0.0))
+
+    HalfAngle = math.acos(quat.w)
+    HalfSin = math.sin(HalfAngle)
+
+    if HalfSin > 0.0:
+        axis_and_angle.x = quat.x / HalfSin
+        axis_and_angle.y = quat.y / HalfSin
+        axis_and_angle.z = quat.z / HalfSin
+    else:
+        axis_and_angle.x = 0.0
+        axis_and_angle.y = 0.0
+        axis_and_angle.z = 1.0
+        
+    axis_and_angle.w = HalfAngle * 2.0
+
+    return axis_and_angle
 
 ############
 ### BAKE ###
@@ -308,54 +494,70 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
     :return: the function's success, potential error message, list of duplicated depsgraph-evaluated mesh objects to include in the bake, num of unique indices to account for
     :rtype: tuple
     """
-    
+
     settings = context.scene.ObjectAttributesSettings
 
     dgraph = bpy.context.evaluated_depsgraph_get()
 
-    """
-    duplicate depsgraph-evaluated filtered selection & forward initial transform
-    """
-    source_objs_to_eval = {}
-    eval_objs_to_bake = []
-    for obj_to_bake in objs_to_bake:
-        col = context.scene.collection
-        if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
-            col = obj_to_bake.users_collection[0]
+    if not settings.mesh_duplicate:
+        if settings.mesh_single_user:
+            pass
+            # @TODO single user
+        
+        eval_objs_to_bake = objs_to_bake # @NOTE name isn't great, objects aren't evaluated if not duplicated
+    else:
+        """
+        duplicate depsgraph-evaluated filtered selection & forward initial transform
+        """
+        source_objs_to_eval = {}
+        eval_objs_to_bake = []
+        for obj_to_bake in objs_to_bake:
+            col = context.scene.collection
+            if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
+                col = obj_to_bake.users_collection[0]
 
-        eval_obj = obj_to_bake.evaluated_get(dgraph)
-        eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        #eval_mesh.transform(eval_obj.matrix_world) # not needed if matrix_world is forwarded
+            eval_obj = obj_to_bake.evaluated_get(dgraph)
+            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
+            #eval_mesh.transform(eval_obj.matrix_world) # not needed if matrix_world is forwarded
 
-        eval_obj_to_bake = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
-        eval_obj_to_bake.matrix_world = eval_obj.matrix_world # forward initial transform
+            eval_obj_to_bake = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
+            eval_obj_to_bake.matrix_world = eval_obj.matrix_world # forward initial transform
 
-        for key in obj_to_bake.keys():
-            if key != "_RNA_UI":
-                eval_obj_to_bake[key] = obj_to_bake[key]
+            for key in obj_to_bake.keys():
+                if key != "_RNA_UI":
+                    eval_obj_to_bake[key] = obj_to_bake[key]
 
-        eval_obj.to_mesh_clear()
+            eval_obj.to_mesh_clear()
 
-        col.objects.link(eval_obj_to_bake)
-        eval_objs_to_bake.append(eval_obj_to_bake)
+            col.objects.link(eval_obj_to_bake)
+            eval_objs_to_bake.append(eval_obj_to_bake)
 
-        eval_obj_to_bake["BakedSource"] = obj_to_bake
-        source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
+            """
+            create pairing with original obj. Ideally, we'd use the evaluated objects as-is, and get the original via their
+            built-in .original pointer, but I do prefer to work on actual meshes so I can tweak mesh attributes etc without
+            risking modifying the original in a destructive manner
+            """
+            eval_obj_to_bake["BakedSource"] = obj_to_bake
+            eval_obj_to_bake.id_properties_ensure()
+            property_manager = eval_obj_to_bake.id_properties_ui("BakedSource")
+            property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
+            
+            source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
 
-    """
-    iterate depsgraph-evaluated objects to find to which other depsgraph-evaluated objects they need to be parented to.
-    this involves getting the unevaluated source object and walking up the hierarchy until we find the first valid parent,
-    meaning one that is included in the filtered objs_to_bake list. 
-    """
-    for eval_obj_to_bake in eval_objs_to_bake:
-        obj_parent = eval_obj_to_bake["BakedSource"].parent
-        while obj_parent and obj_parent not in objs_to_bake:
-            obj_parent = obj_parent.parent
+        """
+        iterate depsgraph-evaluated objects to find to which other depsgraph-evaluated objects they need to be parented to.
+        this involves getting the unevaluated source object and walking up the hierarchy until we find the first valid parent,
+        meaning one that is included in the filtered objs_to_bake list. 
+        """
+        for eval_obj_to_bake in eval_objs_to_bake:
+            obj_parent = eval_obj_to_bake["BakedSource"].parent
+            while obj_parent and obj_parent not in objs_to_bake:
+                obj_parent = obj_parent.parent
 
-        if obj_parent:
-            eval_obj_parent = source_objs_to_eval[obj_parent]
-            eval_obj_to_bake.parent = eval_obj_parent
-            eval_obj_to_bake.matrix_parent_inverse = eval_obj_parent.matrix_world.inverted()
+            if obj_parent:
+                eval_obj_parent = source_objs_to_eval[obj_parent]
+                eval_obj_to_bake.parent = eval_obj_parent
+                eval_obj_to_bake.matrix_parent_inverse = eval_obj_parent.matrix_world.inverted()
 
     """
     evaluate hierarchy just this once
@@ -431,9 +633,6 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.OA"
 
-    # create a new mesh to 'merge' all duplicated meshes
-    merged_mesh = bpy.data.meshes.new(name)
-
     texel_size_x = (1.0 / tex_width)
     half_texel_size_x = texel_size_x * 0.5
 
@@ -442,14 +641,16 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
 
     mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.OA"
 
-    bm = bmesh.new()
+    if settings.mesh_merge:
+        bm = bmesh.new()
+
     for eval_obj_to_bake in eval_objs_to_bake:
         """
         configure UVs
         """
         uvmap = None
         uvmap_index = 0
-        
+
         for uvlayer_index, uvlayer in enumerate(eval_obj_to_bake.data.uv_layers):
             if uvlayer.name == mesh_uvmap_name:
                 uvmap = uvlayer
@@ -472,6 +673,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
 
         u = (index % tex_width) * texel_size_x
         u += half_texel_size_x
+
         v = (index // tex_width) * texel_size_y
         v += half_texel_size_y
         if settings.unit_invert_v:
@@ -481,35 +683,50 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
             eval_obj_to_bake.data.uv_layers[uvmap_index].data[loop_id.index].uv = (u,v)
 
         """
-        duplicate mesh
+        duplicate mesh for merge
         """
-        eval_obj_to_bake.data.transform(eval_obj_to_bake.matrix_world)
-        bm.from_mesh(eval_obj_to_bake.data)
-        
-        bm.verts.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
+        if settings.mesh_merge:
+            eval_obj_to_bake.data.transform(eval_obj_to_bake.matrix_world)
+            bm.from_mesh(eval_obj_to_bake.data)
+            
+            bm.verts.ensure_lookup_table()
+            bm.faces.ensure_lookup_table()
 
-    bm.to_mesh(merged_mesh)
-    bm.free()
+    if settings.mesh_merge:
+        merged_mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(merged_mesh)
+        bm.free()
 
-    # create a new object from the new mesh
-    obj = bpy.data.objects.new(name, merged_mesh)
-    if settings.origin_obj:
-        #obj.matrix_world = settings.origin_obj.matrix_world
-        merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
-    context.scene.collection.objects.link(obj)
+        # create a new object from the new mesh
+        obj = bpy.data.objects.new(name, merged_mesh)
+        if settings.origin_obj:
+            #obj.matrix_world = settings.origin_obj.matrix_world
+            merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
+        context.scene.collection.objects.link(obj)
 
-    add_bake_report("mesh", obj)
+        add_bake_report("mesh", obj)
 
-    for uvlayer_index, uvlayer in enumerate(merged_mesh.uv_layers):
-        if uvlayer.name == mesh_uvmap_name:
-            add_bake_report("mesh_uvmap", uvlayer_index)
-            break 
+        for uvlayer_index, uvlayer in enumerate(merged_mesh.uv_layers):
+            if uvlayer.name == mesh_uvmap_name:
+                add_bake_report("mesh_uvmap", uvlayer_index)
+                break
 
-    obj.select_set(True)
-    context.view_layer.objects.active = obj
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
 
-    clear_bake_selection(eval_objs_to_bake)
+        if settings.mesh_duplicate:
+            clear_bake_selection(eval_objs_to_bake)
+    else:
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_obj_to_bake.select_set(True)
+
+        context.view_layer.objects.active = eval_objs_to_bake[0]
+        add_bake_report("mesh", eval_objs_to_bake[0])
+
+        for uvlayer_index, uvlayer in enumerate(eval_objs_to_bake[0].data.uv_layers):
+            if uvlayer.name == mesh_uvmap_name:
+                add_bake_report("mesh_uvmap", uvlayer_index)
+                break
 
     return (True, "")
 
@@ -572,7 +789,8 @@ def bake(context: bpy.types.Context):
 
     success, msg, tex_width, tex_height = get_best_texture_resolution(context, num_indices)
     if not success:
-        clear_bake_selection(eval_objs_to_bake)
+        if settings.mesh_duplicate:
+            clear_bake_selection(eval_objs_to_bake)
 
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -593,7 +811,7 @@ def bake(context: bpy.types.Context):
     bake_progress = 10
     bake_progress_step = (1.0 / (len(textures) * 4 * 3)) * 80
     for texture in textures:
-        buffer = get_texture_buffer(context, dgraph, texture, eval_objs_to_bake, tex_width, tex_height, num_indices)
+        buffer, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid = get_texture_buffer(context, dgraph, texture, eval_objs_to_bake, tex_width, tex_height, num_indices)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
@@ -602,19 +820,21 @@ def bake(context: bpy.types.Context):
 
         success, msg, tex = generate_texture(texture.name, bake_name, settings.export_tex_file_name, buffer, tex_width, tex_height)
         if not success:
-            clear_bake_selection(eval_objs_to_bake)
+            if settings.mesh_duplicate:
+                clear_bake_selection(eval_objs_to_bake)
 
             add_bake_report("success", False)
             add_bake_report("msg", msg)
             return (False, 'ERROR', msg)
-        report_texture = add_bake_texture_report(texture, tex)
+        report_texture = add_bake_texture_report(texture, tex, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
         if settings.export_tex and bpy.data.is_saved:
             success, msg, tex_path = export_texture(context, tex, settings.export_tex_file_path, settings.export_tex_file_name, texture.name, bake_name, settings.export_tex_override)
             if not success:
-                clear_bake_selection(eval_objs_to_bake)
+                if settings.mesh_duplicate:
+                    clear_bake_selection(eval_objs_to_bake)
 
                 add_bake_report("success", False)
                 add_bake_report("msg", msg)
@@ -629,7 +849,8 @@ def bake(context: bpy.types.Context):
 
     success, msg = post_process_bake_selection(context, eval_objs_to_bake, tex_width, tex_height)
     if not success:
-        clear_bake_selection(eval_objs_to_bake)
+        if settings.mesh_duplicate:
+            clear_bake_selection(eval_objs_to_bake)
 
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -680,6 +901,10 @@ def get_texture_buffer_function(texture_channel: object) -> callable:
         return texture_buffer_extents
     elif texture_channel.channel_mode == "HIERARCHY":
         return texture_buffer_hierarchy
+    elif texture_channel.channel_mode == "CUSTOM_PROP":
+        return texture_buffer_custom_prop
+    elif texture_channel.channel_mode == "QUATERNION":
+        return texture_buffer_quaternion
     else:
         pass
 
@@ -708,6 +933,10 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
         (texture.A if texture.A.channel_mode != "NONE" else None),
         ]
 
+    buffer_ranges_offsets = [0.0] * 4
+    buffer_ranges = [1.0] * 4
+    buffer_ranges_valid = [False] * 4
+
     for texture_channel_index, texture_channel in enumerate(texture_channels):
         if texture_channel is None:
             continue
@@ -715,10 +944,26 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
         pre_bake_func = get_texture_buffer_function(texture_channel)
         obj_attr_buffer = pre_bake_func(context, dgraph, texture_channel, eval_objs_to_bake, attr_buffer_length)
         if obj_attr_buffer:
+            if get_texture_channel_allow_remap(texture_channel):
+                buffer_min = min(obj_attr_buffer)
+                buffer_max = max(obj_attr_buffer)
+                if abs(buffer_max - buffer_min) < 0.0001:
+                    buffer_range = 1.0
+                else:
+                    buffer_range = buffer_max - buffer_min
+                    buffer_ranges_valid[texture_channel_index] = True
+                buffer_offset = buffer_min
+
+                buffer_ranges_offsets[texture_channel_index] = buffer_offset
+                buffer_ranges[texture_channel_index] = buffer_range
+
+                if texture_channel.remapping:
+                    obj_attr_buffer = [((data - buffer_min) / buffer_range) for data in obj_attr_buffer]
+
             for attr_index in range(len(obj_attr_buffer)):
                 buffer[(attr_index * 4) + texture_channel_index] = obj_attr_buffer[attr_index]
 
-    return buffer
+    return (buffer, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid)
 
 def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> list:
     """ 
@@ -783,6 +1028,24 @@ def get_texture_buffer_obj_source_obj(texture_channel: object, eval_obj_to_bake:
     else:
         return source_obj
 
+def get_texture_channel_allow_remap(texture_channel: object) -> bool:
+    """
+    Return true if texture channel may allow values to be remapped from range [-min:max] to [0:1] for potential storage in 8-bit RGBA texture(s)
+
+    :param texture_channel: texture channel to validate statement for
+    :return: True if channel can be safely remapped
+    :rtype: bool
+    """
+    if texture_channel.channel_mode == "NONE":
+        return False
+    
+    if texture_channel.channel_mode == "HIERARCHY":
+        return False
+    
+    if texture_channel.channel_mode == "QUATERNION" and texture_channel.quat == "XYZW":
+        return False
+    return True
+
 ########################
 ### BUFFER FUNCTIONS ###
 def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
@@ -792,8 +1055,8 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
-    :param attr_buffer_length: Number of unique indices to bake
+    :param eval_objs_to_bake: list of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -805,7 +1068,7 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
     signed_scale = signed_axis * settings.unit_scale
 
     obj_attr_buffer = [0.0] * attr_buffer_length
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+    for eval_obj_to_bake in eval_objs_to_bake:
         if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
             index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
         else:
@@ -856,7 +1119,7 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
     signed_scale = signed_axis * settings.unit_scale
 
     obj_attr_buffer = [0.0] * attr_buffer_length
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+    for eval_obj_to_bake in eval_objs_to_bake:
         if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
             index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
         else:
@@ -904,8 +1167,8 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
-    :param attr_buffer_length: Number of unique indices to bake
+    :param eval_objs_to_bake: list of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
@@ -917,7 +1180,7 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
     signed_scale = signed_axis * settings.unit_scale
 
     obj_attr_buffer = [0.0] * attr_buffer_length
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+    for eval_obj_to_bake in eval_objs_to_bake:
         if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
             index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
         else:
@@ -940,13 +1203,14 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         else:
             axis = mathutils.Vector((0.0, 0.0, 0.0))
 
+        axis *= signed_axis
         axis.rotate(eval_obj_source_euler)
         extent_axis = axis
 
         eval_mesh_source = uneval_obj_source.to_mesh()
         eval_mesh_source.transform(eval_obj_source.matrix_world)
-        vertices_delta = [(vertex.co - eval_obj_source_loc).dot(extent_axis) for vertex in eval_mesh_source.vertices]
-        data_to_bake = abs(max(vertices_delta, key=abs))
+        vertices_delta = [((vertex.co - eval_obj_source_loc) * signed_scale).dot(extent_axis) for vertex in eval_mesh_source.vertices]
+        data_to_bake = abs(max(vertices_delta, key=abs)) # @TODO check unit conversion?
 
         uneval_obj_source.to_mesh_clear()
 
@@ -964,31 +1228,40 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
-    :param attr_buffer_length: Number of unique indices to bake
+    :param eval_objs_to_bake: list of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
     settings = context.scene.ObjectAttributesSettings
 
     obj_attr_buffer = [0.0] * attr_buffer_length
-    for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
+    for eval_obj_to_bake in eval_objs_to_bake:
         if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
             index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
         else:
             continue
 
-        uneval_obj_source = eval_obj_to_bake
-        uneval_obj_source_parent = uneval_obj_source
+        # get source (possibly apply max depth limit to get it)
+        eval_obj_source = eval_obj_to_bake
+        if settings.depth_limit_use and "ObjectAttributesHierarchyDepth" in eval_obj_source:
+            depth = eval_obj_source["ObjectAttributesHierarchyDepth"]
+            while eval_obj_source and (depth > (settings.depth_limit + 1)):
+                depth -= 1
+                if eval_obj_source.parent:
+                    eval_obj_source = eval_obj_source.parent
+                else:
+                    break
 
+        # walk up hierarchy from source to get parent at desired depth
         for depth in range(texture_channel.depth):
-            if uneval_obj_source_parent.parent:
-                uneval_obj_source_parent = uneval_obj_source_parent.parent
+            if eval_obj_source.parent:
+                eval_obj_source = eval_obj_source.parent
             else:
                 break
 
-        if "ObjectAttributesHierarchyIndex" in uneval_obj_source_parent:
-            parent_hierarchy_index = uneval_obj_source_parent["ObjectAttributesHierarchyIndex"]
+        if "ObjectAttributesHierarchyIndex" in eval_obj_source:
+            parent_hierarchy_index = eval_obj_source["ObjectAttributesHierarchyIndex"]
         else:
             continue
 
@@ -1002,6 +1275,109 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
 
     return obj_attr_buffer
 
+def texture_buffer_custom_prop(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+    """
+    Intermediate buffer function to return the values to store in the texture channel
+
+    :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
+    :param texture_channel: texture channel to generate buffer for
+    :param eval_objs_to_bake: list of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: number of unique indices to bake
+    :return: buffer, one value per object
+    :rtype: list
+    """
+    settings = context.scene.ObjectAttributesSettings
+
+    obj_attr_buffer = [0.0] * attr_buffer_length
+    for eval_obj_to_bake in eval_objs_to_bake:
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit)
+        if texture_channel.name != "" and texture_channel.name in uneval_obj_source:
+            custom_prop = uneval_obj_source[texture_channel.name]
+            if not isinstance(custom_prop, float) and not isinstance(custom_prop, int):
+               continue
+        else:
+            continue
+
+        data_to_bake = custom_prop
+
+        try:
+            obj_attr_buffer[index] = data_to_bake
+        except:
+            pass
+
+    return obj_attr_buffer
+
+def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
+    """
+    Intermediate buffer function to return the values to store in the texture channel
+
+    :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
+    :param texture_channel: texture channel to generate buffer for
+    :param eval_objs_to_bake: list of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: number of unique indices to bake
+    :return: buffer, one value per object
+    :rtype: list
+    """
+    settings = context.scene.ObjectAttributesSettings
+
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
+
+    obj_attr_buffer = [0.0] * attr_buffer_length
+    for eval_obj_to_bake in eval_objs_to_bake:
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit)
+        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+        eval_obj_source_mat = eval_obj_source.matrix_world
+        if settings.origin_obj:
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
+
+        eval_obj_source_mat_3x3 = eval_obj_source_mat.to_3x3()
+        forward = eval_obj_source_mat_3x3[1]
+        forward *= signed_axis.x
+        right = eval_obj_source_mat_3x3[0]
+        right *= signed_axis.y
+        up = eval_obj_source_mat_3x3[2]
+        up *= signed_axis.z
+
+        new_basis = mathutils.Matrix((right, forward, up)).transposed() # @TODO check
+
+        eval_obj_source_quat = new_basis.to_quaternion()
+        print(eval_obj_source_quat)
+
+        if texture_channel.quat == "X":
+            data_to_bake = eval_obj_source_quat.x
+        elif texture_channel.quat == "Y":
+            data_to_bake = eval_obj_source_quat.y
+        elif texture_channel.quat == "Z":
+            data_to_bake = eval_obj_source_quat.z
+        elif texture_channel.quat == "W":
+            data_to_bake = eval_obj_source_quat.w
+        elif texture_channel.quat == "XYZW":
+            data_to_bake = get_compressed_quat(eval_obj_source_quat)
+        else:
+            data_to_bake = 0.0
+
+        try:
+            obj_attr_buffer[index] = data_to_bake
+        except:
+            pass
+
+    return obj_attr_buffer
+
 def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
@@ -1009,14 +1385,67 @@ def texture_buffer_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
     :param context: Blender current execution context
     :param dgraph: evaluated depsgraph
     :param texture_channel: texture channel to generate buffer for
-    :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
-    :param attr_buffer_length: Number of unique indices to bake
+    :param eval_objs_to_bake: list of duplicated objects (evaluated). Length & order must match source_objs'
+    :param attr_buffer_length: number of unique indices to bake
     :return: buffer, one value per object
     :rtype: list
     """
-    obj_attr_buffer = [0.0] * attr_buffer_length
 
-    # @TODO template function
+    """
+    # get settings
+    settings = context.scene.ObjectAttributesSettings
+
+    # account for unit sign & scale
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
+    """ 
+    obj_attr_buffer = [0.0] * attr_buffer_length
+    """
+    for eval_obj_to_bake in eval_objs_to_bake:
+        # get element buffer index
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            continue
+
+        # get element to target. Element was duplicated earlier in the bake process and has a 'BakeSource' custom object property pointing to the
+        # original object. The texture channel may be configured to target a specific object rather than the 'eval_obj_to_bake', or even its parent
+        # at a specific depth. This may be what you want, it might not, it just depends.
+        get_original_object = True
+        uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit, get_original_object)
+        
+        # evaluate object (account for constraints, hierarchy etc.)
+        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+
+        # get evaluated world matrix
+        eval_obj_source_mat = eval_obj_source.matrix_world
+
+        # make it relative to custom world origin if needed
+        if settings.origin_obj:
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
+        eval_obj_source_loc = eval_obj_source_mat.to_translation()
+
+        # get location to bake, account for scale & sign
+        vector_to_bake = eval_obj_source_loc * signed_scale
+
+        # isolate X/Y/Z component
+        if texture_channel.component == "X":
+            data_to_bake = vector_to_bake.x
+        elif texture_channel.component == "Y":
+            data_to_bake = vector_to_bake.y
+        elif texture_channel.component == "Z":
+            data_to_bake = vector_to_bake.z
+        else:
+            data_to_bake = 0.0
+
+        # write to buffer
+        try:
+            obj_attr_buffer[index] = data_to_bake
+        except:
+            pass
+    """
 
     return obj_attr_buffer
 
@@ -1222,7 +1651,7 @@ def get_best_texture_resolution(context: bpy.types.Context, num_indices: int) ->
 ###########
 ### XML ###
 def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
-    """ """
+    """ """ # @TODO range and other datas!!
 
     settings = context.scene.ObjectAttributesSettings
     report = context.scene.ObjectAttributesReport
