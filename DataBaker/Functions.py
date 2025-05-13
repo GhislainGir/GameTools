@@ -2844,11 +2844,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_scale=str(report.unit_scale),
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
-                            unit_invert_z=str(report.unit_invert_z))
-
-    # uv info
-    uv_el = ET.SubElement(root, "UV",
-                          unit_invert_v=str(report.unit_invert_v))
+                            unit_invert_z=str(report.unit_invert_z),
+                            unit_invert_v=str(report.unit_invert_v))
 
     # data layers info
     if report.data_layers:

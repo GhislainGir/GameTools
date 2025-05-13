@@ -28,6 +28,7 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     display_name: StringProperty(name="Name", default="Layer", description="")
     ID: StringProperty(name="ID", default="", description="")
     ptr_ID: StringProperty(name="Ptr", default="", description="")
+    ptr: IntProperty(name="Ptr", default=-1, description="")
 
     datas = [
         ("POSITION", "Position", "X/Y/Z component of the object's position"),
