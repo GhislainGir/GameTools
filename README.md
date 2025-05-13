@@ -11,7 +11,7 @@ A blender addon packing several **professional-grade techniques** commonly used 
 - **Signed Distance Fields**: a tool that allows you to bake signed distance fields.
 - **Data Baker**: a tool that allows you to bake various types of data into UVs, Vertex Colors, or Normals, offering great flexibility and advanced bit-packing techniques.
 
-Head over to the [documentation](../../wiki) for more information. It contains a Technical Art Compendium that provides additional information relevant to all the tools and techniques listed above. Enjoy!
+Head over to the [documentation](../../wiki) for more information. It contains a **Technical Art Compendium** that provides additional information relevant to all the tools and techniques listed above. Enjoy!
 
 > [!NOTE]
 > This addon is configured by default to make the import-export process between Blender and Unreal Engine as smooth as possible, and the wiki provides examples using Unreal Engine. However, the addon can also be used to export meshes and textures to any other game engine, as long as you follow the guidelines explained in this wiki.
