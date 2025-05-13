@@ -75,7 +75,7 @@ def reset_bake_report():
     report.textures_selected_index = 0
 
     report.mesh = None
-    report.mesh_uvmap = 0
+    report.mesh_uvmap_index = 0
     report.mesh_export = False
     report.mesh_path = ""
     report.mesh_num_indices = 0
@@ -210,9 +210,6 @@ def get_bitpacked_integer(index):
 	fp = cast(cp, POINTER(c_float))
 	return fp.contents.value
 
-##############
-# QUATERNION #
-##############
 def get_compressed_quat(quat):
     '''Quaternion packing using the three smallest component method (from quat to 32bits float)'''
     abs_quat_component = 0.0
@@ -289,95 +286,9 @@ def get_compressed_quat(quat):
 
     bits_string = "0b" + bitstring_index + bitstring_x + bitstring_y + bitstring_z
 
-    print(bits_string)
     cp = pointer(c_int(int(bits_string, 0)))
     fp = cast(cp, POINTER(c_float))
     return fp.contents.value
-
-def get_uncompressed_quat(float_quat):
-    ''' Quaternion unpacking using the three smallest component method (from 32bits float to quaternion) '''
-    quat_components = [
-        0.0,
-        0.0,
-        0.0,
-        1.0
-    ] # X, Y, Z, W
-
-    cp = pointer(c_float(float_quat)) # @TODO check
-    fp = cast(cp, POINTER(c_int))
-    encoded_quat = fp.contents.value
-
-    # 2 bits for the index to reconstruct, 10 each for the others
-    max_abs_quat_component_index = encoded_quat >> (30)
-    compression_bits = 10
-    compression_mask = 1023 # 1023, precision mask
-
-    # unpack the smallest 3 components - fourth is going to be reconstructed next due to quaternions' property
-    quat_components[0] = float( (encoded_quat >> (compression_bits * 2) ) & compression_mask ) / compression_mask
-    quat_components[1] = float( (encoded_quat >> (compression_bits * 1) ) & compression_mask ) / compression_mask
-    quat_components[2] = float( (encoded_quat >> (compression_bits * 0) ) & compression_mask ) / compression_mask
-
-    # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it has been remapped to increase accuracy
-    quat_normalization_offset = 0.707106781
-    quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
-
-    quat_components[0] = (quat_components[0] * quat_normalization_scale) - quat_normalization_offset
-    quat_components[1] = (quat_components[1] * quat_normalization_scale) - quat_normalization_offset
-    quat_components[2] = (quat_components[2] * quat_normalization_scale) - quat_normalization_offset
-
-    # reconstruct fourth component
-    QuatVector = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
-    quat_components[3] = math.sqrt(max(0.0, 1.0 + (QuatVector @ -QuatVector)))
-
-    # reorder quaternion if needed, depending on first two bits that contains max component index
-    if max_abs_quat_component_index == 0: # wxyz
-        quat_components = (quat_components[3], quat_components[0], quat_components[1], quat_components[2])
-    elif max_abs_quat_component_index == 1: # xwyz
-        quat_components = (quat_components[0], quat_components[3], quat_components[1], quat_components[2])
-    elif max_abs_quat_component_index == 2: # xywz
-        quat_components = (quat_components[0], quat_components[1], quat_components[3], quat_components[2])
-
-    # WXYZ order... -_-
-    return mathutils.Quaternion((quat_components[3], quat_components[0], quat_components[1], quat_components[2]))
-
-def get_quattoaxisangle_atan(quat):
-    ''' One possible way to convert a quaternion into an axis & an angle, using Atan2 '''
-    axis_and_angle = mathutils.Vector((0.0, 0.0, 0.0, 0.0))
-
-    sin_half_angle = math.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z)
-
-    if sin_half_angle > 0.0:
-        axis_and_angle.x = quat.x / sin_half_angle
-        axis_and_angle.y = quat.y / sin_half_angle
-        axis_and_angle.z = quat.z / sin_half_angle
-    else:
-        axis_and_angle.x = 0.0
-        axis_and_angle.y = 0.0
-        axis_and_angle.z = 1.0
-    
-    axis_and_angle.w = 2.0 * math.atan2(sin_half_angle, quat.w)
-
-    return axis_and_angle
-
-def get_quattoaxisangle_acos(quat):
-    ''' One possible way to convert a quaternion into an axis & an angle, using ACos '''
-    axis_and_angle = mathutils.Vector((0.0, 0.0, 0.0, 0.0))
-
-    HalfAngle = math.acos(quat.w)
-    HalfSin = math.sin(HalfAngle)
-
-    if HalfSin > 0.0:
-        axis_and_angle.x = quat.x / HalfSin
-        axis_and_angle.y = quat.y / HalfSin
-        axis_and_angle.z = quat.z / HalfSin
-    else:
-        axis_and_angle.x = 0.0
-        axis_and_angle.y = 0.0
-        axis_and_angle.z = 1.0
-        
-    axis_and_angle.w = HalfAngle * 2.0
-
-    return axis_and_angle
 
 ############
 ### BAKE ###
@@ -500,11 +411,12 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
     dgraph = bpy.context.evaluated_depsgraph_get()
 
     if not settings.mesh_duplicate:
-        if settings.mesh_single_user:
-            pass
-            # @TODO single user
-        
         eval_objs_to_bake = objs_to_bake # @NOTE name isn't great, objects aren't evaluated if not duplicated
+
+        if settings.mesh_single_user:
+            for eval_obj_to_bake in eval_objs_to_bake:
+                mesh_copy = eval_obj_to_bake.data.copy()
+                eval_obj_to_bake.data = mesh_copy
     else:
         """
         duplicate depsgraph-evaluated filtered selection & forward initial transform
@@ -631,102 +543,97 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     """
     settings = context.scene.ObjectAttributesSettings
 
-    name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.OA"
+    success, msg, uvmap_name = generate_mesh_uvs(eval_objs_to_bake, tex_width, tex_height, settings.mesh_uvmap_name, settings.unit_invert_v)
+    if not success:
+        return (False, msg)
 
-    texel_size_x = (1.0 / tex_width)
-    half_texel_size_x = texel_size_x * 0.5
+    """
+    process of merging involves copying data blocks in a single bmesh
+    """
+    if settings.mesh_merge:        
+        # get materials to copy (face material indices might have to be modified because of merging process)
+        success, msg, materials = generate_mesh_material_indices(eval_objs_to_bake)
+        if not success:
+            return (False, msg)
 
-    texel_size_y = (1.0 / tex_height)
-    half_texel_size_y = texel_size_y * 0.5
-
-    mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.OA"
-
-    if settings.mesh_merge:
         bm = bmesh.new()
 
-    for eval_obj_to_bake in eval_objs_to_bake:
-        """
-        configure UVs
-        """
-        uvmap = None
-        uvmap_index = 0
-
-        for uvlayer_index, uvlayer in enumerate(eval_obj_to_bake.data.uv_layers):
-            if uvlayer.name == mesh_uvmap_name:
-                uvmap = uvlayer
-                uvmap_index = uvlayer_index
-                break
-
-        if uvmap is None:
-            if len(eval_obj_to_bake.data.uv_layers) >= 8:
-                return(False, "Too many existing uvmaps")
-
-            eval_obj_to_bake.data.uv_layers.new()
-            uvmap_index = len(eval_obj_to_bake.data.uv_layers) - 1
-            uvmap = eval_obj_to_bake.data.uv_layers[uvmap_index]
-            uvmap.name = mesh_uvmap_name
-
-        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
-            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
-        else:
-            return(False, "Hierarchy index")
-
-        u = (index % tex_width) * texel_size_x
-        u += half_texel_size_x
-
-        v = (index // tex_width) * texel_size_y
-        v += half_texel_size_y
-        if settings.unit_invert_v:
-            v = 1.0 - v
-
-        for loop_id in eval_obj_to_bake.data.loops:
-            eval_obj_to_bake.data.uv_layers[uvmap_index].data[loop_id.index].uv = (u,v)
-
-        """
-        duplicate mesh for merge
-        """
-        if settings.mesh_merge:
+        # add each transformed data block to bmesh
+        for eval_obj_to_bake in eval_objs_to_bake:
             eval_obj_to_bake.data.transform(eval_obj_to_bake.matrix_world)
             bm.from_mesh(eval_obj_to_bake.data)
             
             bm.verts.ensure_lookup_table()
             bm.faces.ensure_lookup_table()
 
-    if settings.mesh_merge:
+        # create new single data block from bmesh
+        name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.OA"
         merged_mesh = bpy.data.meshes.new(name)
         bm.to_mesh(merged_mesh)
         bm.free()
 
-        # create a new object from the new mesh
+        # create single object that uses new data block
         obj = bpy.data.objects.new(name, merged_mesh)
-        if settings.origin_obj:
-            #obj.matrix_world = settings.origin_obj.matrix_world
-            merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
         context.scene.collection.objects.link(obj)
-
         add_bake_report("mesh", obj)
 
+        # make new object relative to custom world origin, if needed
+        if settings.origin_obj:
+            """ 
+            # I prefer not carrying over the world matrix to highlight the fact that the baked data may
+            # only be usable if that custom world origin is indeed treated as the world origin. That
+            # means the object should have a zero transform and its vertices inverse transformed. The
+            # new mesh can be simply 'brought back to its rest pose' by copy/pasting the custom world
+            # origin's transform manually.
+            
+            obj.matrix_world = settings.origin_obj.matrix_world
+            """
+            merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
+
+        # copy materials
+        for material in materials:
+            obj.data.materials.append(material)
+
+        # report uv map used
         for uvlayer_index, uvlayer in enumerate(merged_mesh.uv_layers):
-            if uvlayer.name == mesh_uvmap_name:
-                add_bake_report("mesh_uvmap", uvlayer_index)
+            if uvlayer.name == uvmap_name:
+                add_bake_report("mesh_uvmap_index", uvlayer_index)
+                merged_mesh.uv_layers.active_index = uvlayer_index
+                uvlayer.active_render = True
                 break
 
+        # select object (for export) & make it active for user-feedback
         obj.select_set(True)
         context.view_layer.objects.active = obj
 
-        if settings.mesh_duplicate:
-            clear_bake_selection(eval_objs_to_bake)
-    else:
+        # clear original selection (we don't care if it was duplicated or not)
+        clear_bake_selection(eval_objs_to_bake)
+    elif settings.mesh_duplicate:
+        # carry materials
+        for eval_obj_to_bake in eval_objs_to_bake:
+            if "BakedSource" in eval_obj_to_bake:
+                source_obj = eval_obj_to_bake["BakedSource"]
+                for material in source_obj.data.materials:
+                    eval_obj_to_bake.data.materials.append(material)
+
+        # select duplicated objects (for export)
         for eval_obj_to_bake in eval_objs_to_bake:
             eval_obj_to_bake.select_set(True)
 
-        context.view_layer.objects.active = eval_objs_to_bake[0]
-        add_bake_report("mesh", eval_objs_to_bake[0])
+        # pick object to make active and to report @NOTE selection is totally arbitrary, not great. Pick root object instead? But what if multiple roots?
+        obj_to_highlight = eval_objs_to_bake[0]
+        context.view_layer.objects.active = obj_to_highlight
+        add_bake_report("mesh", obj_to_highlight)
 
-        for uvlayer_index, uvlayer in enumerate(eval_objs_to_bake[0].data.uv_layers):
-            if uvlayer.name == mesh_uvmap_name:
-                add_bake_report("mesh_uvmap", uvlayer_index)
+        # report uv map used
+        for uvlayer_index, uvlayer in enumerate(obj_to_highlight.data.uv_layers):
+            if uvlayer.name == uvmap_name:
+                add_bake_report("mesh_uvmap_index", uvlayer_index)
+                obj_to_highlight.uv_layers.active_index = uvlayer_index
+                uvlayer.active_render = True
                 break
+    else:
+        pass
 
     return (True, "")
 
@@ -751,7 +658,7 @@ def bake(context: bpy.types.Context):
     :return: success, message verbose, message
     :rtype: tuple
     """
-    #bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? @TODO fails when no active selection
+    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? @TODO fails when no active selection
 
     settings = context.scene.ObjectAttributesSettings
     new_bake_report(context)
@@ -910,7 +817,7 @@ def get_texture_buffer_function(texture_channel: object) -> callable:
 
     return texture_buffer_zeros
 
-def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture: object, eval_objs_to_bake: list, tex_width: int, tex_height: int, attr_buffer_length: int) -> list:
+def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture: object, eval_objs_to_bake: list, tex_width: int, tex_height: int, attr_buffer_length: int) -> tuple[list, list, list, list]:
     """
     Intermediate buffer function to return the values to store in the texture RGBA channels
 
@@ -1081,6 +988,14 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
             eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
         eval_obj_source_loc = eval_obj_source_mat.to_translation()
 
+        # output position relative to parent, if desired
+        if texture_channel.position_mode == "REL_PARENT" and uneval_obj_source.parent:
+            eval_obj_source = uneval_obj_source.parent.evaluated_get(dgraph)
+            eval_obj_source_mat = eval_obj_source.matrix_world
+            if settings.origin_obj:
+                eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
+            eval_obj_source_loc -= eval_obj_source_mat.to_translation()
+
         vector_to_bake = eval_obj_source_loc * signed_scale
 
         if texture_channel.component == "X":
@@ -1203,14 +1118,13 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         else:
             axis = mathutils.Vector((0.0, 0.0, 0.0))
 
-        axis *= signed_axis
         axis.rotate(eval_obj_source_euler)
-        extent_axis = axis
+        axis *= signed_axis
 
         eval_mesh_source = uneval_obj_source.to_mesh()
         eval_mesh_source.transform(eval_obj_source.matrix_world)
-        vertices_delta = [((vertex.co - eval_obj_source_loc) * signed_scale).dot(extent_axis) for vertex in eval_mesh_source.vertices]
-        data_to_bake = abs(max(vertices_delta, key=abs)) # @TODO check unit conversion?
+        vertices_delta = [((vertex.co - eval_obj_source_loc) * signed_scale).dot(axis) for vertex in eval_mesh_source.vertices]
+        data_to_bake = abs(max(vertices_delta, key=abs))
 
         uneval_obj_source.to_mesh_clear()
 
@@ -1353,10 +1267,8 @@ def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Deps
         up = eval_obj_source_mat_3x3[2]
         up *= signed_axis.z
 
-        new_basis = mathutils.Matrix((right, forward, up)).transposed() # @TODO check
-
+        new_basis = mathutils.Matrix((right, forward, up)).transposed()
         eval_obj_source_quat = new_basis.to_quaternion()
-        print(eval_obj_source_quat)
 
         if texture_channel.quat == "X":
             data_to_bake = eval_obj_source_quat.x
@@ -1503,6 +1415,77 @@ def filter_selection_depth(context: bpy.types.Context):
         return (True, "INFO", "No mesh object exceed the depth limit")
     else:
         return (True, "INFO", str(len(context.selected_objects)) + " mesh object(s) exceed the depth limit")
+
+def generate_mesh_uvs(eval_objs_to_bake: list, tex_width: int, tex_height: int, uvmap_name: str, invert_v: bool):
+    """
+    """
+    mesh_uvmap_name = uvmap_name if uvmap_name != "" else "UVMap.BakedData.OA"
+
+    texel_size_x = (1.0 / tex_width)
+    half_texel_size_x = texel_size_x * 0.5
+
+    texel_size_y = (1.0 / tex_height)
+    half_texel_size_y = texel_size_y * 0.5
+
+    for eval_obj_to_bake in eval_objs_to_bake:
+        uvmap = None
+        uvmap_index = 0
+
+        for uvlayer_index, uvlayer in enumerate(eval_obj_to_bake.data.uv_layers):
+            if uvlayer.name == mesh_uvmap_name:
+                uvmap = uvlayer
+                uvmap_index = uvlayer_index
+                break
+
+        if uvmap is None:
+            if len(eval_obj_to_bake.data.uv_layers) >= 8:
+                return(False, "Too many existing uvmaps")
+
+            eval_obj_to_bake.data.uv_layers.new()
+            uvmap_index = len(eval_obj_to_bake.data.uv_layers) - 1
+            uvmap = eval_obj_to_bake.data.uv_layers[uvmap_index]
+            uvmap.name = mesh_uvmap_name
+
+        if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
+            index = eval_obj_to_bake["ObjectAttributesHierarchyIndex"]
+        else:
+            return(False, "Hierarchy index")
+
+        u = (index % tex_width) * texel_size_x
+        u += half_texel_size_x
+
+        v = (index // tex_width) * texel_size_y
+        v += half_texel_size_y
+        if invert_v:
+            v = 1.0 - v
+
+        for loop_id in eval_obj_to_bake.data.loops:
+            eval_obj_to_bake.data.uv_layers[uvmap_index].data[loop_id.index].uv = (u,v)
+
+    return (True, "", mesh_uvmap_name)
+
+def generate_mesh_material_indices(eval_objs_to_bake: list):
+    """
+    """
+    materials = []
+    for eval_obj_to_bake in eval_objs_to_bake:
+        for material in eval_obj_to_bake.data.materials:
+            if material not in materials:
+                materials.append(material)
+
+    for eval_obj_to_bake in eval_objs_to_bake:
+        for poly in eval_obj_to_bake.data.polygons:
+            try:
+                material_source = eval_obj_to_bake.data.materials[poly.material_index]
+                    
+                material_index_source = poly.material_index
+                material_index_merged = materials.index(material_source)
+                if material_index_source != material_index_merged:
+                    poly.material_index = material_index_merged
+            except:
+                poly.material_index = 0
+
+    return (True, "", materials)
 
 ################
 ### TEXTURES ###
@@ -1651,13 +1634,13 @@ def get_best_texture_resolution(context: bpy.types.Context, num_indices: int) ->
 ###########
 ### XML ###
 def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
-    """ """ # @TODO range and other datas!!
+    """ """
 
     settings = context.scene.ObjectAttributesSettings
     report = context.scene.ObjectAttributesReport
 
     root = ET.Element("BakedData",
-                      type="OA",
+                      type="ObjectAttributes",
                       ID=report.ID,
                       version="1.0")
 
@@ -1669,17 +1652,62 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_scale=str(report.unit_scale),
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
-                            unit_invert_z=str(report.unit_invert_z))
+                            unit_invert_z=str(report.unit_invert_z),
+                            unit_invert_v=str(report.unit_invert_v))
+
+    # textures
+    tex_el = ET.SubElement(root, "Textures",
+                           width=str(report.tex_width),
+                           height=str(report.tex_height))
+    if report.textures:
+        for texture in report.textures:
+            tex_subel = ET.SubElement(tex_el, "Texture",
+                                      name=texture.name,
+                                      path=texture.path)
+            channels = [
+                (texture.R, "R", texture.R_range_offset, texture.R_range, texture.R_range_valid),
+                (texture.G, "G", texture.G_range_offset, texture.G_range, texture.G_range_valid),
+                (texture.B, "B", texture.B_range_offset, texture.B_range, texture.B_range_valid),
+                (texture.A, "A", texture.A_range_offset, texture.A_range, texture.A_range_valid)
+            ]
+            for channel, channel_name, channel_range_offset, channel_range, channel_range_valid in channels:
+                channel_remapped = channel.remapping and get_texture_channel_allow_remap(channel)
+                channel_depth = channel.depth if channel.channel_mode == "HIERARCHY" or channel.obj_mode == "PARENT" else 1
+                channel_el = ET.SubElement(tex_subel, channel_name,
+                                           mode=channel.channel_mode,
+                                           position_mode=channel.position_mode,
+                                           component=channel.component,
+                                           axis=channel.axis,
+                                           quat=channel.quat,
+                                           depth=str(channel_depth),
+                                           remapped=str(channel_remapped),
+                                           range_offset=str(channel_range_offset),
+                                           range=str(channel_range),
+                                           range_valid=str(channel_range_valid))
+
+    # depth
+    depth_el = ET.SubElement(root, "Depth",
+                             depth_limit_use=str(report.depth_limit_use),
+                             depth_limit=str(report.depth_limit),
+                             use_pivot_painter_packing=str(report.use_pivot_painter_packing)
+                             )
 
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""
 
-    mesh_el = ET.SubElement(root, "Mesh", path=mesh_export_path)
+    mesh_el = ET.SubElement(root, "Mesh", path=mesh_export_path,
+                            uv_index=str(report.mesh_uvmap_index),
+                            num_elements=str(report.mesh_num_indices),
+                            )
 
     # write xml
     tree = ET.ElementTree(root)
     if settings.export_xml_mode == "MESHPATH" and report.mesh_path != "":
         export_path = os.path.join(os.path.dirname(report.mesh_path), report.name + ".xml")
+        print(export_path)
+        print(export_path)
+        print(export_path)
+        print("sdeqsfdqsds")
         tree.write(export_path)
         return (True, "", export_path)
     else:

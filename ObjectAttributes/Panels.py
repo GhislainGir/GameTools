@@ -138,6 +138,9 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
                                 row.prop(texture_channel, "component")
 
                                 row = panel_body.row()
+                                row.prop(texture_channel, "position_mode")
+
+                                row = panel_body.row()
                                 row.prop(texture_channel, "obj_mode")
 
                                 if texture_channel.obj_mode == "SELF":
@@ -623,6 +626,9 @@ class OBJECTATTRIBUTES_PT_ReportTexPanel(bpy.types.Panel):
                         if texture_channel.channel_mode == "POSITION":
                             row = panel_body.row()
                             row.prop(texture_channel, "component")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "position_mode")
 
                             row = panel_body.row()
                             row.prop(texture_channel, "obj_mode")

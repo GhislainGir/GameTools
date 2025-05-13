@@ -27,7 +27,13 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
         ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
         ("QUATERNION", "Quaternion", "X/Y/Z/W component of the object's orientation, or the XYZW components bit-packed into a single float using the smallest-three method")
     ]
-    channel_mode : EnumProperty( items=channel_modes, name="Mode", description= "", default="NONE")
+    channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
+
+    position_modes = [
+         ("REL_WORLD", "World", "Position is relative to the world origin"),
+         ("REL_PARENT", "Parent", "Position is relative to the parent element's position, allowing for greater precision. This can be especially relevant if remapping is used to store positional data in 8-bit RGBA texture(s)."),
+    ]
+    position_mode: EnumProperty(items=position_modes, name="Reference", default="REL_WORLD", description="")
 
     component_x_y_z = [
         ("X", "X", "The vector's X component"),
@@ -174,7 +180,7 @@ class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
-    mesh_uvmap: IntProperty(name="UV Map", default=0, description="")
+    mesh_uvmap_index: IntProperty(name="UV Map", default=0, description="")
     mesh_num_indices: IntProperty(name="Num Indices", default=0, description="")
 
     tex_width: IntProperty(name="Texture Width", default=0, description="")
