@@ -22,18 +22,19 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
         ("NONE", "None", "Write 0 to the channel"),
         ("POSITION", "Position", "X/Y/Z component of the object's position"),
         ("AXIS", "Axis", "X/Y/Z component of the object's forward/right/up vector"),
+        ("SCALE", "Scale", "X/Y/Z component of the object's scale"),
         ("EXTENTS", "Extents", "Length of the object along its forward/right/up vector"),
         ("HIERARCHY", "Hierarchy", "Object's linear index in the hierarchy"),
         ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
-        ("QUATERNION", "Quaternion", "X/Y/Z/W component of the object's orientation, or the XYZW components bit-packed into a single float using the smallest-three method")
+        ("QUATERNION", "Quaternion", "X/Y/Z/W component of the object's orientation, or the XYZW components bit-packed into a single float using the smallest-three method (which requires a 32-bit HDR texture!)")
     ]
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
 
-    position_modes = [
-         ("REL_WORLD", "World", "Position is relative to the world origin"),
-         ("REL_PARENT", "Parent", "Position is relative to the parent element's position, allowing for greater precision. This can be especially relevant if remapping is used to store positional data in 8-bit RGBA texture(s)."),
+    reference_modes = [
+         ("REL_WORLD", "World", "Relative to the world origin"),
+         ("REL_PARENT", "Parent", "Relative to the parent element. This can be especially relevant if remapping is used to store positional data in 8-bit RGBA texture(s), as making position relative to the parent allows for greater precision"),
     ]
-    position_mode: EnumProperty(items=position_modes, name="Reference", default="REL_WORLD", description="")
+    reference_mode: EnumProperty(items=reference_modes, name="Reference", default="REL_WORLD", description="Point of reference for the data to bake")
 
     component_x_y_z = [
         ("X", "X", "The vector's X component"),
@@ -47,9 +48,19 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
         ("Y", "Y", "The quaternion's Y component"),
         ("Z", "Z", "The quaternion's Z component"),
         ("W", "W", "The quaternion's W component"),
-        ("XYZW", "XYZW", "The quaternion's XYZW components bit-packed into a single float using the smallest-three method"),
+        ("XYZW", "XYZW", "The quaternion's XYZW components bit-packed into a single float using the smallest-three method. This requires a 32-bit HDR texture!"),
     ]
     quat: EnumProperty(name="Component", items=quat_x_y_z_w, default="XYZW", description="Component to bake")
+
+    quat_xyz_orders = [
+         ("XYZ", "XYZ", "XYZ"),
+         ("XZY", "XZY", "XZY"),
+         ("YXZ", "YXZ", "YXZ"),
+         ("YZX", "YZX", "YZX"),
+         ("ZXY", "ZXY", "ZXY"),
+         ("ZYX", "ZYX", "ZYX")
+    ]
+    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
 
     axis_x_y_z = [
         ("X", "Forward (X)", "X-axis"),
@@ -59,14 +70,16 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
     axis: EnumProperty(name="Axis", items=axis_x_y_z, default="X", description="Axis to bake")
 
     obj_modes = [
-        ("SELF", "Self", "Each object gets data from itself, accounting for hierarchy depth limit, if any has been set. If the object is too deep in the hierarchy, the tree will be walked up to get its first available parent instead."),
-        ("PARENT", "Parent", "Each object gets data from its parent, *not* accounting for hierarchy depth limit, if any has been set. Use with caution."),
-        ("CUSTOM", "Custom", "Each object gets data from a user-specified object, if specified, from itself otherwise."),
+        ("SELF", "Self", "Data is fetched from the object itself"),
+        ("PARENT", "Parent", "Data is fetched from the object's parent, if it has at least one, at the specified depth, if possible: 1 is the immediate parent, 2 grandparent, etc. It stops at the last valid parent and falls back to itself if no parent at all"),
+        ("CUSTOM", "Custom", "Data is fetched from the a shared, user-specified object. Falls back to itself if none is set"),
+        ("PROPERTY", "Property", "Data is fetched from the object targeted by a custom object property stored in the object itself. Falls back to itself if no property name is set, or if said property isn't itself set to point to a valid object")
     ]
-    obj_mode: EnumProperty(name="Source", items=obj_modes, default="SELF", description="Source object to use")
-    obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
+    obj_mode: EnumProperty(name="Source", items=obj_modes, default="SELF", description="Source object to use. This will account for any depth limit set, meaning it'll try to walk up the hierarchy to find the first valid parent, regardless of what the source is or if it is even parented to begin with. Falls back to 'Self' is other source can't be resolved")
+    obj: PointerProperty(type=bpy.types.Object, name="Object", description="Target object")
+    obj_prop: StringProperty(name="Property", default="SourceObject", description="Name of the custom property stored in the objects to bake, to point to the desired targets")
 
-    depth: IntProperty(name="Depth", default=1, min=1, description="1 to bake the element index of the parent, 2 for the grand-parent, etc.")
+    depth: IntProperty(name="Depth", default=1, min=1, description="1 - parent, 2 - grandparent, etc.")
 
     name: StringProperty(name="Name", default="")
 
@@ -196,4 +209,5 @@ def register():
 	bpy.types.Scene.ObjectAttributesReport = PointerProperty(type=OBJECTATTRIBUTES_PG_ReportPropertyGroup)
 
 def unregister():
-	del bpy.types.Scene.ObjectAttributesSettings
+    del bpy.types.Scene.ObjectAttributesSettings
+    del bpy.types.Scene.ObjectAttributesReport

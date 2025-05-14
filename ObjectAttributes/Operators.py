@@ -25,9 +25,9 @@ from bl_operators.presets import AddPresetBase
 ##############
 ### PRESET ###
 class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'objectattributes_objectattributespanel.addpreset'
+    bl_idname = 'gametools.objectsattributes_addpreset'
     bl_label = 'Add preset'
-    preset_menu = 'OBJECTATTRIBUTES_MT_ObjectAttributes_Presets'
+    preset_menu = 'OBJECTATTRIBUTES_MT_MainPanel_Presets'
 
     preset_defines = [ 'settings = bpy.context.scene.ObjectAttributesSettings' ]
     preset_values = [
@@ -68,7 +68,7 @@ class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Op
         'settings.tex_force_power_of_two_square'
     ]
 
-    preset_subdir = 'operator/databaker_OA'
+    preset_subdir = 'operator/gametools_objectattributes'
 
 ############
 ### MAIN ###
