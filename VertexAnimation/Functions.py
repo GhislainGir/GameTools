@@ -462,31 +462,177 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
 
     return (True, "", objs_to_bake, active_obj)
 
-def get_bake_closest_frame(frames: list, frame: int) -> int:
+def get_nla_strips_raw_frame_buffer(context: bpy.types.Context, nla_strips: list) -> list:
     """
-    Simple binary search to find the closest frame in the ordered list of frames
+    Compute a raw frame buffer from a list of NLA strips
 
-    :param frames: ordered list of frames
-    :param frame: frame to find in list of frames
-    :return: index of closest item in list, -1 if invalid
-    :rtype: int
+    :param context: Blender current execution context
+    :param nla_strips: list of NLA strips contributing to the overall animation 'range'
     """
-    low = 0
-    high = len(frames) - 1
-    mid = None
-    while low <= high:
-        mid = (low + high) // 2
-        if frames[mid] == frame:
-            return mid
-        elif frames[mid] < frame:
-            low = mid + 1
-        else:
-            high = mid - 1
-    return mid
+    settings = context.scene.VATBakerSettings
+
+    frames_to_bake = []
+    frames_to_bake_indices = []
+    frame_step = settings.frame_range_custom_step if settings.frame_range_custom_step_mode == "NLACLIP" and settings.frame_range_custom_step > 1 else 1
+
+    # for each nla_strip, get its [start:end] range
+    for nla_strip in nla_strips:
+        strip, objs = nla_strip
+
+        frame_start = int(strip.frame_start)
+        frame_end = int(strip.frame_end)
+
+        # for each frame in [start:end] range
+        for frame in range(frame_start, frame_end + 1, frame_step):
+            # if frame is already in buffer, append nla strip to it
+            if frame in frames_to_bake_indices:
+                frame_index = frames_to_bake_indices.index(frame)
+                frames_to_bake[frame_index][1].append(nla_strip)
+            # else append frame to buffer with nla strip appended to it
+            else:
+                frames_to_bake_indices.append(frame)
+                frames_to_bake.append((frame, [nla_strip]))
+
+    # sort frame buffer by frame index
+    frames_to_bake.sort(key=lambda x: x[0])
+
+    # apply stepping in entire frame buffer rather than per NLA strip if desired
+    if settings.frame_range_custom_step_mode == "GLOBAL" and settings.frame_range_custom_step > 1:
+        frames_to_bake = frames_to_bake[::settings.frame_range_custom_step]
+
+    return frames_to_bake
+
+def get_nla_strip_start_end_indices(nla_strip: object, frames_to_bake: list) -> tuple[int, int]:
+    """
+    Find where the NLA strip starts & ends in the given frame buffer
+
+    :param nla_strip: NLA strip to search start & end frames for
+    :param frames_to_bake: frame buffer
+    :return: the frame buffer indices for the NLA strip start & end frames
+    :rtype: tuple
+    """
+    strip, objs = nla_strip
+
+    start = int(strip.frame_start)
+    end = int(strip.frame_end)
+
+    start_index = None
+    end_index = None
+
+    for frame_index, frame_data in enumerate(frames_to_bake):
+        frame, frame_nla_clips = frame_data
+
+        # skip frame that isn't shared by any NLA strips, it means it's padded and must
+        # not participate in the search for the actual NLA strip start/end frames.
+        if len(frame_nla_clips) <= 0:
+            continue
+
+        # start frame?
+        if frame == start:
+            start_index = frame_index
+        elif frame > start and start_index == None: # went too far
+            start_index = frame_index - 1
+        
+        # end frame?
+        if frame == end:
+            end_index = frame_index
+        elif frame > end and end_index == None: # went too far
+            end_index = frame_index - 1
+
+    # fallback to first index
+    if start_index is None:
+        start_index = 0
+    # fallback to last index
+    if end_index is None:
+        end_index = len(frames_to_bake) - 1
+
+    return (start_index, end_index)
+
+def get_nla_strip_suffix_padding_info(frames_to_bake: list, start_index: int, end_index: int) -> tuple[int, int]:
+    """
+    Determine the frame immediately following the end of the NLA strip.
+    If no other NLA strips occupy that frame, it's likely padding.
+    In that case, the current end frame probably doesn't need additional padding.
+
+    However, the *next* frame might be part of prefix padding from another strip.
+    If so, suffix padding could still be required.
+
+    To detect this, compare the NLA strip's end frame with the next frame.
+    If the next frame is numerically smaller than the end frame, it's likely
+    the start frame of the current strip—indicating it's part of suffix padding
+    and it shouldn't be applied a second time.
+
+    :param frames_to_bake: frame buffer
+    :param start_index: frame buffer index of the start frame for the NLA strip
+    :param end_index: frame buffer index of the end frame for the NLA strip
+    :return: the index where to insert padding, and the frame to insert
+    :rtype: tuple
+    """
+    try:
+        next_frame, next_frame_nla_clips = frames_to_bake[end_index + 1]
+        if len(next_frame_nla_clips) <= 0:
+            frame, frame_nla_clips = frames_to_bake[end_index]
+            if next_frame < frame:
+                return None
+    except:
+        pass
+
+    padding_value = frames_to_bake[start_index][0]
+    return (end_index + 1, padding_value) # return index + 1 for array insertion *after* end frame
+
+def get_nla_strip_prefix_padding_info(frames_to_bake: list, start_index: int, end_index: int) -> tuple[int, int]:
+    """
+    Determine the frame immediately preceding the start of the NLA strip.
+    If no other NLA strips occupy that frame, it's likely padding.
+    In that case, the current start frame probably doesn't need additional padding.
+
+    However, the *previous* frame might be part of suffix padding from another strip.
+    If so, prefix padding could still be required.
+
+    To detect this, compare the NLA strip's start frame with the previous frame.
+    If the previous frame is numerically greater than the start frame, it's likely
+    the end frame of the current strip—indicating it's part of prefix padding
+    and it shouldn't be applied a second time.
+
+    :param frames_to_bake: frame buffer
+    :param start_index: frame buffer index of the start frame for the NLA strip
+    :param end_index: frame buffer index of the end frame for the NLA strip
+    :return: the index where to insert padding, and the frame to insert
+    :rtype: tuple
+    """
+    try:
+        previous_frame, previous_frame_nla_clips = frames_to_bake[start_index - 1]
+        if len(previous_frame_nla_clips) <= 0:
+            frame, frame_nla_clips = frames_to_bake[start_index]
+            if previous_frame > frame:
+                return None
+    except:
+        pass
+
+    padding_value = frames_to_bake[end_index][0]
+    return (start_index, padding_value) # return index as-is for array insertion *before* start frame
 
 def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, tuple[list, int, int]]:
     """
     Return the list of frames to bake and the start/end frames for a bake in 'animation' mode.
+
+    The animation 'range' may be computed in several ways:
+    1. from the NLA track(s)
+    2. from the scene settings
+    3. user-specified
+
+    For 1. frame buffer is generated from NLA tracks, which brings many complications because selection may have many
+    different NLA tracks with many different, potentially overlapping, NLA strips:
+        - frames have to be deduplicated
+        - frames have to be sorted
+        - frame stepping may need to be applied, either globally or per NLA strip, messing up with the NLA strip start/end frames to report
+        - frame padding may need to be applied, per NLA strip, further messing up with the NLA strip start/end frames to report
+
+    I chose a slow, bruteforce approach to solve this. The frame buffer is first build as a list of frames, each frame paired with a list
+    of all NLA strips that contain it. This facilitates applying padding and finding the proper start/end frames for each strip.
+
+    For 2. and 3. frame buffer is generated from a known range, facilitating the process. We still want to search for NLA tracks and NLA
+    strips included in that range, for report, as it could be very useful information to have.
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to bake
@@ -499,141 +645,73 @@ def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) ->
     nla_strips = [nla_strip for nla_strip in nla_strips if nla_strip[0].name not in [nla_strip_excluded.name for nla_strip_excluded in settings.frame_range_nla_exclusion]] # exclude user-specified black-listed strips
 
     if settings.frame_range_mode == "NLA":
-        """
-        generate frame buffer from NLA tracks, which brings many complications because selection may have many different NLA tracks with many different, potentially overlapping, NLA strips:
-            - frames have to be deduplicated
-            - frames have to be sorted
-            - frame stepping may need to be applied, either globally or per NLA strip
-            - frame padding may need to be applied, per NLA strip
-
-        I chose a bruteforce approach to solve this and to first build a frame buffer as a list of frames, each paired with a list of all NLA strips that contain that frame.
-        """
         if nla_strips:
-            frames_to_bake = []
-            frames_to_bake_indices = []
-            frame_step = settings.frame_range_custom_step if settings.frame_range_custom_step_mode == "NLACLIP" and settings.frame_range_custom_step > 1 else 1
+            """
+            1. frame buffer
+            """
+            frames_to_bake = get_nla_strips_raw_frame_buffer(context, nla_strips)
 
-            # for each nla_strip, get its start/end frames
-            for nla_strip in nla_strips:
-                strip, objs = nla_strip
-
-                start = int(strip.frame_start)
-                end = int(strip.frame_end)
-
-                # for each frame in [start:end] range
-                for frame in range(start, end + 1, frame_step):
-                    # if frame is already in buffer, append nla strip to it
-                    if frame in frames_to_bake_indices:
-                        frame_index = frames_to_bake_indices.index(frame)
-                        frames_to_bake[frame_index][1].append(nla_strip)
-                    # else append frame to buffer with nla strip appended to it
-                    else:
-                        frames_to_bake_indices.append(frame)
-                        frames_to_bake.append((frame, [nla_strip]))
-
-            # sort frame buffer by frame index
-            frames_to_bake.sort(key=lambda x: x[0])
-
-            # apply stepping in entire frame buffer rather than per NLA strip if desired
-            if settings.frame_range_custom_step_mode == "GLOBAL" and settings.frame_range_custom_step > 1:
-                frames_to_bake = frames_to_bake[::settings.frame_range_custom_step]
+            add_bake_report("frame_step", settings.frame_range_custom_step)
+            add_bake_report("frame_step_mode", settings.frame_range_custom_step_mode)
 
             num_frames = len(frames_to_bake)
             add_bake_report("num_frames", num_frames)
 
             if num_frames < 2:
-                return (False, str(num_frames) + " frames detected: too few frames to bake or no animation data found from NLA track(s)", (None, 0, 0))
-            
-            # see if padding has to be applied
+                return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0))
+
+            """
+            2. padding
+            """
             padding_apply = get_bake_apply_padding(context, objs_to_bake)
             padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
             padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
 
+            add_bake_report("padded", padding_apply)
+            add_bake_report("padding", settings.frame_padding if padding_apply else 0)
+            add_bake_report("padding_mode", settings.frame_padding_mode)
+
+            for nla_strip in nla_strips:
+                strip, objs = nla_strip
+
+                start_index, end_index = get_nla_strip_start_end_indices(nla_strip, frames_to_bake)
+
+                if padding_suffix:
+                    padding = get_nla_strip_suffix_padding_info(frames_to_bake, start_index, end_index)
+                    if padding:
+                        padding_index, padding_value = padding
+                        for pad in range(settings.frame_padding):
+                            frames_to_bake.insert(padding_index, (padding_value, []))
+
+                if padding_prefix:
+                    padding = get_nla_strip_prefix_padding_info(frames_to_bake, start_index, end_index)
+                    if padding:
+                        padding_index, padding_value = padding
+                        for pad in range(settings.frame_padding):
+                            frames_to_bake.insert(padding_index, (padding_value, []))
+
+            num_frames = len(frames_to_bake)
+            add_bake_report("num_frames_padded", num_frames)
+
             """
-            for each NLA strip
-                - find where the strip starts & ends in frame buffer, which may have changed because of stepping & padding
-                - apply padding if necessary, which offsets the strip start/end frames
+            3. report NLA strip start/end frames/time
             """
             for nla_strip in nla_strips:
                 strip, objs = nla_strip
 
-                start = int(strip.frame_start)
-                end = int(strip.frame_end)
+                start_index, end_index = get_nla_strip_start_end_indices(nla_strip, frames_to_bake)
 
-                # 1. find where nla clip starts & ends in frame buffer (which may gets padded while we iterate strips)
-                start_index = None
-                end_index = None
-                for frame_index, frame_data in enumerate(frames_to_bake):
-                    frame, frame_nla_clips = frame_data
-                    # padded frame has empty nla_clips list, skip it
-                    if len(frame_nla_clips) <= 0:
-                        continue
-
-                    if frame == start:
-                        start_index = frame_index
-                    if frame == end:
-                        end_index = frame_index
-
-                if start_index is None:
-                    start_index = 0
-                if end_index is None:
-                    end_index = len(frames_to_bake) - 1
-
-                start_frame_pad = frames_to_bake[start_index][0]
+                # 0-based indices are converted to the actual 1-based frame count
                 start_frame = start_index + 1
-                
-                end_frame_pad = frames_to_bake[end_index][0]
                 end_frame = end_index + 1
-
-                # 2. append start frame after end frame - this does *not* change the clip start/end frames
-                if padding_suffix:
-                    is_padded = False
-                    try:
-                        next_frame, next_frame_nla_clips = frames_to_bake[end_index + 1]
-                        # padded frame has empty nla_clips list, skip it
-                        if next_frame < frame and len(next_frame_nla_clips) <= 0:
-                            is_padded = True
-                    except:
-                        pass
-
-                    if not is_padded:
-                        for pad in range(settings.frame_padding):
-                            frames_to_bake.insert(end_index + 1, (start_frame_pad, []))
-
-                # 3. append end frame before start frame - this *does* change the clip start frame
-                if padding_prefix:
-                    is_padded = False
-                    try:
-                        previous_frame, previous_frame_nla_clips = frames_to_bake[start_index - 1]
-                        # padded frames have empty nla_clips list
-                        if previous_frame > frame and len(previous_frame_nla_clips) <= 0:
-                            is_padded = True
-                    except:
-                        pass
-
-                    if not is_padded:
-                        for pad in range(settings.frame_padding):
-                            frames_to_bake.insert(start_index, (end_frame_pad, []))
-                        start_frame += settings.frame_padding
-                        end_frame += settings.frame_padding
-
-                # 4. report nla_clip start/end frames
-                print(start_frame)
-                print(end_frame)
-                start_time = (start_frame - 1) / num_frames
-                end_time = end_frame / num_frames
+                start_time = (start_frame - 1) / num_frames # @TODO check?
+                end_time = end_frame / num_frames # @TODO check?
                 add_bake_report_anim(objs, strip.name, start_frame, end_frame, start_time, end_time)
 
-            add_bake_report("padded", padding_apply)
-            add_bake_report("padding", settings.frame_padding if padding_apply else 0)
-            add_bake_report("padding_mode", settings.frame_padding_mode)
-            num_frames = len(frames_to_bake)
-            add_bake_report("num_frames_padded", num_frames)
-
-            add_bake_report("frame_step", settings.frame_range_custom_step)
-            add_bake_report("frame_step_mode", settings.frame_range_custom_step_mode)
-
-            # get rid of NLA_strips data from frame buffer
+            """
+            4. convert frame buffer to int buffer
+            """
+            # get rid of NLA_strips data from frame buffer and just keep frame int
             frames_to_bake = [frame_data[0] for frame_data in frames_to_bake]
 
             start_frame = min(frames_to_bake)
@@ -646,21 +724,35 @@ def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) ->
 
             return (True, "", (frames_to_bake, start_frame, end_frame))
         else:
-            return (False, "No NLA_strips found", (None, 0, 0))
+            return (False, "No NLA tracks or strips found", (None, 0, 0))
     else: # CUSTOM or SCENE
         if (settings.frame_range_mode == "CUSTOM"):
             frame_start = settings.frame_range_custom_start
-            frame_end = settings.frame_range_custom_end + 1
+            frame_end = settings.frame_range_custom_end
             frame_step = settings.frame_range_custom_step
         else: # settings.frame_range_mode == "SCENE":
             frame_start = context.scene.frame_start
-            frame_end = context.scene.frame_end + 1
+            frame_end = context.scene.frame_end
             frame_step = context.scene.frame_step
 
         add_bake_report("frame_step", frame_step)
         add_bake_report("frame_step_mode", "GLOBAL")
 
-        for frame in range(frame_start, frame_end, frame_step):
+        frames_to_bake = []
+        frames_to_bake_indices = list(range(frame_start, frame_end + 1, frame_step))
+
+        num_frames = len(frames_to_bake_indices)
+        add_bake_report("num_frames", num_frames)
+        add_bake_report("num_frames_padded", num_frames)
+
+        if num_frames < 2:
+            return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0))
+
+        add_bake_report("padded", False)
+        add_bake_report("padding", 0)
+        add_bake_report("padding_mode", "SUFFIX")
+        
+        for frame in frames_to_bake_indices:
             # we still want to scan NLA_strips to see if any fall in the user-specified frame range because
             # this can be quite useful information to report/output. Any strip that lies in the fram range
             # can be reported right away because the frame_range_mode don't allow for padding to be added.
@@ -672,29 +764,20 @@ def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) ->
                     start = int(strip.frame_start)
                     end = int(strip.frame_end)
 
+                    # NLA strip start or end frame included in range?
                     if start <= frame_end or end >= frame_start:
                         frame_nla_strips.append(nla_strip)
 
-                        start = min(frame_end, max(frame_start, start))
-                        end = min(frame_end, max(frame_start, end))
+                        # clamp start/end frames
+                        start_frame = min(frame_end, max(frame_start, start))
+                        end_frame = min(frame_end, max(frame_start, end))
                         start_time = (start_frame - 1) / num_frames
                         end_time = end_frame / num_frames
-                        add_bake_report_anim(objs, strip.name, start, end, start_time, end_time)
+                        add_bake_report_anim(objs, strip.name, start_frame, end_frame, start_time, end_time)
 
             frames_to_bake.append((frame, frame_nla_strips))
 
-        num_frames = len(frames_to_bake)
-        add_bake_report("num_frames", num_frames)
-
-        if num_frames < 2:
-            return (False, str(num_frames) + " frames detected: too few frames to bake or no animation data found from NLA track(s)", (None, 0, 0))
-
-        add_bake_report("padded", False)
-        add_bake_report("padding", 0)
-        add_bake_report("padding_mode", "None")
-        add_bake_report("num_frames_padded", num_frames)
-
-        # get rid of NLA_strips data from frame buffer
+        # get rid of NLA_strips data from frame buffer and just keep frame int
         frames_to_bake = [frame_data[0] for frame_data in frames_to_bake]
 
         start_frame = min(frames_to_bake)
@@ -733,7 +816,7 @@ def get_bake_frames_sequence(context: bpy.types.Context, objs_to_bake: list) -> 
     # no padding in sequence mode
     add_bake_report("padded", False)
     add_bake_report("padding", 0)
-    add_bake_report("padding_mode", "None")
+    add_bake_report("padding_mode", "SUFFIX")
     
     return (True, "", (frames_to_bake, start_frame, end_frame))
 
