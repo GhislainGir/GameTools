@@ -45,10 +45,11 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_system", context.scene.unit_settings.system)
     add_bake_report("unit_unit", context.scene.unit_settings.length_unit)
     add_bake_report("unit_length", context.scene.unit_settings.scale_length)
-    add_bake_report("unit_scale", settings.scale)
-    add_bake_report("unit_invert_x", settings.invert_x)
-    add_bake_report("unit_invert_y", settings.invert_y)
-    add_bake_report("unit_invert_z", settings.invert_z)
+    add_bake_report("unit_scale", settings.unit_scale)
+    add_bake_report("unit_invert_x", settings.unit_invert_x)
+    add_bake_report("unit_invert_y", settings.unit_invert_y)
+    add_bake_report("unit_invert_z", settings.unit_invert_z)
+    add_bake_report("unit_invert_v", settings.unit_invert_v)
 
 def reset_bake_report():
     """
@@ -95,7 +96,7 @@ def reset_bake_report():
     report.mesh_export = False
     report.mesh_path = ""
     report.mesh_uvmap_index = 0
-    report.mesh_uvmap_invert_v = False
+    report.unit_invert_v = False
     report.mesh_min_bounds_offset = mathutils.Vector((0.0, 0.0, 0.0))
     report.mesh_max_bounds_offset = mathutils.Vector((0.0, 0.0, 0.0))
 
@@ -405,7 +406,7 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
     gathering uvmaps of all selected objects to build a list of maps as if objects were joined and checking if the amount of uvmaps exceed the maximum amount
     in case we need to create one.
     """
-    uvmap_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData.VAT"
+    mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.VAT"
     if settings.bake_mode == 'ANIMATION':
         uvmaps = []
 
@@ -413,7 +414,7 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
             target_obj = selected_obj.get(custom_prop, None)
             uv_object = target_obj if target_obj and target_obj.type == "MESH" else selected_obj
 
-            if uvmap_name not in [uvlayer.name for uvlayer in uv_object.data.uv_layers]: # can't find target UVMap?
+            if mesh_uvmap_name not in [uvlayer.name for uvlayer in uv_object.data.uv_layers]: # can't find target UVMap?
                 if len(uv_object.data.uv_layers) >= 8: # ensure UVMap can be created
                     return (False, uv_object.name + " has the maximum amount of uvmaps already", None, None)
 
@@ -421,11 +422,11 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
                 if uvlayer.name not in uvmaps:
                     uvmaps.append(uvlayer.name)
 
-        if uvmap_name not in uvmaps: # can't find target UVMap?
+        if mesh_uvmap_name not in uvmaps: # can't find target UVMap?
             if len(uvmaps) >= 8: # ensure UVMap can be created
                 return (False, "Joined mesh is projected to have more than the maximum amount of uvmaps", None, None)
     else: # settings.bake_mode == 'MESHSEQUENCE'
-        if uvmap_name not in [uvlayer.name for uvlayer in objs_to_bake[0].data.uv_layers]: # can't find target UVMap?
+        if mesh_uvmap_name not in [uvlayer.name for uvlayer in objs_to_bake[0].data.uv_layers]: # can't find target UVMap?
             if len(objs_to_bake[0].data.uv_layers) >= 8: # ensure UVMap can be created
                 return (False, objs_to_bake[0].name + " has the maximum amount of uvmaps already", None, None)
 
@@ -461,9 +462,252 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
 
     return (True, "", objs_to_bake, active_obj)
 
-def get_bake_frames(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, tuple[list, int, int]]:
+def get_bake_closest_frame(frames: list, frame: int) -> int:
     """
-    Return the list of frames to bake and the resulting frame time.
+    Simple binary search to find the closest frame in the ordered list of frames
+
+    :param frames: ordered list of frames
+    :param frame: frame to find in list of frames
+    :return: index of closest item in list, -1 if invalid
+    :rtype: int
+    """
+    low = 0
+    high = len(frames) - 1
+    mid = None
+    while low <= high:
+        mid = (low + high) // 2
+        if frames[mid] == frame:
+            return mid
+        elif frames[mid] < frame:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return mid
+
+def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, tuple[list, int, int]]:
+    """
+    Return the list of frames to bake and the start/end frames for a bake in 'animation' mode.
+
+    :param context: Blender current execution context
+    :param objs_to_bake: list of objects to bake
+    :return: the function's success, potential error message, list of frames in order, bake start & end frames
+    :rtype: tuple
+    """
+    settings = context.scene.VATBakerSettings
+
+    nla_strips = get_bake_nla_strips(objs_to_bake)
+    nla_strips = [nla_strip for nla_strip in nla_strips if nla_strip[0].name not in [nla_strip_excluded.name for nla_strip_excluded in settings.frame_range_nla_exclusion]] # exclude user-specified black-listed strips
+
+    if settings.frame_range_mode == "NLA":
+        """
+        generate frame buffer from NLA tracks, which brings many complications because selection may have many different NLA tracks with many different, potentially overlapping, NLA strips:
+            - frames have to be deduplicated
+            - frames have to be sorted
+            - frame stepping may need to be applied, either globally or per NLA strip
+            - frame padding may need to be applied, per NLA strip
+
+        I chose a bruteforce approach to solve this and to first build a frame buffer as a list of frames, each paired with a list of all NLA strips that contain that frame.
+        """
+        if nla_strips:
+            frames_to_bake = []
+            frames_to_bake_indices = []
+            frame_step = settings.frame_range_custom_step if settings.frame_range_custom_step_mode == "NLACLIP" and settings.frame_range_custom_step > 1 else 1
+
+            # for each nla_strip, get its start/end frames
+            for nla_strip in nla_strips:
+                strip, objs = nla_strip
+
+                start = int(strip.frame_start)
+                end = int(strip.frame_end)
+
+                # for each frame in [start:end] range
+                for frame in range(start, end + 1, frame_step):
+                    # if frame is already in buffer, append nla strip to it
+                    if frame in frames_to_bake_indices:
+                        frame_index = frames_to_bake_indices.index(frame)
+                        frames_to_bake[frame_index][1].append(nla_strip)
+                    # else append frame to buffer with nla strip appended to it
+                    else:
+                        frames_to_bake_indices.append(frame)
+                        frames_to_bake.append((frame, [nla_strip]))
+
+            # sort frame buffer by frame index
+            frames_to_bake.sort(key=lambda x: x[0])
+
+            # apply stepping in entire frame buffer rather than per NLA strip if desired
+            if settings.frame_range_custom_step_mode == "GLOBAL" and settings.frame_range_custom_step > 1:
+                frames_to_bake = frames_to_bake[::settings.frame_range_custom_step]
+
+            num_frames = len(frames_to_bake)
+            add_bake_report("num_frames", num_frames)
+
+            if num_frames < 2:
+                return (False, str(num_frames) + " frames detected: too few frames to bake or no animation data found from NLA track(s)", (None, 0, 0))
+            
+            # see if padding has to be applied
+            padding_apply = get_bake_apply_padding(context, objs_to_bake)
+            padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
+            padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
+
+            """
+            for each NLA strip
+                - find where the strip starts & ends in frame buffer, which may have changed because of stepping & padding
+                - apply padding if necessary, which offsets the strip start/end frames
+            """
+            for nla_strip in nla_strips:
+                strip, objs = nla_strip
+
+                start = int(strip.frame_start)
+                end = int(strip.frame_end)
+
+                # 1. find where nla clip starts & ends in frame buffer (which may gets padded while we iterate strips)
+                start_index = None
+                end_index = None
+                for frame_index, frame_data in enumerate(frames_to_bake):
+                    frame, frame_nla_clips = frame_data
+                    # padded frame has empty nla_clips list, skip it
+                    if len(frame_nla_clips) <= 0:
+                        continue
+
+                    if frame == start:
+                        start_index = frame_index
+                    if frame == end:
+                        end_index = frame_index
+
+                if start_index is None:
+                    start_index = 0
+                if end_index is None:
+                    end_index = len(frames_to_bake) - 1
+
+                start_frame_pad = frames_to_bake[start_index][0]
+                start_frame = start_index + 1
+                
+                end_frame_pad = frames_to_bake[end_index][0]
+                end_frame = end_index + 1
+
+                # 2. append start frame after end frame - this does *not* change the clip start/end frames
+                if padding_suffix:
+                    is_padded = False
+                    try:
+                        next_frame, next_frame_nla_clips = frames_to_bake[end_index + 1]
+                        # padded frame has empty nla_clips list, skip it
+                        if next_frame < frame and len(next_frame_nla_clips) <= 0:
+                            is_padded = True
+                    except:
+                        pass
+
+                    if not is_padded:
+                        for pad in range(settings.frame_padding):
+                            frames_to_bake.insert(end_index + 1, (start_frame_pad, []))
+
+                # 3. append end frame before start frame - this *does* change the clip start frame
+                if padding_prefix:
+                    is_padded = False
+                    try:
+                        previous_frame, previous_frame_nla_clips = frames_to_bake[start_index - 1]
+                        # padded frames have empty nla_clips list
+                        if previous_frame > frame and len(previous_frame_nla_clips) <= 0:
+                            is_padded = True
+                    except:
+                        pass
+
+                    if not is_padded:
+                        for pad in range(settings.frame_padding):
+                            frames_to_bake.insert(start_index, (end_frame_pad, []))
+                        start_frame += settings.frame_padding
+                        end_frame += settings.frame_padding
+
+                # 4. report nla_clip start/end frames
+                print(start_frame)
+                print(end_frame)
+                start_time = (start_frame - 1) / num_frames
+                end_time = end_frame / num_frames
+                add_bake_report_anim(objs, strip.name, start_frame, end_frame, start_time, end_time)
+
+            add_bake_report("padded", padding_apply)
+            add_bake_report("padding", settings.frame_padding if padding_apply else 0)
+            add_bake_report("padding_mode", settings.frame_padding_mode)
+            num_frames = len(frames_to_bake)
+            add_bake_report("num_frames_padded", num_frames)
+
+            add_bake_report("frame_step", settings.frame_range_custom_step)
+            add_bake_report("frame_step_mode", settings.frame_range_custom_step_mode)
+
+            # get rid of NLA_strips data from frame buffer
+            frames_to_bake = [frame_data[0] for frame_data in frames_to_bake]
+
+            start_frame = min(frames_to_bake)
+            add_bake_report("start_frame", start_frame)
+
+            end_frame = max(frames_to_bake)
+            add_bake_report("end_frame", end_frame)
+
+            print(frames_to_bake)
+
+            return (True, "", (frames_to_bake, start_frame, end_frame))
+        else:
+            return (False, "No NLA_strips found", (None, 0, 0))
+    else: # CUSTOM or SCENE
+        if (settings.frame_range_mode == "CUSTOM"):
+            frame_start = settings.frame_range_custom_start
+            frame_end = settings.frame_range_custom_end + 1
+            frame_step = settings.frame_range_custom_step
+        else: # settings.frame_range_mode == "SCENE":
+            frame_start = context.scene.frame_start
+            frame_end = context.scene.frame_end + 1
+            frame_step = context.scene.frame_step
+
+        add_bake_report("frame_step", frame_step)
+        add_bake_report("frame_step_mode", "GLOBAL")
+
+        for frame in range(frame_start, frame_end, frame_step):
+            # we still want to scan NLA_strips to see if any fall in the user-specified frame range because
+            # this can be quite useful information to report/output. Any strip that lies in the fram range
+            # can be reported right away because the frame_range_mode don't allow for padding to be added.
+            frame_nla_strips = []
+            if nla_strips:
+                for nla_strip in nla_strips:
+                    strip, objs = nla_strip
+
+                    start = int(strip.frame_start)
+                    end = int(strip.frame_end)
+
+                    if start <= frame_end or end >= frame_start:
+                        frame_nla_strips.append(nla_strip)
+
+                        start = min(frame_end, max(frame_start, start))
+                        end = min(frame_end, max(frame_start, end))
+                        start_time = (start_frame - 1) / num_frames
+                        end_time = end_frame / num_frames
+                        add_bake_report_anim(objs, strip.name, start, end, start_time, end_time)
+
+            frames_to_bake.append((frame, frame_nla_strips))
+
+        num_frames = len(frames_to_bake)
+        add_bake_report("num_frames", num_frames)
+
+        if num_frames < 2:
+            return (False, str(num_frames) + " frames detected: too few frames to bake or no animation data found from NLA track(s)", (None, 0, 0))
+
+        add_bake_report("padded", False)
+        add_bake_report("padding", 0)
+        add_bake_report("padding_mode", "None")
+        add_bake_report("num_frames_padded", num_frames)
+
+        # get rid of NLA_strips data from frame buffer
+        frames_to_bake = [frame_data[0] for frame_data in frames_to_bake]
+
+        start_frame = min(frames_to_bake)
+        add_bake_report("start_frame", start_frame)
+
+        end_frame = max(frames_to_bake)
+        add_bake_report("end_frame", end_frame)
+
+        return (True, "", (frames_to_bake, start_frame, end_frame))
+
+def get_bake_frames_sequence(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, tuple[list, int, int]]:
+    """
+    Return the list of frames to bake and the start/end frames for a bake in 'sequence' mode.
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to bake
@@ -471,47 +715,8 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list) -> tuple[boo
     :rtype: tuple
     """
 
-    scene = context.scene
-    settings = scene.VATBakerSettings
-
-    add_bake_report("frame_rate", (context.scene.render.fps / context.scene.render.fps_base))
-
-    frames_to_bake = []
-    apply_padding = get_bake_apply_padding(context, objs_to_bake)
-
-    if settings.bake_mode == 'ANIMATION':
-        nla_strips = get_bake_nla_strips(objs_to_bake)
-        nla_strips = [nla_strip for nla_strip in nla_strips if nla_strip[0].name not in [nla_strip_excluded.name for nla_strip_excluded in settings.frame_range_nla_exclusion]] # exclude user-specified black-listed strips
-        print(nla_strips)
-
-
-        if settings.frame_range_mode == "NLA":
-            if nla_strips:
-                for nla_strip in nla_strips:
-                    strip, objs = nla_strip
-
-                    nla_strip_frame_start = int(strip.frame_start)
-                    nla_strip_frame_end = int(strip.frame_end)
-
-                    frames_to_bake.extend(list(range(nla_strip_frame_start, nla_strip_frame_end + 1, settings.frame_range_custom_step)))
-
-                # frame deduplication & sorting
-                frames_to_bake = list(set(frames_to_bake))
-                frames_to_bake.sort()
-
-            add_bake_report("frame_step", settings.frame_range_custom_step)
-            add_bake_report("frame_step_mode", settings.frame_range_custom_step_mode)
-
-        elif (settings.frame_range_mode == "CUSTOM"):
-            frames_to_bake = list(range(settings.frame_range_custom_start, settings.frame_range_custom_end + 1, settings.frame_range_custom_step))
-            add_bake_report("frame_step", settings.frame_range_custom_step)
-
-        else: # settings.frame_range_mode == "SCENE":
-            frames_to_bake = list(range(scene.frame_start, scene.frame_end + 1, scene.frame_step))
-            add_bake_report("frame_step", scene.frame_step)
-    else: # settings.bake_mode == 'MESHSEQUENCE'
-        frames_to_bake = list(range(len(objs_to_bake))) # one frame per object
-        add_bake_report("frame_step", 1)
+    frames_to_bake = list(range(len(objs_to_bake))) # one frame per object
+    add_bake_report("frame_step", 1)
 
     num_frames = len(frames_to_bake)
     add_bake_report("num_frames", num_frames)
@@ -525,65 +730,31 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list) -> tuple[boo
     end_frame = max(frames_to_bake)
     add_bake_report("end_frame", end_frame)
 
-    add_bake_report("padded", apply_padding)
-    add_bake_report("padding", settings.frame_padding if apply_padding else 0)
-    add_bake_report("padding_mode", settings.frame_padding_mode)
-
-    ###################
-    # NLA STRIPS INFO #
-    """
-    Try to get baked animations info if baking an 'animation', regardless of the 'frame_range_mode'. This serves no purpose besides outputing debug/xml
-    """
-    if settings.bake_mode == 'ANIMATION':
-        if nla_strips:
-            padding_prefix = apply_padding and (settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
-            padding_prefix_frames = settings.frame_padding * (1 if padding_prefix else 0)
-
-            padding_suffix = apply_padding and (settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
-            padding_suffix_frames = settings.frame_padding * (1 if padding_suffix else 0)
-
-            total_padding = len(nla_strips) * (padding_prefix_frames + padding_suffix_frames)
-            total_num_frames = num_frames + total_padding
-
-            padding_offset = 0
-            for nla_strip in nla_strips:
-                strip, objs = nla_strip
-                nla_strip_frame_start = int(strip.frame_start)
-                nla_strip_frame_end = int(strip.frame_end)
-
-                if nla_strip_frame_start in frames_to_bake or nla_strip_frame_end in frames_to_bake:
-                    nla_strip_frame_start = max(start_frame, nla_strip_frame_start)
-                    nla_strip_frame_end = min(end_frame, nla_strip_frame_end)
-
-                    if apply_padding:
-                        nla_strip_frame_start_padded = nla_strip_frame_start
-                        nla_strip_frame_end_padded = nla_strip_frame_end
-
-                        if padding_suffix:
-                            padding_offset += padding_suffix_frames
-                            frame_end_index = frames_to_bake.index(nla_strip_frame_end)
-                            for padding in range(settings.frame_padding):
-                                frames_to_bake.insert(frame_end_index + 1, nla_strip_frame_start)
-
-                        if padding_prefix:
-                            padding_offset += padding_prefix_frames
-                            frame_start_index = frames_to_bake.index(nla_strip_frame_start)
-                            for padding in range(settings.frame_padding):
-                                frames_to_bake.insert(frame_start_index, nla_strip_frame_end)
-
-                        nla_strip_frame_start_padded += padding_offset - padding_suffix_frames
-                        nla_strip_frame_end_padded += padding_offset - padding_suffix_frames
-
-                        nla_strip_frame_start = nla_strip_frame_start_padded
-                        nla_strip_frame_end = nla_strip_frame_end_padded
-
-                    nla_strip_frame_start_time = (nla_strip_frame_start - 1) / total_num_frames
-                    nla_strip_frame_end_time = nla_strip_frame_end / total_num_frames
-                    add_bake_report_anim(objs, strip.name, nla_strip_frame_start, nla_strip_frame_end, nla_strip_frame_start_time, nla_strip_frame_end_time)
-
-            add_bake_report("num_frames_padded", len(frames_to_bake))
-
+    # no padding in sequence mode
+    add_bake_report("padded", False)
+    add_bake_report("padding", 0)
+    add_bake_report("padding_mode", "None")
+    
     return (True, "", (frames_to_bake, start_frame, end_frame))
+
+def get_bake_frames(context: bpy.types.Context, objs_to_bake: list) -> tuple[bool, str, tuple[list, int, int]]:
+    """
+    Return the list of frames to bake and the start/end frames.
+
+    :param context: Blender current execution context
+    :param objs_to_bake: list of objects to bake
+    :return: the function's success, potential error message, list of frames in order, bake start & end frames
+    :rtype: tuple
+    """
+
+    settings = context.scene.VATBakerSettings
+
+    add_bake_report("frame_rate", (context.scene.render.fps / context.scene.render.fps_base))
+
+    if settings.bake_mode == "ANIMATION":
+        return get_bake_frames_animation(context, objs_to_bake)
+    else: # sequence
+        return get_bake_frames_sequence(context, objs_to_bake)
 
 def get_bake_vertices(context: bpy.types.Context, objs_to_bake: list) -> int:
     """
@@ -624,7 +795,7 @@ def get_bake_vertices(context: bpy.types.Context, objs_to_bake: list) -> int:
 
 def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -> str:
     """
-    Return the name to give to the mesh & images to generate.
+    Return the name to give to the bake operation.
 
     :param context: Blender current execution context
     :param active_object: object to derive name from
@@ -635,7 +806,7 @@ def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -
     settings = context.scene.VATBakerSettings
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.VAT"
-    tags = { "ObjectName" : active_object.name if active_object is not None else ""}
+    tags = { "BakeName" : active_object.name if active_object is not None else ""}
     name = replace_tags(name, tags)
     return name
 
@@ -647,7 +818,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT")
+    #bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? it fails when there's no active selection anyway
 
     settings = context.scene.VATBakerSettings
     new_bake_report(context)
@@ -675,6 +846,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
     
+    return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
+
+
     wm.progress_update(3)
 
     num_frames = len(frames_to_bake)
@@ -722,9 +896,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("tex_offset_remapped", True)
         add_bake_report("tex_offset_remapping", max_offset)
 
-    if settings.invert_v:
+    if settings.unit_invert_v:
         vertices_offsets, vertices_normals = get_inverted_buffers(vertices_offsets, vertices_normals, tex_width, tex_height)
-        add_bake_report("mesh_uvmap_invert_v", True)
 
     wm.progress_update(92)
 
@@ -849,7 +1022,22 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     dgraph = context.evaluated_depsgraph_get()
 
     eval_meshes = []
-
+    
+    """
+    build unique list of materials as if objects were merged
+    """
+    if settings.mesh_materials:
+        materials = []
+        if settings.bake_mode == "ANIMATION":
+            for obj_index, obj_to_bake in enumerate(objs_to_bake):
+                for material in obj_to_bake.data.materials:
+                    if material not in materials:
+                        materials.append(material)
+        else: # settings.bake_mode == "MESHSEQUENCE"
+            for material in objs_to_bake[0].data.materials:
+                if material not in materials:
+                    materials.append(material)
+    
     """
     In case of baking an 'animation', we need to duplicate all selected objects in their base pos
     and account for their modifier(s) as well. We can't join them yet because we need to process
@@ -866,9 +1054,8 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
             obj = obj_target if obj_target and obj_target.type == "MESH" else obj_to_bake
 
             eval_obj = obj.evaluated_get(dgraph)
-            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph).copy() # @TODO this was tweaked
-            eval_obj.to_mesh_clear() # @TODO this was tweaked
-            #eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
+            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph).copy()
+            eval_obj.to_mesh_clear()
             eval_mesh.transform(eval_obj.matrix_world)
             eval_meshes[obj_index] = eval_mesh
 
@@ -890,9 +1077,8 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
             eval_meshes_vertices += len(eval_mesh.vertices) # increment vertex count to offset UVs per object
     else: # settings.bake_mode == "MESHSEQUENCE"
         eval_obj = objs_to_bake[0].evaluated_get(dgraph)
-        eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph).copy() # @TODO this was tweaked
-        eval_obj.to_mesh_clear() # @TODO this was tweaked
-        #eval_mesh = bpy.data.meshes.new_from_object(eval_obj)
+        eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph).copy()
+        eval_obj.to_mesh_clear()
         eval_mesh.transform(eval_obj.matrix_world)
 
         success, msg, eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, 0)
@@ -905,10 +1091,37 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
         eval_meshes.append(eval_mesh)
 
     """
+    evaluate each object vertices' face material index and see if it points to the same index
+    in list of materials built pre-processed above. If not, it needs to be updated. Reason may
+    be simple:
+
+    Mesh_A has one material named Mat_A, face material index is 0
+    Mesh_B has one material named Mat_B, face material index is 1
+
+    Once merged, Mesh_C, containing Mesh_A and Mesh_B, have two materials, yet all face material
+    indices are 0, so some must be updated
+    """
+    if settings.mesh_materials and materials and len(materials) > 0:
+        for eval_mesh in eval_meshes:
+            for poly in eval_mesh.polygons:
+                try:
+                    material_source = eval_mesh.materials[poly.material_index]
+                        
+                    material_index_source = poly.material_index
+                    material_index_merged = materials.index(material_source)
+                    if material_index_source != material_index_merged:
+                        poly.material_index = material_index_merged
+                except:
+                    poly.material_index = 0
+
+    """
     Create a new mesh and object to 'merge' all duplicated meshes
     """
     name = bake_name if bake_name != "" else "BakedMesh.VAT"
     mesh = bpy.data.meshes.new(name)
+    if settings.mesh_materials and materials:
+        for material in materials:
+            mesh.materials.append(material)
 
     bm = bmesh.new()
     for eval_mesh in eval_meshes:
@@ -946,11 +1159,11 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
 
     uvmap = None
     uvmap_index = 0
-    uvmap_name = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData.VAT"
+    mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.VAT"
 
     # attempt to find existing UVMap
     for uvlayer_index, uvlayer in enumerate(mesh.uv_layers):
-        if uvlayer.name == uvmap_name:
+        if uvlayer.name == mesh_uvmap_name:
             uvmap = uvlayer
             uvmap_index = uvlayer_index
             break
@@ -963,14 +1176,14 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
         mesh.uv_layers.new()
         uvmap_index = len(mesh.uv_layers) - 1
         uvmap = mesh.uv_layers[uvmap_index]
-        uvmap.name = uvmap_name
+        uvmap.name = mesh_uvmap_name
 
     # set UV
     for loop in mesh.loops:
         vertex_index = loop.vertex_index + vertex_index_offset
         u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
         v = (0.5 / float(tex_height)) + (vertex_index // float(tex_width)) / float(tex_height)
-        if settings.invert_v:
+        if settings.unit_invert_v:
             v = 1.0 - v
 
         uvmap.data[loop.index].uv = (u,v)
@@ -989,7 +1202,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
 
     settings = context.scene.VATBakerSettings
 
-    tags = { "ObjectName" : bake_name}
+    tags = { "BakeName" : bake_name}
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
         bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
@@ -1065,7 +1278,7 @@ def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.ty
     geonode_mod.node_group = geonode_tree
 
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetTex"].identifier] = img_offset
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetScale"].identifier] = settings.scale
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetScale"].identifier] = settings.unit_scale
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemap"].identifier] = max_offset if settings.offset_tex_remap else mathutils.Vector((1.0, 1.0, 1.0))
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemapped"].identifier] = settings.offset_tex_remap
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetMode"].identifier] = settings.offset_tex_mode == "OFFSET"
@@ -1075,11 +1288,11 @@ def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.ty
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if img_nor else False
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameHeight"].identifier] = bake_frame_height
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameOffset"].identifier] = bake_start_frame
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData.VAT"
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.invert_v
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertX"].identifier] = settings.invert_x
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.invert_y
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.invert_z
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.VAT"
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.unit_invert_v
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertX"].identifier] = settings.unit_invert_x
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.unit_invert_y
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.unit_invert_z
 
 def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int], frame_step: float, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
     """
@@ -1120,7 +1333,7 @@ def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export:
     geonode_mod.node_group = geonode_tree
 
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetTex"].identifier] = img_offset
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetScale"].identifier] = settings.scale
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetScale"].identifier] = settings.unit_scale
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemap"].identifier] = max_offset if settings.offset_tex_remap else mathutils.Vector((1.0, 1.0, 1.0))
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemapped"].identifier] = settings.offset_tex_remap
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetMode"].identifier] = settings.offset_tex_mode == "OFFSET"
@@ -1131,11 +1344,11 @@ def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export:
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["Frames"].identifier] = len(frames_to_bake)
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameStep"].identifier] = frame_step
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameOffset"].identifier] = bake_start_frame
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.uvmap_name if settings.uvmap_name != "" else "UVMap.BakedData.VAT"
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.invert_v
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertX"].identifier] = settings.invert_x
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.invert_y
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.invert_z
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.VAT"
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.unit_invert_v
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertX"].identifier] = settings.unit_invert_x
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.unit_invert_y
+    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.unit_invert_z
 
 def build_mesh_geonodes_row_group():
     """
@@ -3337,7 +3550,9 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
         ref_eval_mesh = ref_eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         ref_eval_mesh.transform(ref_eval_obj.matrix_world)
         ref_eval_mesh_vertex_count = len(ref_eval_mesh.vertices)
-        ref_eval_mesh_vertices_pos = [v.co.copy() for v in ref_eval_mesh.vertices] # cache SOURCE vertices pos @NOTE .copy() seems necessary here
+        # cache SOURCE vertices pos. It has to be copied because it is still accessed after ref_eval_mesh is cleared
+        # and it cannot be cleared any later
+        ref_eval_mesh_vertices_pos = [v.co.copy() for v in ref_eval_mesh.vertices]
 
         ref_eval_mesh_vertices_pos_x = [v.x for v in ref_eval_mesh_vertices_pos]
         ref_eval_mesh_vertices_pos_y = [v.y for v in ref_eval_mesh_vertices_pos]
@@ -3366,13 +3581,13 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
 
             mappings = [None] * target_mesh_vertex_count
 
-            for vertex_index, vertex in enumerate(target_eval_mesh.vertices): # @NOTE performance
+            for vertex_index, vertex in enumerate(target_eval_mesh.vertices):
                 closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vertex.co) # closest position on SOURCE mesh from TARGET vert
                 closest_face_vertices_pos = [ref_eval_mesh.vertices[v].co for v in ref_eval_mesh.polygons[closest_face_index].vertices]
                 closest_face_vertices_nor = [ref_eval_mesh.vertices[v].normal for v in ref_eval_mesh.polygons[closest_face_index].vertices]
                 closest_face_barycoords = mathutils.interpolate.poly_3d_calc(closest_face_vertices_pos, closest_face_pos) # compute barycoords of closest position on closest face
 
-                # @NOTE performance & confirm robustness of method
+                # confirm robustness of method
                 # say we have a source vertex and we have found the closest surface position on the target mesh. We are next going to track this same
                 # surface position during the animation to compute the offset but that does NOT account for the initial offset from the source vertex
                 # to the surface position on the target mesh, something that becomes apparent with rotations. So we'll want to carry this offset and
@@ -3403,12 +3618,12 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
         ########
         # BAKE #
 
-        signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                        -1.0 if settings.invert_y else 1.0,
-                                        -1.0 if settings.invert_z else 1.0))
-        signed_scale = signed_axis * settings.scale
+        signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                        -1.0 if settings.unit_invert_y else 1.0,
+                                        -1.0 if settings.unit_invert_z else 1.0))
+        signed_scale = signed_axis * settings.unit_scale
 
-        for frame_index, frame_to_bake in enumerate(frames_to_bake): # @NOTE performance
+        for frame_index, frame_to_bake in enumerate(frames_to_bake):
             progress = (obj_index * max(1, (len(frames_to_bake) - 1)) + frame_index / max(1, (len(objs_to_bake) + len(frames_to_bake) - 2))) 
             bpy.context.window_manager.progress_update((progress * 80) + 10)
 
@@ -3549,10 +3764,10 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
     ########
     # BAKE #
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                        -1.0 if settings.invert_y else 1.0,
-                                        -1.0 if settings.invert_z else 1.0))
-    signed_scale = signed_axis * settings.scale
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                        -1.0 if settings.unit_invert_y else 1.0,
+                                        -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
 
     min_bounds = mathutils.Vector((float('inf'), float('inf'), float('inf')))
     max_bounds = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
@@ -3560,7 +3775,7 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
     vertices_offsets = [0.0, 0.0, 0.0, 1.0] * (tex_width * tex_height)
     vertices_normals = [0.0, 0.0, 0.0, 1.0] * (tex_width * tex_height)
 
-    for frame_index, frame_to_bake in enumerate(frames_to_bake):
+    for frame_index, frame_to_bake in enumerate(frames_to_bake): # @NOTE performance
         progress = (frame_index / (len(frames_to_bake) - 1)) 
         bpy.context.window_manager.progress_update((progress * 80) + 10)
 
@@ -3616,7 +3831,7 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
 
 def get_inverted_buffers(vertices_offsets: list, vertices_normals: list, tex_width: int, tex_height: int) -> tuple[list, list]:
     """ 
-    Re-order vert buffers so that pixel buffer is flipped in V (aka invert image). Append line of pixels after line in reverse order
+    Re-order vert buffers so that pixel buffer is flipped in V (aka invert image). Append line of pixels after line in reverse order. Method can likely be pythonified and improved
 
     :param vertices_offsets: Vertices offsets buffer
     :param vertices_normals: Vertices normals buffer
@@ -3628,7 +3843,7 @@ def get_inverted_buffers(vertices_offsets: list, vertices_normals: list, tex_wid
 
     vertices_offsets_inv = []
     vertices_normals_inv = []
-    for i in reversed(range(tex_height)): # @NOTE performance & pythonify
+    for i in reversed(range(tex_height)):
         row = tex_width * 4
         row_offset = i * row
         vertices_offsets_inv.extend(vertices_offsets[row_offset:row_offset + row])
@@ -3752,8 +3967,8 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     :param bake_name: the bake operation's 'name'
     :param filename: the image's name
     :param buffer: RGBA pixel buffer
-    :param tex_width: SDF image's width
-    :param tex_height: SDF image's height
+    :param tex_width: VAT image's width
+    :param tex_height: VAT image's height
     :return: the function's success, potential error message, image
     :rtype: tuple
     """
@@ -3763,7 +3978,7 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
         return (False, "Vertex buffer has unexpected length: " + str(len(buffer)) + " vs " + str(buffer_size), None)
 
     image_name = filename if filename != "" else "T_Bake_VertOffsets"
-    tags = { "ObjectName": bake_name}
+    tags = { "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
     image_name += ".exr"
 
@@ -3785,10 +4000,10 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
 
 def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str, name: str, obj_name: str, override_file: bool) -> tuple[bool, str, str]:
     """
-    Export the SDF image
+    Export the offset or normal image
 
     :param context: Blender current execution context
-    :param image: the SDF image to export
+    :param image: the VAT image to export
     :param path: export path
     :param name: file name
     :param bake_name: the bake operation's 'name'
@@ -3797,7 +4012,7 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str
     :rtype: tuple
     """
 
-    tags = {"ObjectName": obj_name}
+    tags = {"BakeName": obj_name}
     success, msg, tex_path = get_path(path, name, ".exr", tags, override_file)
     if success:
         image.filepath_raw = tex_path
@@ -3855,11 +4070,7 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
     # fallback to using maximum allowed width if data can no longer fit into the texture based on that width
     if ((num_frames * bake_frame_height) > settings.export_tex_max_height):
         tex_width = settings.export_tex_max_width
-
-    bake_frame_width = num_vertices / float(tex_width)
-    add_bake_report("frame_width", bake_frame_width)
-    add_bake_report("tex_width", tex_width)
-
+    
     if (tex_width > settings.export_tex_max_width):
         return (False, "Invalid tex_width", tex_width, tex_height, bake_frame_height, (False, False))
 
@@ -3872,8 +4083,6 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
             tex_height *= 2
     else:
         tex_height = num_frames * bake_frame_height if settings.tex_packing_mode == 'STACK' else math.ceil(num_frames * bake_frame_height) # else 'CONTINUOUS'
-
-    add_bake_report("tex_height", tex_height)
 
     if (tex_height > settings.export_tex_max_height):
         return (False, "Invalid tex_height", tex_width, tex_height, bake_frame_height, (False, False))
@@ -3890,6 +4099,12 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
     add_bake_report("tex_underflow", underflow)
     overflow = num_vertices > tex_width
     add_bake_report("tex_overflow", overflow)
+
+    add_bake_report("tex_height", tex_height)
+    add_bake_report("tex_width", tex_width)
+
+    bake_frame_width = num_vertices / float(tex_width)
+    add_bake_report("frame_width", bake_frame_width)
 
     sampling = "STACK_SINGLE"
     if (underflow or overflow):
@@ -3917,7 +4132,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     report = context.scene.VATBakerReport
 
     root = ET.Element("BakedData",
-                      type="VAT",
+                      type="VertexAnimationTextures",
                       ID=report.ID,
                       version="1.0")
 
@@ -3926,10 +4141,11 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             system=report.unit_system,
                             unit=str(report.unit_unit),
                             length=str(report.unit_length),
-                            scale=str(report.unit_scale),
-                            invert_x=str(report.unit_invert_x),
-                            invert_y=str(report.unit_invert_y),
-                            invert_z=str(report.unit_invert_z))
+                            unit_scale=str(report.unit_scale),
+                            unit_invert_x=str(report.unit_invert_x),
+                            unit_invert_y=str(report.unit_invert_y),
+                            unit_invert_z=str(report.unit_invert_z),
+                            unit_invert_v=str(report.unit_invert_v))
 
     # frame
     frame_el = ET.SubElement(root, "Frames",
@@ -3942,15 +4158,11 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                              height=str(report.frame_height),
                              ref=str(report.ref))
 
-    # uv info
-    uv_el = ET.SubElement(root, "UV",
-                          index=str(report.mesh_uvmap_index),
-                          invert_v=str(report.mesh_uvmap_invert_v))
-
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""
 
     mesh_el = ET.SubElement(root, "Mesh", path=mesh_export_path,
+                             uv_index=str(report.mesh_uvmap_index),
                              bounds_offset_min_x=str(abs(report.mesh_min_bounds_offset[0])),
                              bounds_offset_min_y=str(abs(report.mesh_min_bounds_offset[1])),
                              bounds_offset_min_z=str(abs(report.mesh_min_bounds_offset[2])),
@@ -4015,16 +4227,16 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 #########################
 ### PATHS & FILENAMES ###
-def get_path(path: str, file_name: str, file_ext: str, tags: dict, override_file: bool) -> tuple[bool, str, str]:
+def get_path(file_path: str, file_name: str, file_ext: str, tags: list, override_file: bool) -> tuple[bool, str, str]:
     """
-    Compile file path/name/extension into a path and perform a couples of safety checks
-
-    :param path: export path
+    Compile path/name/extension into a path on disk, and performs a couples of safety checks
+    
+    :param file_path: file path
     :param file_name: file name
-    :param file_ext: file extension
-    :param tags: dict of tags to look for and what they should be replaced with
-    :param override_file: if any existing file at the computed path should be overriden
-    :return: the function's success, potential error message, export path
+    :param file_ext: file extention
+    :param tags: tags to search for and replace in the file_name
+    :param override_file: if False, function fails if computed path lead to an existing file
+    :return: the function's success, potential error message, path
     :rtype: tuple
     """
     
@@ -4033,29 +4245,47 @@ def get_path(path: str, file_name: str, file_ext: str, tags: dict, override_file
         return (False, "Invalid File Extension", "")
 
     file_name = replace_tags(file_name, tags)
-    export_path = os.path.abspath(os.path.join(bpy.path.abspath(path), file_name + file_ext))
+    export_path = os.path.abspath(os.path.join(bpy.path.abspath(file_path), file_name + file_ext))
     success, msg = check_path(export_path, override_file)
     
     return (success, msg, export_path)
 
-def replace_tags(name: str, tags: dict) -> str:
+def replace_tags(file_name: str, tags: list) -> str:
     """
-    Check for tags and replace them with their associated value
-
-    :param name: string to search tags in
-    :param tags: dict of tags to look for and what they should be replaced with
-    :return: the modified name
+    Scan the provided string and replace any <tag> with the provided tags dictionnary
+    
+    :param file_name: string to modify
+    :param tags: tags to search for and replace in the file_name
+    :return: the modified file_name
     :rtype: str
     """
-    # check tags
     for tag_key, tag_value in tags.items():
         tag = "<"+tag_key+">"
-        if (tag in name):
-            name = name.replace(tag, tag_value)
+        if (tag in file_name):
+            file_name = file_name.replace(tag, tag_value)
 
-    return name
+    return file_name
 
-def check_path(path: str, override_file: str) -> tuple[bool, str]:
+def check_path(disk_path: str, override_file: str) -> tuple[bool, str]:
+    """
+    Check that the directory exists and is writable, and check that the file can be overriden, if any exist at that location
+
+    :param disk_path: path to validate
+    :param override_file: if False, function fails if computed path lead to an existing file
+    :return: the path's validity, potential error message
+    :rtype: tuple
+    """
+    dir = os.path.dirname(disk_path)
+    if not os.path.isdir(dir):
+        return (False, f"Directory does not exist: {dir}")
+    
+    if not os.access(dir, os.W_OK):
+        return (False, f"Directory is not writable: {dir}")
+
+    if os.path.isfile(disk_path) and not override_file:
+        return (False, f"File already exists: {disk_path}")
+
+    return (True, "")
     """
     Check for tags and replace them with their associated value
 

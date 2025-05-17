@@ -1,3 +1,9 @@
 # @TODO anims report start/end doesn't support frame stepping
 
-# @NOTE do we expose an option to store data in the alpha channel?
+# generate list of frames, not accounting for stepping
+# in list of frames
+# for nla clip
+# find start/end frames
+    # isolate sublist of frames
+    # insert padding
+    # apply stepping IF NLA mode

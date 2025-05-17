@@ -58,7 +58,7 @@ class VATBAKER_OT_Bake(bpy.types.Operator):
 ##############
 ### PRESET ###
 class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'databaker_vatpanel.addpreset'
+    bl_idname = 'gametools.vatbaker_addpreset'
     bl_label = 'Add preset'
     preset_menu = 'VATBAKER_MT_VertexAnimation_Presets'
 
@@ -66,14 +66,15 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
 
     preset_values = [
         'settings.bake_mode',
-        'settings.scale',
-        'settings.invert_x',
-        'settings.invert_y',
-        'settings.invert_z',
-        'settings.uvmap_name',
-        'settings.invert_v',
+        'settings.unit_scale',
+        'settings.unit_invert_x',
+        'settings.unit_invert_y',
+        'settings.unit_invert_z',
+        'settings.mesh_uvmap_name',
+        'settings.unit_invert_v',
         'settings.mesh_name',
         'settings.mesh_target_prop',
+        'settings.mesh_materials',
         'settings.export_mesh',
         'settings.export_mesh_file_name',
         'settings.export_mesh_file_path',
@@ -113,7 +114,7 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.tex_packing_mode'
     ]
 
-    preset_subdir = 'operator/databaker_vat'
+    preset_subdir = 'operator/gametools_vatbaker'
 
 #####################
 ### NLA EXCLUSION ###

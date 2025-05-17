@@ -24,20 +24,20 @@ from bl_ui.utils import PresetPanel
 ### PRESETS ###
 class VATBAKER_MT_VertexAnimation_Presets(bpy.types.Menu):
     bl_label = 'VAT Baker Presets'
-    preset_subdir = 'operator/databaker_vat'
+    preset_subdir = 'operator/gametools_vatbaker'
     preset_operator = 'script.execute_preset'
     draw = bpy.types.Menu.draw_preset
 
 class VATBAKER_PT_VertexAnimation_Preset(PresetPanel, bpy.types.Panel):
     bl_label = 'VAT Baker Presets'
-    preset_subdir = 'operator/databaker_vat'
+    preset_subdir = 'operator/gametools_vatbaker'
     preset_operator = 'script.execute_preset'
-    preset_add_operator = 'databaker_vatpanel.addpreset'
+    preset_add_operator = 'gametools.vatbaker_addpreset'
 
 ############
 ### MAIN ###
 class VATBAKER_PT_VertexAnimation(bpy.types.Panel):
-    bl_idname = "VATBAKER_PT_vatpanel"
+    bl_idname = "VATBAKER_PT_mainpanel"
     bl_label = "VAT Baker"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -71,7 +71,7 @@ class VATBAKER_PT_VertexAnimation(bpy.types.Panel):
 ### SCENE ###
 class VATBAKER_PT_FramePanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_framepanel"
-    bl_parent_id = "VATBAKER_PT_vatpanel"
+    bl_parent_id = "VATBAKER_PT_mainpanel"
     bl_label = "Frames"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -185,7 +185,7 @@ class VATBAKER_UL_NLAExclusionList(bpy.types.UIList):
 ### MESHES ###
 class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_meshmainpanel"
-    bl_parent_id = "VATBAKER_PT_vatpanel"
+    bl_parent_id = "VATBAKER_PT_mainpanel"
     bl_label = "Mesh"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -200,16 +200,19 @@ class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         settings = scene.VATBakerSettings
         
         row = layout.row()
-        row.prop(settings, "scale")
+        row.prop(settings, "unit_scale")
 
         row = layout.row()
         row.label(text="Invert")
-        row.prop(settings, "invert_x", text="X")
-        row.prop(settings, "invert_y", text="Y")
-        row.prop(settings, "invert_z", text="Z")
+        row.prop(settings, "unit_invert_x", text="X")
+        row.prop(settings, "unit_invert_y", text="Y")
+        row.prop(settings, "unit_invert_z", text="Z")
 
         row = layout.row()
         row.prop(settings, "mesh_name")
+
+        row = layout.row()
+        row.prop(settings, "mesh_materials")
 
         if settings.bake_mode == "ANIMATION":
             row = layout.row()
@@ -232,10 +235,10 @@ class VATBAKER_PT_MeshUVPanel(bpy.types.Panel):
         settings = scene.VATBakerSettings
 
         row = layout.row()
-        row.prop(settings, "uvmap_name", text="Name")
+        row.prop(settings, "mesh_uvmap_name", text="Name")
 
         row = layout.row()
-        row.prop(settings, "invert_v")
+        row.prop(settings, "unit_invert_v")
 
 class VATBAKER_PT_MeshExportPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_meshexportpanel"
@@ -292,7 +295,7 @@ class VATBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
 ### TEXTURES ###
 class VATBAKER_PT_TexMainPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_texmainpanel"
-    bl_parent_id = "VATBAKER_PT_vatpanel"
+    bl_parent_id = "VATBAKER_PT_mainpanel"
     bl_label = "Textures"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -439,7 +442,7 @@ class VATBAKER_PT_TexAdvExportPanel(bpy.types.Panel):
 ### XML ###
 class VATBAKER_PT_XMLPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_xmlpanel"
-    bl_parent_id = "VATBAKER_PT_vatpanel"
+    bl_parent_id = "VATBAKER_PT_mainpanel"
     bl_label = "XML"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -495,7 +498,7 @@ class VATBAKER_PT_XMLExportPanel(bpy.types.Panel):
 ### REPORT ###
 class VATBAKER_PT_ReportPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_reportpanel"
-    bl_parent_id = "VATBAKER_PT_vatpanel"
+    bl_parent_id = "VATBAKER_PT_mainpanel"
     bl_label = "Report"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -531,19 +534,15 @@ class VATBAKER_PT_ReportPanel(bpy.types.Panel):
 
         row = layout.row()
         if report.success:
-            row.label(text="Success", icon="CHECKMARK")
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
         else:
-            row.label(text="Fail", icon="ERROR")
-
-        row = layout.row()
-        row.prop(report, "ID")
-
-        if not report.success:
+            row.label(text=report.name + " : Fail", icon="ERROR")
             row = layout.row()
             row.label(text=report.msg)
 
         row = layout.row()
-        row.label(text="Name: " + report.name)
+        row.prop(report, "ID", text="")
+        row.enabled = False
 
 class VATBAKER_PT_ReportTexPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_reporttexpanel"
@@ -694,10 +693,10 @@ class VATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
             row = layout.row()
             row.label(text="Index: " + str(report.mesh_uvmap_index), icon=icon)
 
-            icon = "CHECKMARK" if report.mesh_uvmap_invert_v else "X"
+            icon = "CHECKMARK" if report.unit_invert_v else "X"
             row = layout.row()
-            row.label(text="Invert V: " + str(report.mesh_uvmap_invert_v), icon=icon)
-            row.enabled = report.mesh_uvmap_invert_v
+            row.label(text="Invert V: " + str(report.unit_invert_v), icon=icon)
+            row.enabled = report.unit_invert_v
 
             layout.separator()
 
