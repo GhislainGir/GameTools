@@ -24,44 +24,64 @@ class FFTOCEANBAKER_PG_SettingsPropertyGroup(PropertyGroup):
 
     # scene 
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit")
-    unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
-    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
-    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Flip the texture(s) upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps")
+    unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)") # @TODO
+    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)") # @TODO
+    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)") # @TODO
+    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Flip each frame upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each frame individually and doesn't affect the way they are sorted if compacted into a flipbook.")
 
-    subdivisions = [
-        ("CUSTOM", "Custom", "Specify the subdivision level to use for the ocean modifier. Beware, this results in the (subd ^ 4) faces"),
-        ("2", "4x4", "Generate a 4x4 grid"),
-        ("3", "9x9", "Generate a 9x9 grid"),
-        ("4", "16x16", "Generate a 16x16 grid"),
-        ("5", "25x25", "Generate a 25x25 grid"),
-        ("6", "36x36", "Generate a 36x36 grid"),
-        ("7", "49x49", "Generate a 49x49 grid"),
-        ("8", "64x64", "Generate a 64x64 grid"),
-        ("9", "81x81", "Generate a 81x81 grid"),
-        ("10", "100x100", "Generate a 100x100 grid"),
-        ("11", "121x121", "Generate a 121x121 grid"),
-        ("12", "144x144", "Generate a 144x144 grid")
+    subd: IntProperty(name="Subdivisions", default=16, description="Specify the subdivision level to use for the ocean modifier. Beware, this results in the (subd ^ 2) resolution and (subd ^ 4) faces")
+
+    # frames
+    frame_sort_modes = [
+        ('TB_LR', 'Top Bottom, Left Right', ''),
+        ('TB_RL', 'Top Bottom, Right Left', ''),
+        ('BT_LR', 'Bottom Top, Left Right', ''),
+        ('BT_RL', 'Bottom Top, Right Left', '')
     ]
-    subd: EnumProperty(name="Subdivisions", items=subdivisions, default="5", description="Select the subdivision level mode. ")
-    subd_custom_subd: IntProperty(name="Subdivisions", default=5, description="")
-
-    frames_per_row: IntProperty(name="Frames Per Row", default=8, description="")
-    padding_modes = [
+    frame_sort_mode: EnumProperty(name="Frames", items=frame_sort_modes, default="TB_LR", description="Control how the frames are distributed in the flipbook, from the first frame of the animation to the last")
+    frames_per_row: IntProperty(name="Frames Per Row", default=8, description="Specify how many frames to distribute along the U axis in the texture. For example, if you're baking 64 frames and set this value to 8, the result will be an evenly distributed 8×8 texture. If set to 10, it will produce a 10×7 layout, with 4 empty frames in the last row")
+    frame_padding_modes = [
         ("NONE", "None", ""),
         ("MIPLEVEL", "Mip Level", ""),
         ("PIXELS", "Pixels", ""),
     ]
-    frame_padding_mode: EnumProperty(name="Padding Mode", items=padding_modes, default="MIPLEVEL", description="Select how padding is applied, if any")
-    frame_padding_mips: IntProperty(name="Mip", default=2, description="Add enough padding on each side of the frame to fix tiling issues for a specific mip level.\n\nMip 1 - one pixel of padding on each side.\n\nMip 2 - two pixels of padding on each side.\n\nMip 3 - four pixels of padding on each side")
+    frame_padding_mode: EnumProperty(name="Padding Mode", items=frame_padding_modes, default="MIPLEVEL", description="Select how the amount of padding to apply, if any, is computed. Padding can't exceed the frame's size")
+    frame_padding_mips: IntProperty(name="Mip", default=2, description="Add enough padding on each side of the frame to fix tiling issues up to a specific mip level.\n\nMip 1 - one pixel of padding on each side.\nMip 2 - two pixels of padding on each side.\nMip 3 - four pixels of padding on each side")
     frame_padding_pixels: IntProperty(name="Pixels", default=4, description="Add X amount of pixels on each side of the frame to fix tiling issues")
+    frame_range_modes = [
+            ("SCENE", "Scene", "Use the scene's frame range (start and end frames are inclusive)"),
+            ("CUSTOM", "Custom", "Use a custom frame range (start and end frames are inclusive)"),
+        ]
+    frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default="CUSTOM", description="Select how the frame range is derived")
+    frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)")
+    frame_range_custom_end: IntProperty(name="End", min=1, default=64, description="End frame (inclusive)")
+    frame_range_custom_step: IntProperty(name="Step", min=1, default=1, description="Bake every nth frame")
+    frame_size_modes = [
+        ("SUBDIVISIONS", "Subdivisions", "The frame size equals the ocean's modifier resolution and contains as much information as could be extracted from it. There's no reason to scale the frame up but to end up with power of two texture(s)"),
+        ("CUSTOM", "Custom", "The frame size is first rendered to extract as much information as it can be extracted from the ocean modifier, based on its resolution, and then can be upscaled or downscaled using simple bilinear filtering. This doesn't *NOT* produce in more wave details, as this is driven by the 'Subdivisions' setting. Frame size can be customized, and be downscaled/upscaled, to be of power of two if that's a necessity."),
+    ]
+    frame_size_mode: EnumProperty(name="Frame Size", items=frame_size_modes, default="SUBDIVISIONS", description="Select how the frame size is computed.")
+    frame_size_custom: IntProperty(name="Size", default=128, min=1, description="Custom frame size, in pixels")
 
-    anim_speed: FloatProperty(name="Wave Speed", default=5, description="")
-    ocean_size: FloatProperty(name="Size", default=0.25, description="")
-    ocean_spatial_size: FloatProperty(name="Spatial Size", default=50, description="")
+    # ocean
+    ocean_time: FloatProperty(name="Wave Speed", default=5, description="Animation speed")
+    ocean_size: FloatProperty(name="Size", default=0.5, description="Surface scale factor (does not affect the height of the waves)")
+    ocean_spatial_size: IntProperty(name="Spatial Size", default=25, description="Size of the simulation domain (in meters)")
+    ocean_depth: FloatProperty(name="Depth", default=1.5, description="Depth of the solid ground below the water surface")
+    ocean_seed: IntProperty(name="Random Seed", default=11, min=0, description="Seed of the random generator")
+    ocean_scale: FloatProperty(name="Scale", default=1, description="Scale of the displacement effect")
+    ocean_smallest_wave: FloatProperty(name="Smallest Wave", default=0.01, description="Shortest allowed wavelength")
+    ocean_choppiness: FloatProperty(name="Chopiness", default=1, description="Choppiness of the wave's crest (adds some horizontal component to the displacement)")
+    ocean_wind_vel: FloatProperty(name="Wind Velocity", default=10, description="Wind speed")
+    ocean_alignment: FloatProperty(name="Alignment", default=0, min=0, max=1, description="How much the waves are aligned to each other")
+    ocean_direction: FloatProperty(name="Direction", default=0, description="Main direction of the waves when they are (partially) aligned")
+    ocean_damping: FloatProperty(name="Damping", default=0.5, description="Damp reflected waves going in opposite direction of the wind")
+    ocean_clear: BoolProperty(name="Clear Object", default=True, description="Remove the generate ocean mesh from the scene once bake is complete")
+    ocean_from_active: BoolProperty(name="From Active", default=True, description="Inherit settings from the active object's ocean modifier")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.FFT", description="Name of the baked object")
+    generate_mesh: BoolProperty(name="Generate", default=True, description="Enables the generation of a subdivided plane mesh whose size matches the ocean modifier's extents and whose vertex density aligns with its resolution. UVs are centered on the first frame. While this isn’t mandatory—since the offset texture can be used as-is on any subdivided plane and projected using world space coordinates at any scale—this mesh can serve as an ideal reference for vertex density")
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
     export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
@@ -78,24 +98,8 @@ class FFTOCEANBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
-    # frames
-    frame_range_modes = [
-            ("SCENE", "Scene", "Use the scene's frame range (start and end frames are inclusive)"),
-            ("CUSTOM", "Custom", "Use a custom frame range (start and end frames are inclusive)"),
-        ]
-    frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived")
-    frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)")
-    frame_range_custom_end: IntProperty(name="End", min=1, default=64, description="End frame (inclusive)")
-    frame_range_custom_step: IntProperty(name="Step", min=1, default=1, description="Bake every nth frame")
-    frame_size_modes = [
-        ("SUBDIVISIONS", "Subdivisions", ""),
-        ("CUSTOM", "Custom", ""),
-    ]
-    frame_size_mode: EnumProperty(name="Frame Size", items=frame_size_modes, default="SUBDIVISIONS", description="")
-    frame_size_custom: IntProperty(name="Size", default=128, min=1)
-    
     # textures
-    flipbook_max_size: IntProperty(name="Max Size", default=4096, description="")
+    flipbook_max_size: IntProperty(name="Max Size", default=4096, description="Maximum allowed flipbook size. Bake will be cancelled if it is exceeded.")
     tex_modes = [
         ("FLIPBOOK", "Flipbook", "Exports the baked animation as one single image, where each frame is stored next to each other"),
         ("FRAME", "Frame", "Exports the baked animation as individual images, one per frame"),
@@ -133,19 +137,39 @@ class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
 
-    start_frame: IntProperty(name="Start", default=0, description="")
+    start_frame: IntProperty(name="Start", default=0, description="") #
     end_frame: IntProperty(name="End", default=0, description="")
     num_frames: IntProperty(name="Count", default=0, description="")
     frame_step: IntProperty(name="Frame Step", default=0, description="")
-    frame_width: FloatProperty(name="Frame Width", default=0.0, description="")
-    frame_height: FloatProperty(name="Frame Height", default=0.0, description="")
+    frame_size: IntProperty(name="Size", default=128, min=1, description="")
     frame_rate: FloatProperty(name="FPS", default=24.0, description="")
+    
+    frame_sort_mode: StringProperty(name="Frames", default="", description="")
+    frames_per_row: IntProperty(name="Frames Per Row", default=8, description="")
+    frame_padding: IntProperty(name="Pixels", default=4, description="")
+    
+    subd: IntProperty(name="Subdivisions", default=5, description="")
+    ocean_time: FloatProperty(name="Wave Speed", default=5, description="")
+    ocean_size: FloatProperty(name="Size", default=0.5, description="")
+    ocean_spatial_size: IntProperty(name="Spatial Size", default=25, description="")
+    ocean_depth: FloatProperty(name="Depth", default=1.5, description="")
+    ocean_seed: IntProperty(name="Random Seed", default=11, min=0, description="")
+    ocean_scale: FloatProperty(name="Scale", default=1, description="")
+    ocean_smallest_wave: FloatProperty(name="Smallest Wave", default=0.01, description="")
+    ocean_choppiness: FloatProperty(name="Chopiness", default=1, description="")
+    ocean_wind_vel: FloatProperty(name="Wind Velocity", default=10, description="")
+    ocean_alignment: FloatProperty(name="Alignment", default=0, min=0, max=1, description="")
+    ocean_direction: FloatProperty(name="Direction", default=0, description="")
+    ocean_damping: FloatProperty(name="Damping", default=0.5, description="")
+    ocean_clear: BoolProperty(name="Clear Object", default=True, description="")
+    ocean_from_active: BoolProperty(name="From Active", default=True, description="")
 
     mesh: PointerProperty(type=bpy.types.Object)
     mesh_export: BoolProperty(name="Export", default=False, description="")
+    mesh_generate: BoolProperty(name="Generate", default=False, description="")
     mesh_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
-    mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset")
-    mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset")
+    mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset") # @TODO
+    mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset") # @TODO
 
     tex_width: IntProperty(name="Width", default=0, description="")
     tex_height: IntProperty(name="Height", default=0, description="")
@@ -156,7 +180,8 @@ class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
     tex_offset_export: BoolProperty(name="Offset", default=False, description="")
     tex_offset_path: StringProperty(name="Path", default="//", description="", subtype='FILE_PATH')
     tex_offset_remapped: BoolProperty(name="Remapped", default=False, description="")
-    tex_offset_remapping: FloatVectorProperty(name="Remapping")
+    tex_offset_range_offset: FloatVectorProperty(name="Offset")
+    tex_offset_range: FloatVectorProperty(name="Range")
     tex_normal: PointerProperty(type=bpy.types.Image)
     tex_normal_export: BoolProperty(name="Normal", default=False, description="")
     tex_normal_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')

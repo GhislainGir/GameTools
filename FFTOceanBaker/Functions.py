@@ -70,6 +70,60 @@ def reset_bake_report():
     report.unit_invert_x = False
     report.unit_invert_y = False
     report.unit_invert_z = False
+    report.unit_invert_v = False
+
+    report.start_frame = 0
+    report.end_frame = 0
+    report.num_frames = 0
+    report.frame_step = 0
+    report.frame_size = 0
+    report.frame_rate = 0
+    
+    report.frame_sort_mode = ""
+    report.frames_per_row = 0
+    report.frame_padding = 0
+    
+    report.subd = 0
+    report.ocean_time = 0.0
+    report.ocean_size = 0.0
+    report.ocean_spatial_size = 0
+    report.ocean_depth = 0.0
+    report.ocean_seed = 0
+    report.ocean_scale = 0.0
+    report.ocean_smallest_wave = 0.0
+    report.ocean_choppiness = 0.0
+    report.ocean_wind_vel = 0.0
+    report.ocean_alignment = 0.0
+    report.ocean_direction = 0.0
+    report.ocean_damping = 0.0
+    report.ocean_clear = False
+    report.ocean_from_active = False
+
+    report.mesh = None
+    report.mesh_export = False
+    report.mesh_generate = False
+    report.mesh_path = ""
+    report.mesh_min_bounds_offset = mathutils.Vector((0.0, 0.0, 0.0))
+    report.mesh_max_bounds_offset = mathutils.Vector((0.0, 0.0, 0.0))
+
+    report.tex_width = 0
+    report.tex_height = 0
+
+    report.tex_mode = ""
+    report.tex_offset = None
+    report.tex_offset_mode = ""
+    report.tex_offset_export = False
+    report.tex_offset_path = ""
+    report.tex_offset_remapped = False
+    report.tex_offset_range_offset = mathutils.Vector((0.0, 0.0, 0.0))
+    report.tex_offset_range = mathutils.Vector((1.0, 1.0, 1.0))
+    report.tex_normal = None
+    report.tex_normal_export = False
+    report.tex_normal_path = ""
+    report.tex_normal_remapped = False
+
+    report.xml = False
+    report.xml_path = ""
 
 def add_bake_report(prop_name: str, prop_value: float|int|str):
     """
@@ -105,52 +159,16 @@ def get_bake_frames(context: bpy.types.Context) -> tuple[list, int, int]:
 
     settings = context.scene.FFTOCEANBAKERSettings
 
+    add_bake_report("frame_rate", (context.scene.render.fps / context.scene.render.fps_base))
+
     if settings.frame_range_mode == "SCENE":
         frames_to_bake = list(range(context.scene.frame_start, context.scene.frame_end + 1, context.scene.frame_step))
+        add_bake_report("frame_step", context.scene.frame_step)
     else: # CUSTOM
         frames_to_bake = list(range(settings.frame_range_custom_start, settings.frame_range_custom_end + 1, settings.frame_range_custom_step))
+        add_bake_report("frame_step", settings.frame_range_custom_step)
 
     return (frames_to_bake, min(frames_to_bake), max(frames_to_bake))
-
-def get_bake_subdivisions(context: bpy.types.Context) -> int:
-    """
-    Return the subdivision amount to use for generating the ocean mesh and export mesh as well, if any
-
-    :param context: Blender current execution context
-    :return: subdivision amount
-    :rtype: int
-    """
-
-    settings = context.scene.FFTOCEANBAKERSettings
-
-    if settings.subd == "CUSTOM":
-        subd = settings.subd_custom_subd
-    elif settings.subd == "2":
-        subd = 2
-    elif settings.subd == "3":
-        subd = 3
-    elif settings.subd == "4":
-        subd = 4
-    elif settings.subd == "5":
-        subd = 5
-    elif settings.subd == "6":
-        subd = 6
-    elif settings.subd == "7":
-        subd = 7
-    elif settings.subd == "8":
-        subd = 8
-    elif settings.subd == "9":
-        subd = 9
-    elif settings.subd == "10":
-        subd = 10
-    elif settings.subd == "11":
-        subd = 11
-    elif settings.subd == "12":
-        subd = 12
-    else:
-        subd = 2
-
-    return max(2, subd)
 
 def get_bake_frame_size(context: bpy.types.Context) -> int:
     """
@@ -163,25 +181,34 @@ def get_bake_frame_size(context: bpy.types.Context) -> int:
     
     settings = context.scene.FFTOCEANBAKERSettings
     if settings.frame_size_mode == "SUBDIVISIONS":
-        subd = get_bake_subdivisions(context)
+        subd = max(2, settings.subd)
         return subd * subd
     else: # CUSTOM
         return max(2, settings.frame_size_custom)
 
-def get_bake_frame_padding(context: bpy.types.Context) -> int:
+def get_bake_frame_padding(context: bpy.types.Context, clamp=bool) -> int:
     """
     Return the amount of padding to add to each frame, in pixels, on one side
 
+    :param context: Blender current execution context
+    :param clamp: Enable to clamp the padding as to not exceed the frame's resolution
     :return: amount of padding to add to each frame, in pixels, on one side
     :rtype: int
     """
     settings = context.scene.FFTOCEANBAKERSettings
     if settings.frame_padding_mode == "MIPLEVEL":
-        return pow(2, max(0, settings.frame_padding_mips - 1))
+        padding = pow(2, max(0, settings.frame_padding_mips - 1))
     elif settings.frame_padding_mode == "PIXELS":
-        return max(0, settings.frame_padding_pixels)
+        padding = max(0, settings.frame_padding_pixels)
     else: # NONE
-        return 0
+        padding = 0
+
+    if clamp:
+        subd = max(2, settings.subd)
+        res = subd * subd
+        return min(padding, res)
+    else:
+        return padding
 
 def get_bake_name(context: bpy.types.Context) -> str:
     """
@@ -213,24 +240,27 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     #############
     # BAKE INFO #
-    
+
     bake_start_time = time.time()
 
     frames_to_bake, bake_frame_start, bake_frame_end = get_bake_frames(context)
+    add_bake_report("start_frame", bake_frame_start)
+    add_bake_report("end_frame", bake_frame_end)
     
     num_frames = len(frames_to_bake)
+    add_bake_report("num_frames", num_frames)
     if num_frames <= 0:
         add_bake_report("success", False)
         add_bake_report("msg", "Too few frames to bake")
         return (False, "ERROR", "Too few frames to bake")
-    
+
     wm.progress_update(5)
-    
+
     bake_name = get_bake_name(context)
     add_bake_report("name", bake_name)
 
-    wm.progress_update(10)
-    
+    wm.progress_update(7)
+
     #########
     # OCEAN #
 
@@ -240,21 +270,31 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, "ERROR", msg)
 
-    success, msg, extents = setup_ocean_modifiers(context, obj, bake_frame_start, bake_frame_end)
+    wm.progress_update(8)
+
+    for selected_obj in context.selected_objects:
+        selected_obj.select_set(False)
+
+    active_obj = context.view_layer.objects.active
+    context.view_layer.objects.active = None # blank canvas
+
+    success, msg, extents = setup_ocean_modifiers(context, obj, active_obj, bake_frame_start, bake_frame_end)
     if not success:
         clear_ocean_mesh(obj)
 
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, "ERROR", msg)
-    
+
+    wm.progress_update(10)
+
     ########
     # BAKE #
 
     success, msg, tex_offsets, tex_normals = generate_frames(context, obj, frames_to_bake, extents)
-    if not success:
+    if settings.ocean_clear:
         clear_ocean_mesh(obj)
-
+    if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, "ERROR", msg)
@@ -262,41 +302,37 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ############
     # TEXTURES #
 
+    add_bake_report("tex_mode", settings.tex_mode)
     if settings.tex_mode == "FLIPBOOK":
         success, msg, num_frames_x, num_frames_y, tex_width, tex_height = get_flipbook_frames(context, num_frames)
         if not success:
-            clear_ocean_mesh(obj)
-
             add_bake_report("success", False)
             add_bake_report("msg", msg)
             return (False, "ERROR", msg)
+        
+        add_bake_report("tex_width", tex_width)
+        add_bake_report("tex_height", tex_height)
+        add_bake_report("frame_size", get_bake_frame_size(context))
 
         if settings.offset_tex:
             success, msg, buffer_offset = get_flipbook_buffer(context, tex_offsets, num_frames_x, num_frames_y, tex_width, tex_height)
             if not success:
-                clear_ocean_mesh(obj)
-
                 add_bake_report("success", False)
                 add_bake_report("msg", msg)
                 return (False, "ERROR", msg)
-            
-            if settings.unit_invert_v:
-                buffer_offset = get_inverted_buffers(buffer_offset, tex_width, tex_height) # @TODO check
 
             success, msg, tex_offset = generate_texture("offset", buffer_offset, tex_width, tex_height)
             clear_textures(tex_offsets)
             if not success:
-                clear_ocean_mesh(obj)
-
                 add_bake_report("success", False)
                 add_bake_report("msg", msg)
                 return (False, "ERROR", msg)
+            
+            add_bake_report("tex_offset", tex_offset)
 
             if settings.export_tex:
                 success, msg, tex_offset_path = export_texture(context, tex_offset, settings.export_tex_file_path, settings.offset_tex_file_name, bake_name, settings.export_tex_override)
                 if not success:
-                    clear_ocean_mesh(obj)
-
                     add_bake_report("success", False)
                     add_bake_report("msg", msg)
                     return (False, 'ERROR', msg)
@@ -306,47 +342,49 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         if settings.normal_tex:
             success, msg, buffer_normal = get_flipbook_buffer(context, tex_normals, num_frames_x, num_frames_y, tex_width, tex_height)
             if not success:
-                clear_ocean_mesh(obj)
-
                 add_bake_report("success", False)
                 add_bake_report("msg", msg)
                 return (False, "ERROR", msg)
-            
-            if settings.unit_invert_v:
-                buffer_offset = get_inverted_buffers(buffer_offset, tex_width, tex_height) # @TODO check
 
             success, msg, tex_normal = generate_texture("normal", buffer_normal, tex_width, tex_height)
             clear_textures(tex_normals)
             if not success:
-                clear_ocean_mesh(obj)
-
                 add_bake_report("success", False)
                 add_bake_report("msg", msg)
                 return (False, "ERROR", msg)
 
+            add_bake_report("tex_normal", tex_normal)
+
             if settings.export_tex:
                 success, msg, tex_normal_path = export_texture(context, tex_normal, settings.export_tex_file_path, settings.normal_tex_file_name, bake_name, settings.export_tex_override)
                 if not success:
-                    clear_ocean_mesh(obj)
-
                     add_bake_report("success", False)
                     add_bake_report("msg", msg)
                     return (False, 'ERROR', msg)
                 add_bake_report("tex_normal_export", True)
                 add_bake_report("tex_normal_path", tex_normal_path)
     else:
+        add_bake_report("tex_offset", tex_offsets[0])
+        add_bake_report("tex_normal", tex_normals[0])
+
         num_frames_x = 1
         num_frames_y = 1
 
     ########
     # MESH #
 
-    if settings.export_mesh:
+    if settings.generate_mesh:
+        add_bake_report("mesh_generate", settings.generate_mesh)
+
         success, msg, obj_to_export = generate_mesh(context, bake_name, num_frames_x, num_frames_y)
         if success:
             add_bake_report("mesh", obj_to_export)
+    else:
+        obj_to_export = None
 
-    if settings.export_mesh:
+    wm.progress_update(92)
+
+    if obj_to_export and settings.export_mesh:
         success, msg, mesh_path = export_mesh_selection(context, bake_name)
         if not success:
             add_bake_report("success", False)
@@ -354,6 +392,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
             return (False, 'ERROR', msg)
         add_bake_report("mesh_export", True)
         add_bake_report("mesh_path", mesh_path)
+
+    
+    wm.progress_update(94)
 
     #######
     # XML #
@@ -422,36 +463,49 @@ def add_ocean_modifier(context: bpy.types.Context, obj: bpy.types.Object, first_
     :rtype: tuple
     """
     settings = context.scene.FFTOCEANBAKERSettings
-    subd = get_bake_subdivisions(context)
-    time = settings.anim_speed
 
     ocean_modifier = obj.modifiers.new(name="Ocean", type='OCEAN')
     ocean_modifier.geometry_mode = "DISPLACE" if flip else "GENERATE"
-    ocean_modifier.size = 1
     ocean_modifier.repeat_x = 1
     ocean_modifier.repeat_y = 1
+
+    subd = max(2, settings.subd)
     ocean_modifier.viewport_resolution = subd
     ocean_modifier.resolution = subd
-    ocean_modifier.size = 0.25
-    
-    ocean_modifier.time = 0.0 if flip else time
+    ocean_modifier.size = settings.ocean_size
+    ocean_modifier.spatial_size = settings.ocean_spatial_size
+    ocean_modifier.depth = settings.ocean_depth
+    ocean_modifier.random_seed = settings.ocean_seed
+    ocean_modifier.wave_scale_min = settings.ocean_smallest_wave
+    ocean_modifier.choppiness = settings.ocean_choppiness
+    ocean_modifier.wind_velocity = settings.ocean_wind_vel
+    ocean_modifier.wave_alignment = settings.ocean_alignment
+    ocean_modifier.wave_direction = settings.ocean_direction
+    ocean_modifier.damping = settings.ocean_damping
+
+    ocean_modifier.time = 0.0 if flip else settings.ocean_time
     ocean_modifier.keyframe_insert(data_path="time", frame=first_frame)
-    ocean_modifier.time = time if flip else time + time
-    ocean_modifier.keyframe_insert(data_path="time", frame=last_frame)
-    
-    ocean_modifier.wave_scale = 0.0 if flip else 1.0
-    ocean_modifier.keyframe_insert(data_path="wave_scale", frame=first_frame)
-    ocean_modifier.wave_scale = 1.0 if flip else 0.0
-    ocean_modifier.keyframe_insert(data_path="wave_scale", frame=last_frame)
+    ocean_modifier.time = settings.ocean_time if flip else (settings.ocean_time * 2)
+    ocean_modifier.keyframe_insert(data_path="time", frame=last_frame + 1) # offset by one frame to avoid duplicating start/end frames
+
+    debug = False
+    if debug:
+        ocean_modifier.wave_scale = 0.0
+    else:
+        ocean_modifier.wave_scale = 0.0 if flip else settings.ocean_scale
+        ocean_modifier.keyframe_insert(data_path="wave_scale", frame=first_frame)
+        ocean_modifier.wave_scale = settings.ocean_scale if flip else 0.0
+        ocean_modifier.keyframe_insert(data_path="wave_scale", frame=last_frame + 1) # offset by one frame to avoid duplicating start/end frames
 
     return (True, "", ocean_modifier)
-    
-def setup_ocean_modifiers(context: bpy.types.Context, obj: bpy.types.Object, first_frame: int, last_frame: int):
+
+def setup_ocean_modifiers(context: bpy.types.Context, obj: bpy.types.Object, active_obj: bpy.types.Object, first_frame: int, last_frame: int):
     """
     Add and configure the two ocean modifiers required to bake the time-looped FFT ocean
     
     :param context: Blender current execution context
     :param obj: object to receive the ocean modifier
+    :param active_obj: active object serving as the target for searching an active ocean modifier to copy settings from
     :param first_frame: the animation's start frame (inclusive)
     :param last_frame: the animation's end frame (inclusive)
     :return: the function's success, potential error message, the ocean's extents
@@ -459,6 +513,47 @@ def setup_ocean_modifiers(context: bpy.types.Context, obj: bpy.types.Object, fir
     """
     modifier_names = []
     modifiers_param_name = ["time", "wave_scale"]
+    
+    settings = context.scene.FFTOCEANBAKERSettings
+    
+    """
+    inherit settings from active object, assuming we're able to find an ocean modifier in object
+    """
+    active_object_modifier = None
+    if settings.ocean_from_active and active_obj and active_obj.type == "MESH":
+        for modifier in active_obj.modifiers:
+            if modifier.type == "OCEAN":
+                active_object_modifier = modifier
+                break
+
+    if active_object_modifier:
+        settings.subd = max(2, active_object_modifier.resolution)
+        settings.ocean_time = active_object_modifier.time
+        settings.ocean_size = active_object_modifier.size
+        settings.ocean_spatial_size = active_object_modifier.spatial_size
+        settings.ocean_depth = active_object_modifier.depth
+        settings.ocean_seed = active_object_modifier.random_seed
+        settings.ocean_smallest_wave = active_object_modifier.wave_scale_min
+        settings.ocean_choppiness = active_object_modifier.choppiness
+        settings.ocean_wind_vel = active_object_modifier.wind_velocity
+        settings.ocean_alignment = active_object_modifier.wave_alignment
+        settings.ocean_direction = active_object_modifier.wave_direction
+        settings.ocean_damping = active_object_modifier.damping
+
+    add_bake_report("ocean_time", settings.ocean_time)
+    add_bake_report("ocean_size", settings.ocean_size)
+    add_bake_report("ocean_spatial_size", settings.ocean_spatial_size)
+    add_bake_report("ocean_depth", settings.ocean_depth)
+    add_bake_report("ocean_seed", settings.ocean_seed)
+    add_bake_report("ocean_scale", settings.ocean_scale)
+    add_bake_report("ocean_smallest_wave", settings.ocean_smallest_wave)
+    add_bake_report("ocean_choppiness", settings.ocean_choppiness)
+    add_bake_report("ocean_wind_vel", settings.ocean_wind_vel)
+    add_bake_report("ocean_alignment", settings.ocean_alignment)
+    add_bake_report("ocean_direction", settings.ocean_direction)
+    add_bake_report("ocean_damping", settings.ocean_damping)
+    add_bake_report("ocean_clear", settings.ocean_clear)
+    add_bake_report("ocean_from_active", settings.ocean_from_active)
 
     success, msg, ocean_modifier = add_ocean_modifier(context, obj, first_frame, last_frame, flip=False)
     if not success:
@@ -489,12 +584,13 @@ def setup_ocean_modifiers(context: bpy.types.Context, obj: bpy.types.Object, fir
 
 ###############
 ### BUFFERS ###
-def get_frame_buffers(context: bpy.types.Context, obj: bpy.types.Object, frame: int, subdivisions: int, padding: int, extents: float) -> tuple[bool, str, list, list]:
+def get_frame_buffers(context: bpy.types.Context, obj: bpy.types.Object, mappings: list, frame: int, subdivisions: int, padding: int, extents: float) -> tuple[bool, str, list, list]:
     """
     Get the positional and normal pixel buffers for the given frame
 
     :param context: Blender current execution context
     :param obj: the ocean object
+    :param mappings: precomputed bilinear interpolation data and reference position
     :param frame: the frame to bake
     :param subdivisions: the ocean's modifier subdivisions
     :param padding: amount of padding to add, in pixels, on one side
@@ -510,73 +606,44 @@ def get_frame_buffers(context: bpy.types.Context, obj: bpy.types.Object, frame: 
     obj_eval = obj.evaluated_get(dgraph)
     obj_eval_mesh = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
 
+    frame_size = subdivisions * subdivisions
+    frame_size_inner = frame_size - (padding * 2)
+
     # check num vertices
-    num_vertices = subdivisions * subdivisions
-    expected_num_vertices = ((subdivisions) * (subdivisions) + 1) * ((subdivisions) * (subdivisions) + 1)
+    expected_num_vertices = (frame_size + 1) * (frame_size + 1)
     if len(obj_eval_mesh.vertices) != expected_num_vertices:
         return (False, "Error in number of vertices: " + str(len(obj_eval_mesh.vertices)) + " vs " + str(expected_num_vertices), None, None)
 
-    # create pixel buffers
-    frame_size = num_vertices
-    frame_size_inner = frame_size - (padding * 2)
+    # create pixel buffers    
     buffer_offset = [0.0, 0.0, 0.0, 1.0] * frame_size * frame_size
     buffer_normal = [0.0, 0.0, 0.0, 1.0] * frame_size * frame_size
 
-    for x in range(frame_size_inner):
-        for y in range(frame_size_inner):
-            vertex_u = x / frame_size_inner
-            vertex_x = math.floor(vertex_u * frame_size)
-            vertex_x_frac = (vertex_u * frame_size) - vertex_x
-            vertex_x_overflow = (vertex_x + 1) > frame_size
-            vertex_x_next = (vertex_x + 1) % frame_size
+    for y in range(frame_size_inner):
+        for x in range(frame_size_inner):
+            vertex_index = x + (y * frame_size_inner)
+            u_index, u_frac, v_index, v_frac, ref_pos = mappings[vertex_index]
 
-            vertex_v = y / frame_size_inner
-            vertex_y = math.floor(vertex_v * frame_size)
-            vertex_y_frac = (vertex_v * frame_size) - vertex_y
-            vertex_y_overflow = (vertex_y + 1) > frame_size
-            vertex_y_next = (vertex_y + 1) % frame_size
+            vertex_00_index = u_index + 0 + ((v_index + 0) * (frame_size + 1))
+            vertex_01_index = u_index + 1 + ((v_index + 0) * (frame_size + 1))
+            vertex_10_index = u_index + 0 + ((v_index + 1) * (frame_size + 1))
+            vertex_11_index = u_index + 1 + ((v_index + 1) * (frame_size + 1))
 
-            # compute vertex linear index in mesh
-            vertex_index_00 = vertex_x + (vertex_y * (frame_size + 1)) # offset frame size by one to account for last tiling vertex we need to skip each row
-            vertex_index_01 = vertex_x_next + (vertex_y * (frame_size + 1))
-            vertex_index_10 = vertex_x + (vertex_y_next * (frame_size + 1))
-            vertex_index_11 = vertex_x_next + (vertex_y_next * (frame_size + 1))
+            vertex_00 = obj_eval_mesh.vertices[vertex_00_index]
+            vertex_01 = obj_eval_mesh.vertices[vertex_01_index]
+            vertex_10 = obj_eval_mesh.vertices[vertex_10_index]
+            vertex_11 = obj_eval_mesh.vertices[vertex_11_index]
 
-            try:
-                vertex_00 = obj_eval_mesh.vertices[vertex_index_00]
-                vertex_01 = obj_eval_mesh.vertices[vertex_index_01]
-                vertex_10 = obj_eval_mesh.vertices[vertex_index_10]
-                vertex_11 = obj_eval_mesh.vertices[vertex_index_11]
-            except:
-                return (False, "Invalid vertex index: " + str(vertex_index_11) + " vs " + str(len(obj_eval_mesh.vertices)), None, None)
-
-            # @TODO overflow
-
-            # get pos/offset & nor
-            pos_a = vertex_00.co + (vertex_01.co - vertex_00.co) * vertex_x_frac
-            pos_b = vertex_10.co + (vertex_11.co - vertex_10.co) * vertex_x_frac
-            pos = pos_a + (pos_b - pos_a) * vertex_y_frac
+            pos = mathutils.Vector.lerp(mathutils.Vector.lerp(vertex_00.co, vertex_01.co, u_frac), mathutils.Vector.lerp(vertex_10.co, vertex_11.co, u_frac), v_frac)
             if settings.offset_tex_mode == "OFFSET":
-                ref_pos_x = (vertex_u - 0.5) * extents
-                ref_pos_y = (vertex_v - 0.5) * extents
-                ref_pos = mathutils.Vector((ref_pos_x, ref_pos_y, 0.0))
-                pos -= ref_pos # @TODO
-            nor_a = vertex_00.normal + (vertex_01.normal - vertex_00.normal) * vertex_x_frac
-            nor_b = vertex_10.normal + (vertex_11.normal - vertex_10.normal) * vertex_x_frac
-            nor = nor_a + (nor_b - nor_a) * vertex_y_frac
+                pos -= ref_pos
+            pos *= settings.unit_scale
+
+            nor = mathutils.Vector.lerp(mathutils.Vector.lerp(vertex_00.normal, vertex_01.normal, u_frac), mathutils.Vector.lerp(vertex_10.normal, vertex_11.normal, u_frac), v_frac)
             nor.normalize()
 
-            # compute where vertex is in buffer of pixels
-            buffer_index = (x * 4) + (padding * 4) + (y * 4 * frame_size) + (frame_size * padding * 4)
-
-            # fill pixel buffer with data
-            buffer_offset[buffer_index + 0] = pos.x
-            buffer_offset[buffer_index + 1] = pos.y
-            buffer_offset[buffer_index + 2] = pos.z
-
-            buffer_normal[buffer_index + 0] = nor.x
-            buffer_normal[buffer_index + 1] = nor.y
-            buffer_normal[buffer_index + 2] = nor.z
+            i = (x * 4) + (padding * 4) + (y * 4 * frame_size) + (frame_size * padding * 4)
+            buffer_offset[i:i + 3] = pos
+            buffer_normal[i:i + 3] = nor
 
     obj_eval.to_mesh_clear()
 
@@ -594,6 +661,7 @@ def apply_frame_padding(subdivisions: int, padding: int, buffer: list) -> list:
     """
     frame_size_padded = subdivisions * subdivisions
     frame_size = frame_size_padded - (padding * 2)
+    frame_size_buffer_offset = frame_size * 4
 
     # first X padded pixels, copy the last X pixels in frame, for each row
     # 00000000 > 00000000
@@ -605,11 +673,11 @@ def apply_frame_padding(subdivisions: int, padding: int, buffer: list) -> list:
     # 00000000 > 00000000
     # 00000000 > 00000000
     for padding_x in range(padding):
+        padding_buffer_offset = padding_x * 4
         for pixel in range(frame_size_padded):
-            buffer_index = (padding_x * 4) + (pixel * frame_size_padded * 4)
-            buffer[buffer_index + 0] = buffer[buffer_index + 0 + (frame_size * 4)]
-            buffer[buffer_index + 1] = buffer[buffer_index + 1 + (frame_size * 4)]
-            buffer[buffer_index + 2] = buffer[buffer_index + 2 + (frame_size * 4)]
+            i = padding_buffer_offset + (pixel * frame_size_padded * 4)
+            ii = i + frame_size_buffer_offset
+            buffer[i:i + 3] = buffer[ii:ii + 3]
 
     # last X padded pixels, copy the first X pixels in frame, for each row
     # 00000000 > 00000000
@@ -621,11 +689,11 @@ def apply_frame_padding(subdivisions: int, padding: int, buffer: list) -> list:
     # 00000000 > 00000000
     # 00000000 > 00000000
     for padding_x in range(padding):
+        padding_buffer_offset = (padding + frame_size + padding_x) * 4
         for pixel in range(frame_size_padded):
-            buffer_index = ((padding + frame_size + padding_x) * 4) + (pixel * frame_size_padded * 4)
-            buffer[buffer_index + 0] = buffer[buffer_index + 0 - (frame_size * 4)]
-            buffer[buffer_index + 1] = buffer[buffer_index + 1 - (frame_size * 4)]
-            buffer[buffer_index + 2] = buffer[buffer_index + 2 - (frame_size * 4)]
+            i = padding_buffer_offset + (pixel * frame_size_padded * 4)
+            ii = i - frame_size_buffer_offset
+            buffer[i:i + 3] = buffer[ii:ii + 3]
 
     # first Y padded pixels, copy the last Y pixels in the frame, for each column
     # 00000000 > AAAAAAAA
@@ -637,11 +705,11 @@ def apply_frame_padding(subdivisions: int, padding: int, buffer: list) -> list:
     # 00000000 > 00000000
     # 00000000 > 00000000
     for padding_y in range(padding):
+        padding_buffer_offset = (padding_y * frame_size_padded * 4)
         for pixel in range(frame_size_padded):
-            buffer_index = (pixel * 4) + (padding_y * frame_size_padded * 4)
-            buffer[buffer_index + 0] = buffer[buffer_index + 0 + (frame_size_padded * frame_size * 4)]
-            buffer[buffer_index + 1] = buffer[buffer_index + 1 + (frame_size_padded * frame_size * 4)]
-            buffer[buffer_index + 2] = buffer[buffer_index + 2 + (frame_size_padded * frame_size * 4)]
+            i = (pixel * 4) + padding_buffer_offset
+            ii = i + (frame_size_padded * frame_size * 4)
+            buffer[i:i + 3] = buffer[ii:ii + 3]
 
     # last Y padded pixels, copy the first Y pixels in the frame, for each column
     # 11111111 > 11111111
@@ -653,11 +721,11 @@ def apply_frame_padding(subdivisions: int, padding: int, buffer: list) -> list:
     # 00000000 > AAAAAAAA
     # 00000000 > AAAAAAAA
     for padding_y in range(padding):
+        padding_buffer_offset = ((padding + frame_size + padding_y) * frame_size_padded * 4)
         for pixel in range(frame_size_padded):
-            buffer_index = (pixel * 4) + ((padding + frame_size + padding_y) * frame_size_padded * 4)
-            buffer[buffer_index + 0] = buffer[buffer_index + 0 - (frame_size_padded * frame_size * 4)]
-            buffer[buffer_index + 1] = buffer[buffer_index + 1 - (frame_size_padded * frame_size * 4)]
-            buffer[buffer_index + 2] = buffer[buffer_index + 2 - (frame_size_padded * frame_size * 4)]
+            i = (pixel * 4) + padding_buffer_offset
+            ii = i - (frame_size_padded * frame_size * 4)
+            buffer[i:i + 3] = buffer[ii:ii + 3]
 
     return buffer
 
@@ -673,12 +741,14 @@ def get_flipbook_frames(context: bpy.types.Context, num_frames: int) -> tuple[bo
 
     frame_size = get_bake_frame_size(context)
 
-    num_frames_x = max(1, settings.frames_per_row)
+    num_frames_x = max(1, min(num_frames, settings.frames_per_row))
+    num_frames_y = math.ceil(num_frames / num_frames_x)
+    add_bake_report("frames_per_row", num_frames_x)
+
     tex_width = frame_size * num_frames_x
     if tex_width > settings.flipbook_max_size:
         return (False, "Maximum width", 0, 0, 0, 0)
 
-    num_frames_y = math.floor(num_frames / num_frames_x)
     tex_height = frame_size * num_frames_y
     if tex_height > settings.flipbook_max_size:
         return (False, "Maximum height", 0, 0, 0, 0)
@@ -713,10 +783,21 @@ def get_flipbook_buffer(context: bpy.types.Context, frames: list, num_frames_x: 
             try:
                 pixels = frames[frame_index].pixels
             except:
-                return (False, "Invalid frame index: " + str(frame_index) + " vs " + str(len(frames)), None)
+                continue
 
             # compute where this frame starts at in the flipbook pixel buffer
-            buffer_frame_offset = (frame_x * frame_size * 4) + (frame_y * frame_size * tex_width * 4)
+            flip_frame_x = settings.frame_sort_mode == "TB_RL" or settings.frame_sort_mode == "BT_RL"
+            if flip_frame_x:
+                buffer_frame_offset_x = (num_frames_x - 1 - frame_x) * frame_size * 4
+            else:
+                buffer_frame_offset_x = frame_x * frame_size * 4
+            flip_frame_y = settings.frame_sort_mode == "BT_LR" or settings.frame_sort_mode == "BT_RL"
+            if not flip_frame_y:
+                buffer_frame_offset_y = (num_frames_y - 1 - frame_y) * frame_size * tex_width * 4
+            else:
+                buffer_frame_offset_y = frame_y * frame_size * tex_width * 4
+
+            buffer_frame_offset = buffer_frame_offset_x + buffer_frame_offset_y
 
             # for each row of pixels in the frame texture
             for row in range(frame_size):
@@ -742,44 +823,69 @@ def get_inverted_buffers(buffer: list, tex_width: int, tex_height: int) -> tuple
     :rtype: tuple
     """
 
-    buffer_inv = []
-    vertices_normals_inv = []
-    for i in reversed(range(tex_height)):
-        row = tex_width * 4
-        row_offset = i * row
-        buffer_inv.extend(buffer[row_offset:row_offset + row])
+    buffer_row_offset = tex_width * 4
+
+    buffer_inv = [0.0] * len(buffer)
+    for row in reversed(range(tex_height)):
+        i = (tex_height - 1 - row) * buffer_row_offset
+        ii = row * buffer_row_offset
+        buffer_inv[i:i + buffer_row_offset] = buffer[ii:ii + buffer_row_offset]
 
     return buffer_inv
 
-def get_remapped_vertices_offset_buffer(buffer_offset: list) -> tuple[list, mathutils.Vector]:
+def get_remapped_offset_buffer(buffer_offset: list) -> tuple[list, mathutils.Vector]:
     """
     Remap the offset buffer from the range [-min:max] to [0:1]
 
-    :param buffer_offset: buffer of offsets
-    :param min_offset: min values to remap offsets to the range [0:1]
-    :param max_offset: max values to remap offsets to the range [0:1]
-    :return: remapped buffer, absolute maximum offset in X/Y/Z to remap offset back to their initial range
+    :param buffer_offset: offset buffer
+    :return: remapped buffer, X/Y/Z offset & range used to remap values to the range [0:1]
     :rtype: tuple
     """
-    pixel_range = range(len(buffer_offset) // 4)
-    buffer_x = [buffer_offset[pixel_index][0] for pixel_index in pixel_range]
-    buffer_y = [buffer_offset[pixel_index][1] for pixel_index in pixel_range]
-    buffer_z = [buffer_offset[pixel_index][2] for pixel_index in pixel_range]
+    pixels = range(len(buffer_offset) // 4)
+    buffer_x = [buffer_offset[pixel][0] for pixel in pixels]
+    buffer_y = [buffer_offset[pixel][1] for pixel in pixels]
+    buffer_z = [buffer_offset[pixel][2] for pixel in pixels]
 
-    max_offset = mathutils.Vector((abs(max(buffer_x, key=abs)),
-                                   abs(max(buffer_y, key=abs)),
-                                   abs(max(buffer_z, key=abs))))
+    # X range
+    buffer_x_min = min(buffer_x)
+    buffer_x_max = max(buffer_x)
+    if abs(buffer_x_max - buffer_x_min) < 0.0001:
+        buffer_x_range = 1.0
+    else:
+        buffer_x_range = buffer_x_max - buffer_x_min
+    buffer_x_offset = buffer_x_min
 
-    for pixel_index in pixel_range:
-        pixel_buffer_index = (pixel_index * 4)
-        buffer_offset[pixel_buffer_index + 0] = ((buffer_offset[pixel_buffer_index + 0] / max_offset.x) + 1) * 0.5 # x
-        buffer_offset[pixel_buffer_index + 1] = ((buffer_offset[pixel_buffer_index + 1] / max_offset.y) + 1) * 0.5 # y
-        buffer_offset[pixel_buffer_index + 2] = ((buffer_offset[pixel_buffer_index + 2] / max_offset.z) + 1) * 0.5 # z
-        # buffer_offset[pixel_buffer_index + 3] = ((buffer_offset[pixel_buffer_index + 0] / max_offset) * 0.5) + 0.5 # w unused
+    # Y range
+    buffer_y_min = min(buffer_y)
+    buffer_y_max = max(buffer_y)
+    if abs(buffer_y_max - buffer_y_min) < 0.0001:
+        buffer_y_range = 1.0
+    else:
+        buffer_y_range = buffer_y_max - buffer_y_min
+    buffer_y_offset = buffer_x_min
 
-    return buffer_offset, max_offset
+    # Z range
+    buffer_z_min = min(buffer_z)
+    buffer_z_max = max(buffer_z)
+    if abs(buffer_z_max - buffer_z_min) < 0.0001:
+        buffer_z_range = 1.0
+    else:
+        buffer_z_range = buffer_z_max - buffer_z_min
+    buffer_z_offset = buffer_x_min
 
-def get_remapped_vertices_normal_buffer(buffer_normal: list) -> list:
+    pixel_offset = mathutils.Vector((buffer_x_offset, buffer_y_offset, buffer_z_offset))
+    pixel_range = mathutils.Vector((buffer_x_range, buffer_y_range, buffer_z_range))
+
+    for pixel in pixels:
+        i = (pixel * 4)
+        offset = mathutils.Vector(buffer_offset[i:i + 3])
+        offset += pixel_offset
+        offset /= pixel_range
+        buffer_offset[i:i+3] = offset
+
+    return buffer_offset, pixel_offset, pixel_range
+
+def get_remapped_normal_buffer(buffer_normal: list) -> list:
     """
     Remap the normal buffer from the range [-1:1] to [0:1]
 
@@ -788,12 +894,13 @@ def get_remapped_vertices_normal_buffer(buffer_normal: list) -> list:
     :rtype: list
     """
 
-    for pixel_index in range(len(buffer_normal) // 4):
-        pixel_buffer_index = (pixel_index * 4)
-        buffer_normal[pixel_buffer_index + 0] = (buffer_normal[pixel_buffer_index + 0] + 1) * 0.5 # x
-        buffer_normal[pixel_buffer_index + 1] = (buffer_normal[pixel_buffer_index + 1] + 1) * 0.5 # y
-        buffer_normal[pixel_buffer_index + 2] = (buffer_normal[pixel_buffer_index + 2] + 1) * 0.5 # z
-        # vertices_offsets[pixel_buffer_index + 3] = (vertices_offsets[pixel_buffer_index + 0] * 0.5) + 0.5 # w unused
+    pixels = range(len(buffer_normal) // 4)
+    for pixel in pixels:
+        i = (pixel * 4)
+        normal = mathutils.Vector(buffer_normal[i:i + 3])
+        normal += mathutils.Vector((1.0, 1.0, 1.0))
+        normal *= mathutils.Vector((0.5, 0.5, 0.5))
+        buffer_normal[i:i+3] = normal
 
     return buffer_normal
 
@@ -812,8 +919,8 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, num_frames_x: int,
     """
     settings = context.scene.FFTOCEANBAKERSettings
     
-    subdivisions = get_bake_subdivisions(context)
-    padding = get_bake_frame_padding(context)
+    subdivisions = max(2, settings.subd)
+    padding = get_bake_frame_padding(context, clamp=True)
     
     frame_size = subdivisions * subdivisions
     frame_size_ratio = (frame_size - (padding * 2)) / frame_size
@@ -883,6 +990,8 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, num_frames_x: int,
             v = 1.0 - v
 
         uvmap.data[loop.index].uv = (u,v)
+
+    obj.select_set(True) # for export
 
     return (True, "", obj)
 
@@ -1012,16 +1121,59 @@ def generate_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to
 
     settings = context.scene.FFTOCEANBAKERSettings
     
-    padding = get_bake_frame_padding(context)
-    subdivisions = get_bake_subdivisions(context)
+    subdivisions = max(2, settings.subd)
+    add_bake_report("subd", subdivisions)
+
+    padding = get_bake_frame_padding(context, clamp=True)
+    add_bake_report("frame_padding", padding)
+
+    add_bake_report("frame_sort_mode", settings.frame_sort_mode)
+    add_bake_report("tex_offset_mode", settings.offset_tex_mode)
 
     frame_size = subdivisions * subdivisions
-    
+    frame_size_inner = frame_size - (padding * 2)
+
     tex_offsets = []
     tex_normals = []
 
+    """
+    pre-compute mapping data to perform bilinear interpolation
+    """
+    texel_size = 1.0 / frame_size_inner
+    half_texel_size = texel_size * 0.5
+    pseudo_texel_size = 1.0 / (frame_size_inner + 1)
+    
+    mappings = [None] * frame_size_inner * frame_size_inner
+    for y in range(frame_size_inner):
+        for x in range(frame_size_inner):
+            vertex_index = x + (y * frame_size_inner)
+
+            u = (x * pseudo_texel_size) + half_texel_size
+            v = (y * pseudo_texel_size) + half_texel_size
+            
+            u_pos = u * (frame_size + 1)
+            v_pos = v * (frame_size + 1)
+
+            u_index = math.floor(u_pos)
+            v_index = math.floor(v_pos)
+
+            u_frac = u_pos - u_index
+            v_frac = v_pos - v_index
+
+            ref_pos_x = ((x * texel_size) + half_texel_size - 0.5) * extents
+            ref_pos_y = ((y * texel_size) + half_texel_size - 0.5) * extents
+            ref_pos = mathutils.Vector((ref_pos_x, ref_pos_y, 0.0))
+
+            mappings[vertex_index] = (u_index, u_frac, v_index, v_frac, ref_pos)
+
+    """
+    generate offset/normal images
+    """
     for frame in frames_to_bake:
-        success, msg, buffer_offset, buffer_normal = get_frame_buffers(context, obj, frame, subdivisions, padding, extents)
+        progress = frame / max(1, (len(frames_to_bake) - 1))
+        bpy.context.window_manager.progress_update((progress * 80) + 10)
+
+        success, msg, buffer_offset, buffer_normal = get_frame_buffers(context, obj, mappings, frame, subdivisions, padding, extents)
         if not success:
             return (False, msg, None, None)
 
@@ -1030,11 +1182,12 @@ def generate_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to
                 buffer_offset = apply_frame_padding(subdivisions, padding, buffer_offset)
 
             if settings.offset_tex_remap:
-                buffer_offset, max_offset = get_remapped_vertices_offset_buffer(buffer_offset)
+                buffer_offset, remap_range_offset, remap_range = get_remapped_offset_buffer(buffer_offset)
                 add_bake_report("tex_offset_remapped", True)
-                add_bake_report("tex_offset_remapping", max_offset)
+                add_bake_report("tex_offset_range_offset", remap_range_offset)
+                add_bake_report("tex_offset_range", remap_range)
 
-            if settings.unit_invert_v and settings.tex_mode == "FRAME": # flipbook needs to be flipped in its entirety
+            if settings.unit_invert_v:
                 buffer_offset = get_inverted_buffers(buffer_offset, frame_size, frame_size)
 
             success, msg, tex_offset = generate_texture("offset." + str(frame), buffer_offset, frame_size, frame_size)
@@ -1051,10 +1204,10 @@ def generate_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to
                 buffer_normal = apply_frame_padding(subdivisions, padding, buffer_normal)
                     
             if settings.normal_tex_remap:
-                buffer_normal = get_remapped_vertices_normal_buffer(buffer_normal)
+                buffer_normal = get_remapped_normal_buffer(buffer_normal)
                 add_bake_report("tex_normal_remapped", True)
 
-            if settings.unit_invert_v and settings.tex_mode == "FRAME": # flipbook needs to be flipped in its entirety
+            if settings.unit_invert_v:
                 buffer_normal = get_inverted_buffers(buffer_normal, frame_size, frame_size)
 
             success, msg, tex_normal = generate_texture("normal." + str(frame), buffer_normal, frame_size, frame_size)

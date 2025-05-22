@@ -18,7 +18,7 @@ import math
 from bl_ui.utils import PresetPanel
 
 from . import Functions
-from .Functions import get_bake_subdivisions
+from .Functions import get_bake_frame_padding
 
 ####################################################################################
 ###################################### PANELS ######################################
@@ -64,11 +64,85 @@ class FFTOCEANBAKER_PT_FFTOceanBaker(bpy.types.Panel):
         row.scale_y = 2.0
 
 #############
-### FRAME ###
-class FFTOCEANBAKER_PT_FramePanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_framepanel"
+### OCEAN ###
+class FFTOCEANBAKER_PT_OceanPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_oceanpanel"
     bl_parent_id = "FFTOCEANBAKER_PT_mainpanel"
-    bl_label = "Frame"
+    bl_label = "Ocean"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 0
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.FFTOCEANBAKERSettings
+
+        row = layout.row()
+        row.prop(settings, "subd")
+
+        subd = max(2, settings.subd)
+        res = subd * subd
+        faces = res * res
+
+        row = layout.row()
+        row.label(text="Faces: " + str(faces))
+        row.label(text="Res: " + str(res) + "x" + str(res))
+
+        box = layout.box()
+        box.enabled = not settings.ocean_from_active
+    
+        row = box.row()
+        row.prop(settings, "ocean_time")
+
+        row = box.row()
+        col = row.split()
+        col.prop(settings, "ocean_size")
+        col = row.split()
+        col.prop(settings, "ocean_spatial_size")
+
+        row = box.row()
+        row.prop(settings, "ocean_depth")
+
+        row = box.row()
+        row.prop(settings, "ocean_seed")
+
+        row = box.row()
+        row.prop(settings, "ocean_scale")
+
+        row = box.row()
+        row.prop(settings, "ocean_smallest_wave")
+
+        row = box.row()
+        row.prop(settings, "ocean_choppiness")
+
+        row = box.row()
+        row.prop(settings, "ocean_wind_vel")
+
+        row = box.row()
+        row.prop(settings, "ocean_alignment")
+
+        row = box.row()
+        row.prop(settings, "ocean_direction")
+        row.enabled = settings.ocean_alignment > 0
+
+        row = box.row()
+        row.prop(settings, "ocean_damping")
+        row.enabled = settings.ocean_alignment > 0
+
+        row = layout.row()
+        row.prop(settings, "ocean_from_active")
+        row.prop(settings, "ocean_clear")
+
+##############
+### FRAMES ###
+class FFTOCEANBAKER_PT_FramesPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_framespanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_mainpanel"
+    bl_label = "Frames"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
@@ -94,12 +168,93 @@ class FFTOCEANBAKER_PT_FramePanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "frame_range_custom_step")
 
-#############
-### OCEAN ###
-class FFTOCEANBAKER_PT_OceanPanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_oceanpanel"
+##############
+### UNITS ###
+class FFTOCEANBAKER_PT_UnitsPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_unitspanel"
     bl_parent_id = "FFTOCEANBAKER_PT_mainpanel"
-    bl_label = "Ocean"
+    bl_label = "Units"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.FFTOCEANBAKERSettings
+
+        row = layout.row()
+        row.prop(settings, "unit_scale")
+
+        row = layout.row()
+        row.label(text="Invert")
+        row.prop(settings, "unit_invert_x", text="X")
+        row.prop(settings, "unit_invert_y", text="Y")
+        row.prop(settings, "unit_invert_z", text="Z")
+
+############
+### MESH ###
+class FFTOCEANBAKER_PT_MeshPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_meshpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_mainpanel"
+    bl_label = "Mesh"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.FFTOCEANBAKERSettings
+
+        row = layout.row()
+        row.prop(settings, "mesh_name")
+
+        row = layout.row()
+        row.prop(settings, "generate_mesh")
+
+class FFTOCEANBAKER_PT_MeshExportPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_meshexportpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_meshpanel"
+    bl_label = "Export"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 3
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.FFTOCEANBAKERSettings
+
+        layout.prop(settings, "export_mesh", text="")
+        layout.enabled = bpy.data.is_saved
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.FFTOCEANBAKERSettings
+
+        layout.enabled = settings.export_mesh and bpy.data.is_saved
+
+        row = layout.row()
+        row.prop(settings, "export_mesh_file_name")
+
+        row = layout.row()
+        row.prop(settings, "export_mesh_file_path")
+
+class FFTOCEANBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_meshadvexportpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_meshexportpanel"
+    bl_label = "Advanced"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
@@ -113,26 +268,7 @@ class FFTOCEANBAKER_PT_OceanPanel(bpy.types.Panel):
         settings = scene.FFTOCEANBAKERSettings
 
         row = layout.row()
-        row.prop(settings, "subd")
-
-        if settings.subd == "CUSTOM":
-            row = layout.row()
-            row.prop(settings, "subd_custom_subd")
-
-        subd = get_bake_subdivisions(context)
-        faces = pow(subd, 4)
-
-        row = layout.row()
-        row.label(text="Faces: " + str(faces))
-
-        row = layout.row()
-        row.prop(settings, "anim_speed")
-
-        row = layout.row()
-        col = row.split()
-        col.prop(settings, "ocean_size")
-        col = row.split()
-        col.prop(settings, "ocean_spatial_size")
+        row.prop(settings, "export_mesh_file_override")
 
 ################
 ### TEXTURES ###
@@ -163,6 +299,13 @@ class FFTOCEANBAKER_PT_TexMainPanel(bpy.types.Panel):
         row.prop(settings, "frames_per_row")
         if settings.tex_mode != "FLIPBOOK":
             row.enabled = False
+        row = layout.row()
+        row.prop(settings, "frame_sort_mode")
+        if settings.tex_mode != "FLIPBOOK":
+            row.enabled = False
+
+        row = layout.row()
+        row.prop(settings, "unit_invert_v")
 
         layout.separator()
 
@@ -185,6 +328,10 @@ class FFTOCEANBAKER_PT_TexMainPanel(bpy.types.Panel):
             row.prop(settings, "frame_padding_pixels")
         else: # NONE
             pass
+
+        padding = get_bake_frame_padding(context, clamp=True)
+        row = layout.row()
+        row.label(text="Padding: " + str(padding))
 
 class FFTOCEANBAKER_PT_TexOffsetPanel(bpy.types.Panel):
     bl_idname = "FFTOCEANBAKER_PT_texnoffsetpanel"
@@ -212,7 +359,7 @@ class FFTOCEANBAKER_PT_TexOffsetPanel(bpy.types.Panel):
         layout.enabled = settings.offset_tex
 
         row = layout.row()
-        row.prop(settings, "offset_tex_mode")
+        row.prop(settings, "offset_tex_mode")    
 
         row = layout.row()
         row.prop(settings, "offset_tex_file_name")
@@ -298,106 +445,6 @@ class FFTOCEANBAKER_PT_TexAdvExportPanel(bpy.types.Panel):
     
         row = layout.row()
         row.prop(settings, "export_tex_override")
-
-############
-### MESH ###
-class FFTOCEANBAKER_PT_MeshPanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_meshpanel"
-    bl_parent_id = "FFTOCEANBAKER_PT_mainpanel"
-    bl_label = "Mesh"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 2
-    
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.FFTOCEANBAKERSettings
-
-        row = layout.row()
-        row.prop(settings, "unit_scale")
-
-        row = layout.row()
-        row.label(text="Invert")
-        row.prop(settings, "unit_invert_x", text="X")
-        row.prop(settings, "unit_invert_y", text="Y")
-        row.prop(settings, "unit_invert_z", text="Z")
-
-        row = layout.row()
-        row.prop(settings, "mesh_name")
-
-class FFTOCEANBAKER_PT_MeshUVPanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_meshuvpanel"
-    bl_parent_id = "FFTOCEANBAKER_PT_meshpanel"
-    bl_label = "UV"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 2
-    
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.FFTOCEANBAKERSettings
-
-        row = layout.row()
-        row.prop(settings, "unit_invert_v")
-
-class FFTOCEANBAKER_PT_MeshExportPanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_meshexportpanel"
-    bl_parent_id = "FFTOCEANBAKER_PT_meshpanel"
-    bl_label = "Export"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 3
-    
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw_header(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.FFTOCEANBAKERSettings
-
-        layout.prop(settings, "export_mesh", text="")
-        layout.enabled = bpy.data.is_saved
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.FFTOCEANBAKERSettings
-
-        layout.enabled = settings.export_mesh and bpy.data.is_saved
-
-        row = layout.row()
-        row.prop(settings, "export_mesh_file_name")
-
-        row = layout.row()
-        row.prop(settings, "export_mesh_file_path")
-
-class FFTOCEANBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_meshadvexportpanel"
-    bl_parent_id = "FFTOCEANBAKER_PT_meshexportpanel"
-    bl_label = "Advanced"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 3
-    
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.FFTOCEANBAKERSettings
-
-        row = layout.row()
-        row.prop(settings, "export_mesh_file_override")
 
 ###########
 ### XML ###
