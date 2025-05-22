@@ -168,33 +168,6 @@ class FFTOCEANBAKER_PT_FramesPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "frame_range_custom_step")
 
-##############
-### UNITS ###
-class FFTOCEANBAKER_PT_UnitsPanel(bpy.types.Panel):
-    bl_idname = "FFTOCEANBAKER_PT_unitspanel"
-    bl_parent_id = "FFTOCEANBAKER_PT_mainpanel"
-    bl_label = "Units"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 1
-
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        settings = scene.FFTOCEANBAKERSettings
-
-        row = layout.row()
-        row.prop(settings, "unit_scale")
-
-        row = layout.row()
-        row.label(text="Invert")
-        row.prop(settings, "unit_invert_x", text="X")
-        row.prop(settings, "unit_invert_y", text="Y")
-        row.prop(settings, "unit_invert_z", text="Z")
-
 ############
 ### MESH ###
 class FFTOCEANBAKER_PT_MeshPanel(bpy.types.Panel):
@@ -305,6 +278,7 @@ class FFTOCEANBAKER_PT_TexMainPanel(bpy.types.Panel):
             row.enabled = False
 
         row = layout.row()
+        row.prop(settings, "unit_invert_u")
         row.prop(settings, "unit_invert_v")
 
         layout.separator()
@@ -357,6 +331,9 @@ class FFTOCEANBAKER_PT_TexOffsetPanel(bpy.types.Panel):
         settings = scene.FFTOCEANBAKERSettings
         
         layout.enabled = settings.offset_tex
+        
+        row = layout.row()
+        row.prop(settings, "unit_scale")
 
         row = layout.row()
         row.prop(settings, "offset_tex_mode")    
@@ -515,7 +492,298 @@ class FFTOCEANBAKER_PT_ReportPanel(bpy.types.Panel):
 
     bl_options = {'DEFAULT_CLOSED'}
 
+    @classmethod
+    def poll(cls, context):
+        return context.scene.FFTOCEANBAKERReport.baked
+
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         report = scene.FFTOCEANBAKERReport
+
+        if report.baked:
+            row = layout.row()
+            row.scale_y = 2.0
+            col = row.split()
+            col.operator("gametools.fftoceanbaker_export_report")
+            col = row.split()
+            col.operator("gametools.fftoceanbaker_clear_report")
+
+        row = layout.row()
+        if report.success:
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
+        else:
+            row.label(text=report.name + " : Fail", icon="ERROR")
+            row = layout.row()
+            row.label(text=report.msg)
+
+        row = layout.row()
+        row.prop(report, "ID", text="")
+        row.enabled = False
+
+class FFTOCEANBAKER_PT_ReportTexPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_reporttexpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_reportpanel"
+    bl_label = "Textures"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        report = context.scene.FFTOCEANBAKERReport
+        row = self.layout.row(align=True)
+        if report.tex_offset or report.tex_normal:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="ERROR")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.FFTOCEANBAKERReport
+
+        row = layout.row()
+        col = row.split()
+        col.label(text="Width: " + str(report.tex_width))
+        col.label(text="Height: " + str(report.tex_height))
+
+        layout.separator()
+
+        row = layout.row()
+        row.label(text="Offset")
+
+        if report.tex_offset:
+            row = layout.row()
+            row.prop(report, "tex_offset", text="")
+            row.enabled = False
+
+            row = layout.row()
+            if report.tex_offset_export:
+                row.label(text="File: " + report.tex_offset_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+
+            icon = "CHECKMARK" if report.tex_offset_remapped else "X"
+            row = layout.row()
+            row.label(text="Remapped: " + str(report.tex_offset_remapped), icon=icon)
+            row.enabled = report.tex_offset_remapped
+
+            if report.tex_offset_remapped:
+                layout.separator()
+
+                row = layout.row()
+                row.label(text="Offset")
+
+                row = layout.row()
+                row.label(text="X: " + str(report.tex_offset_range_offset[0]), icon="DOT")
+                row = layout.row()
+                row.label(text="Y: " + str(report.tex_offset_range_offset[1]), icon="DOT")
+                row = layout.row()
+                row.label(text="Z: " + str(report.tex_offset_range_offset[2]), icon="DOT")
+
+                layout.separator()
+
+                row = layout.row()
+                row.label(text="Range")
+
+                row = layout.row()
+                row.label(text="X: " + str(report.tex_offset_range[0]), icon="DOT")
+                row = layout.row()
+                row.label(text="Y: " + str(report.tex_offset_range[1]), icon="DOT")
+                row = layout.row()
+                row.label(text="Z: " + str(report.tex_offset_range[2]), icon="DOT")
+
+            row = layout.row()
+            if report.tex_offset_mode == "OFFSET":
+                row.label(text="Mode: " + report.tex_offset_mode, icon="X")
+                row.enabled = False
+            else:
+                row.label(text="Mode: " + report.tex_offset_mode, icon="INFO")
+        else:
+            row.label(text="None generated", icon="X")
+
+        layout.separator()
+
+        row = layout.row()
+        row.label(text="Normal")
+
+        if report.tex_normal:
+            row = layout.row()
+            row.prop(report, "tex_normal", text="")
+            row.enabled = False
+
+            row = layout.row()
+            if report.tex_normal_export:
+                row.label(text="File: " + report.tex_normal_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+
+            icon = "CHECKMARK" if report.tex_offset_remapped else "X"
+            row = layout.row()
+            row.label(text="Remapped: " + str(report.tex_normal_remapped), icon=icon)
+            row.enabled = report.tex_normal_remapped
+        else:
+            row.label(text="None generated", icon="X")
+
+class FFTOCEANBAKER_PT_ReportMeshPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_reportmeshpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_reportpanel"
+    bl_label = "Mesh"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        report = context.scene.FFTOCEANBAKERReport
+        row = self.layout.row(align=True)
+        if report.mesh:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="X")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.FFTOCEANBAKERReport
+
+        if report.mesh:
+            row = layout.row()
+            row.prop(report, "mesh", text="")
+            row.enabled = False
+
+            row = layout.row()
+            if report.mesh_export:
+                row.label(text="File: " + report.mesh_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Min Bounds Offset")
+
+            row = layout.row()
+            row.label(text="X: " + str(report.mesh_min_bounds_offset[0]), icon="DOT")
+            row = layout.row()
+            row.label(text="Y: " + str(report.mesh_min_bounds_offset[1]), icon="DOT")
+            row = layout.row()
+            row.label(text="Z: " + str(report.mesh_min_bounds_offset[2]), icon="DOT")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Max Bounds Offset")
+
+            row = layout.row()
+            row.label(text="X: " + str(report.mesh_max_bounds_offset[0]), icon="DOT")
+            row = layout.row()
+            row.label(text="Y: " + str(report.mesh_max_bounds_offset[1]), icon="DOT")
+            row = layout.row()
+            row.label(text="Z: " + str(report.mesh_max_bounds_offset[2]), icon="DOT")
+        else:
+            row = layout.row()
+            row.label(text="None generated")
+
+class FFTOCEANBAKER_PT_ReportOceanPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_reportoceanpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_reportpanel"
+    bl_label = "Ocean"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 13
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.FFTOCEANBAKERReport
+    
+        row = layout.row()
+        row.label(text="Subdivisions: " + str(report.subd))
+
+        row = layout.row()
+        row.label(text="Time: " + str(report.ocean_time))
+
+        row = layout.row()
+        row.label(text="Size: " + str(report.ocean_size))
+        row.label(text="Spatial Size: " +str( report.ocean_spatial_size))
+
+        row = layout.row()
+        row.label(text="Depth: " + str(report.ocean_depth))
+
+        row = layout.row()
+        row.label(text="Seed: " + str(report.ocean_seed))
+
+        row = layout.row()
+        row.label(text="Scale: " + str(report.ocean_scale))
+
+        row = layout.row()
+        row.label(text="Smallest Wave: %.3f" % report.ocean_smallest_wave)
+
+        row = layout.row()
+        row.label(text="Chopiness: " + str(report.ocean_choppiness))
+
+        row = layout.row()
+        row.label(text="Wind Vel: " + str(report.ocean_wind_vel))
+
+        row = layout.row()
+        row.label(text="Alignment: " + str(report.ocean_alignment))
+
+        row = layout.row()
+        row.label(text="Direction: " + str(report.ocean_direction))
+
+        row = layout.row()
+        row.label(text="Damping: " + str(report.ocean_damping))
+
+class FFTOCEANBAKER_PT_ReportUnitPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_reportunitpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_reportpanel"
+    bl_label = "Unit"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 14
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.FFTOCEANBAKERReport
+
+        row = layout.row()
+        row.label(text="System: " + report.unit_system)
+        row.enabled = report.unit_system != "METRIC"
+
+        row = layout.row()
+        row.label(text="Unit: " + report.unit_unit)
+        row.enabled = report.unit_unit != "METERS"
+
+        row = layout.row()
+        row.label(text="Length: " + str(report.unit_length))
+        row.enabled = report.unit_length != 1.0
+
+        row = layout.row()
+        row.label(text="Scale: " + str(report.unit_scale))
+
+        layout.separator()
+        row = layout.row()
+        row.label(text="Invert")
+
+        icon = "CHECKMARK" if report.unit_invert_u else "X"
+        row = layout.row()
+        row.label(text="X: " + str(report.unit_invert_u), icon=icon)
+        row.enabled = report.unit_invert_u
+
+        icon = "CHECKMARK" if report.unit_invert_v else "X"
+        row = layout.row()
+        row.label(text="Y: " + str(report.unit_invert_v), icon=icon)
+        row.enabled = report.unit_invert_v

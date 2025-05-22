@@ -53,9 +53,7 @@ class FFTOCEANBAKER_OT_FFTOceanBaker_AddPreset(AddPresetBase, bpy.types.Operator
 
     preset_values = [
         'settings.unit_scale',
-        'settings.unit_invert_x',
-        'settings.unit_invert_y',
-        'settings.unit_invert_z',
+        'settings.unit_invert_u',
         'settings.unit_invert_v',
         'settings.frame_sort_mode',
         'settings.subd',

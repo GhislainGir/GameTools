@@ -24,10 +24,8 @@ class FFTOCEANBAKER_PG_SettingsPropertyGroup(PropertyGroup):
 
     # scene 
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit")
-    unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)") # @TODO
-    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)") # @TODO
-    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)") # @TODO
-    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Flip each frame upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each frame individually and doesn't affect the way they are sorted if compacted into a flipbook.")
+    unit_invert_u: BoolProperty(name="Invert U", default=False, description="Flip each frame left to right")
+    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Flip each frame upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each frame individually and doesn't affect the way they are sorted if compacted into a flipbook")
 
     subd: IntProperty(name="Subdivisions", default=16, description="Specify the subdivision level to use for the ocean modifier. Beware, this results in the (subd ^ 2) resolution and (subd ^ 4) faces")
 
@@ -132,9 +130,7 @@ class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_unit: StringProperty(name="Unit", default="", description="")
     unit_length: FloatProperty(name="Length", default=0.0, description="")
     unit_scale: FloatProperty(name="Scale", default=0.0, description="")
-    unit_invert_x: BoolProperty(name="Invert X", default=False, description="")
-    unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
-    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
+    unit_invert_u: BoolProperty(name="Invert U", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
 
     start_frame: IntProperty(name="Start", default=0, description="") #
@@ -166,10 +162,9 @@ class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
 
     mesh: PointerProperty(type=bpy.types.Object)
     mesh_export: BoolProperty(name="Export", default=False, description="")
-    mesh_generate: BoolProperty(name="Generate", default=False, description="")
     mesh_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
-    mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset") # @TODO
-    mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset") # @TODO
+    mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset")
+    mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset")
 
     tex_width: IntProperty(name="Width", default=0, description="")
     tex_height: IntProperty(name="Height", default=0, description="")

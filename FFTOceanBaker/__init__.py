@@ -1,1 +1,2 @@
-# @TODO report min/max offset for mesh?!
+# @TODO jacobian crest
+# @TODO caustics
