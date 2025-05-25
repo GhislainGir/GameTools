@@ -47,6 +47,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     
     bake_start_time = time.time()
 
+    settings = context.scene.BATBakerSettings
 
     if len(bpy.context.selected_objects) <= 0:
         return (False, 'ERROR', "no selection")
@@ -133,36 +134,19 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     if bone_tex_height > 4096:
         return (False, 'ERROR', "too many frames to bake")
 
-    success, msg, pos_buffer, rot_buffer, x_axis_buffer, y_axis_buffer, z_axis_buffer = get_bone_transform_buffer(armature, bones, frames_to_bake, bone_tex_width, bone_tex_height)
+    success, msg, pos_buffer, rot_buffer, x_axis_buffer, y_axis_buffer, z_axis_buffer = get_bone_transform_buffer(context, armature, bones, frames_to_bake, bone_tex_width, bone_tex_height)
     if not success:
         return (False, 'ERROR', msg)
 
-    if True: # invert_v
+    if settings.unit_invert_v:
         pos_buffer = get_inverted_buffers(pos_buffer, bone_tex_width, bone_tex_height)
-        rot_buffer = get_inverted_buffers(rot_buffer, bone_tex_width, bone_tex_height)
-        x_axis_buffer = get_inverted_buffers(x_axis_buffer, bone_tex_width, bone_tex_height)
-        y_axis_buffer = get_inverted_buffers(y_axis_buffer, bone_tex_width, bone_tex_height)
-        z_axis_buffer = get_inverted_buffers(z_axis_buffer, bone_tex_width, bone_tex_height)
 
-    """"""
-    success, msg, tex = generate_texture("Bake", "mytexture.Bones.Pos", x_axis_buffer, bone_tex_width, bone_tex_height)
-    if not success:
-        return (False, 'ERROR', msg)
-    
-    export_texture(context, tex, "//", "x_axis", "texture_name", "bake_name", True)
-    
-    success, msg, tex = generate_texture("Bake", "mytexture.Bones.Pos", y_axis_buffer, bone_tex_width, bone_tex_height)
-    if not success:
-        return (False, 'ERROR', msg)
-    
-    export_texture(context, tex, "//", "y_axis", "texture_name", "bake_name", True)
-
-    success, msg, tex = generate_texture("Bake", "mytexture.Bones.Pos", z_axis_buffer, bone_tex_width, bone_tex_height)
-    if not success:
-        return (False, 'ERROR', msg)
-    
-    export_texture(context, tex, "//", "z_axis", "texture_name", "bake_name", True)
-    """"""
+        if settings.rot_mode == "AXES":
+            x_axis_buffer = get_inverted_buffers(x_axis_buffer, bone_tex_width, bone_tex_height)
+            y_axis_buffer = get_inverted_buffers(y_axis_buffer, bone_tex_width, bone_tex_height)
+            z_axis_buffer = get_inverted_buffers(z_axis_buffer, bone_tex_width, bone_tex_height)
+        else:
+            rot_buffer = get_inverted_buffers(rot_buffer, bone_tex_width, bone_tex_height)
 
     success, msg, tex = generate_texture("Bake", "mytexture.Bones.Pos", pos_buffer, bone_tex_width, bone_tex_height)
     if not success:
@@ -170,13 +154,30 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     
     export_texture(context, tex, "//", "pos", "texture_name", "bake_name", True)
 
-    success, msg, tex = generate_texture("Bake", "mytexture.Bones.Quat", rot_buffer, bone_tex_width, bone_tex_height)
-    if not success:
-        return (False, 'ERROR', msg)
+    if settings.rot_mode == "AXES":
+        success, msg, tex = generate_texture("Bake", "mytexture.Bones.AxesX", x_axis_buffer, bone_tex_width, bone_tex_height)
+        if not success:
+            return (False, 'ERROR', msg)
+        
+        export_texture(context, tex, "//", "x_axis", "texture_name", "bake_name", True)
+        
+        success, msg, tex = generate_texture("Bake", "mytexture.Bones.AxesY", y_axis_buffer, bone_tex_width, bone_tex_height)
+        if not success:
+            return (False, 'ERROR', msg)
+        
+        export_texture(context, tex, "//", "y_axis", "texture_name", "bake_name", True)
 
-    export_texture(context, tex, "//", "quat", "texture_name", "bake_name", True)
+        success, msg, tex = generate_texture("Bake", "mytexture.Bones.AxesZ", z_axis_buffer, bone_tex_width, bone_tex_height)
+        if not success:
+            return (False, 'ERROR', msg)
+        
+        export_texture(context, tex, "//", "z_axis", "texture_name", "bake_name", True)
+    else:
+        success, msg, tex = generate_texture("Bake", "mytexture.Bones.Quat", rot_buffer, bone_tex_width, bone_tex_height)
+        if not success:
+            return (False, 'ERROR', msg)
 
-    
+        export_texture(context, tex, "//", "quat", "texture_name", "bake_name", True)
 
     return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
 
@@ -189,12 +190,16 @@ def get_bones_indices_weights_buffer(obj_to_bake: bpy.types.Object, armature: bp
     """
     bones = []
     vertices_bones_indices_weights = []
-    for vertex in obj_to_bake.data.vertices:
+    for vertex_index, vertex in enumerate(obj_to_bake.data.vertices):
         # sort vertex groups by weight, the one with the most weight one first
         vertex_groups = sorted(vertex.groups, key=lambda x: x.weight, reverse=True)
 
         # filter out least participating vertex groups
         vertex_groups = vertex_groups[0:max_weights]
+        if vertex_index == 1500:
+            for v in vertex_groups:
+                print(obj_to_bake.vertex_groups[v.group].name)
+                vertex.select = True
 
         # compute value to normalize the remaining vertex groups
         normalization_sum = sum([vertex_group.weight for vertex_group in vertex_groups])
@@ -212,13 +217,17 @@ def get_bones_indices_weights_buffer(obj_to_bake: bpy.types.Object, armature: bp
 
             # some bones might not deform etc. so make sure they are part of bones present in weight groups
             if vertex_group_name in armature.data.bones:
-                # get bone index
+                # get bone
                 bone = armature.data.bones[vertex_group_name]
-                if bone not in bones:
-                    bones.append(bone)
+                if not bone.use_deform: # skip non deforming bones
+                    continue
+
+                # get bone index
+                if bone.name not in bones:
+                    bones.append(bone.name)
                     bone_index = len(bones) - 1
                 else:
-                    bone_index = bones.index(bone)
+                    bone_index = bones.index(bone.name)
 
                 # get normalized bone weight
                 bone_weight = vertex_group.weight * normalization_factor
@@ -245,46 +254,71 @@ def get_bones_indices_weights_buffer(obj_to_bake: bpy.types.Object, armature: bp
 
     return (True, "", buffer, bones)
 
-def get_bone_transform_buffer(armature: bpy.types.Armature, bones: list, frames_to_bake: list, tex_width: int, tex_height: int):
+def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Armature, bones: list, frames_to_bake: list, tex_width: int, tex_height: int):
     """ """
+    settings = context.scene.BATBakerSettings
+    
+    signed_axis = mathutils.Vector((
+        -1.0 if settings.unit_invert_x else 1.0,
+        -1.0 if settings.unit_invert_y else 1.0,
+        -1.0 if settings.unit_invert_z else 1.0
+    ))
+    signed_scale = settings.unit_scale * signed_axis
+
+    """
+    0. pre-allocate buffers
+    """
     pos_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
-    rot_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
-    x_axis_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
-    y_axis_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
-    z_axis_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
+    
+    if settings.rot_mode == "AXES":
+        x_axis_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
+        y_axis_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
+        z_axis_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
 
-    rows_per_frame = math.ceil(len(bones) / tex_width)
-    bone_names = [bone.name for bone in bones]
-    bones_matrices = []
+        rot_buffer = []
+    else:
+        x_axis_buffer = []
+        y_axis_buffer = []
+        z_axis_buffer = []
 
-    unit_invert_v = False
+        rot_buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height
 
-    # REF POSE #
-    bpy.context.scene.frame_set(min(frames_to_bake))
+    """
+    1. cache bone matrices in reference pose
+    """    
+    ref_frame = min(frames_to_bake)
+    ref_pose_bones = []
+
+    bpy.context.scene.frame_set(ref_frame)
     dgraph = bpy.context.evaluated_depsgraph_get()
     eval_arm = armature.evaluated_get(dgraph)
+
+    #bone_names = [bone.name for bone in bones]
     for bone in eval_arm.pose.bones:
         try:
-            bone_index = bone_names.index(bone.name)
+            bone_index = bones.index(bone.name)
         except:
             continue
 
         ref_mat = eval_arm.matrix_world @ bone.matrix
-        # if unit_invert_v: # @TODO invert y
-        #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0)).to_4x4()
+        # if settings.unit_invert_x:
+        #     flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
+        #     ref_mat = flip_x @ ref_mat @ flip_x
+
+        # if settings.unit_invert_y:
+        #     flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
         #     ref_mat = flip_y @ ref_mat @ flip_y
-        bones_matrices.append(ref_mat.copy())
 
-        debug = True
-        if debug:
-            debug_mesh = bpy.data.meshes.new("reftest")
-            debug_obj = bpy.data.objects.new("reftest", debug_mesh)
-            
-            verts = [ref_mat.to_translation()]
-            debug_mesh.from_pydata(verts, [], [])
-            bpy.context.scene.collection.objects.link(debug_obj)
+        # if settings.unit_invert_z:
+        #     flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
+        #     ref_mat = flip_z @ ref_mat @ flip_z
+        ref_pose_bones.append(ref_mat.copy())
 
-    # ANIM #
+    """
+    2. iterate frames. Frame 0 is the ref pos and contains data in local space, subsequent frames are relative to ref pose
+    """    
+    rows_per_frame = math.ceil(len(bones) / tex_width)
+
     for frame_index, frame in enumerate(frames_to_bake):
         bpy.context.scene.frame_set(frame)
         dgraph = bpy.context.evaluated_depsgraph_get()
@@ -293,75 +327,142 @@ def get_bone_transform_buffer(armature: bpy.types.Armature, bones: list, frames_
 
         for bone in eval_arm.pose.bones:
             try:
-                bone_index = bone_names.index(bone.name)
+                bone_index = bones.index(bone.name)
             except:
                 continue
 
-            world_matrix = eval_arm.matrix_world @ bone.matrix # @TODO expose way to specify local or world
-            # if unit_invert_v: # @TODO invert y
-            #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0)).to_4x4()
+            world_matrix = eval_arm.matrix_world @ bone.matrix
+            # if settings.unit_invert_x:
+            #     flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
+            #     world_matrix = flip_x @ world_matrix @ flip_x
+
+            # if settings.unit_invert_y:
+            #     flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
             #     world_matrix = flip_y @ world_matrix @ flip_y
-            
-            if ref_pose: # frame 0 is the ref pos and contains absolute data, frame > 0 are relative to pose
-                pos = world_matrix.to_translation()
+
+            # if settings.unit_invert_z:
+            #     flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
+            #     world_matrix = flip_z @ world_matrix @ flip_z
+
+            if ref_pose:
+                pos = world_matrix.to_translation() * signed_scale
+
+                
+                world_matrix = world_matrix.to_3x3()
+                if settings.unit_invert_x:
+                    flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                    world_matrix = flip_x @ world_matrix @ flip_x
+
+                if settings.unit_invert_y:
+                    flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
+                    world_matrix = flip_y @ world_matrix @ flip_y
+
+                if settings.unit_invert_z:
+                    flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                    world_matrix = flip_z @ world_matrix @ flip_z
+
                 quat = world_matrix.to_quaternion()
-                axis, angle = quat.to_axis_angle()
             else:
-                pos = world_matrix.to_translation() - bones_matrices[bone_index].to_translation()
-                quat = world_matrix.to_quaternion().rotation_difference(bones_matrices[bone_index].to_quaternion())
-                axis, angle = quat.to_axis_angle()
+                #world_matrix = (world_matrix @ ref_pose_bones[bone_index].inverted()).to_translation # @TODO test
+                pos = (world_matrix.to_translation() - ref_pose_bones[bone_index].to_translation()) * signed_scale
+                #pos = (ref_pose_bones[bone_index].inverted() @ world_matrix).to_translation() * signed_scale
+                
 
-            pos *= mathutils.Vector((100, 100, 100))
+                #world_matrix = world_matrix.to_3x3()
+                # if settings.unit_invert_x:
+                #     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                #     world_matrix = flip_x @ world_matrix @ flip_x
 
-            angle *= (180/math.pi)
-            angle /= 360
+                # if settings.unit_invert_y:
+                #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
+                #     world_matrix = flip_y @ world_matrix @ flip_y
+
+                # if settings.unit_invert_z:
+                #     flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                #     world_matrix = flip_z @ world_matrix @ flip_z
+
+                # ref_world_matrix = ref_pose_bones[bone_index].to_3x3()
+                # if settings.unit_invert_x:
+                #     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                #     ref_world_matrix = flip_x @ ref_world_matrix @ flip_x
+
+                # if settings.unit_invert_y:
+                #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
+                #     ref_world_matrix = flip_y @ ref_world_matrix @ flip_y
+
+                # if settings.unit_invert_z:
+                #     flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                #     ref_world_matrix = flip_z @ ref_world_matrix @ flip_z
+                
+                world_matrix = world_matrix.to_3x3() @ref_pose_bones[bone_index].to_3x3().inverted()
+
+                
+                #world_matrix = world_matrix.to_3x3()
+                if settings.unit_invert_x:
+                    flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                    world_matrix = flip_x @ world_matrix @ flip_x
+
+                if settings.unit_invert_y:
+                    flip_y = mathutils.Matrix.Scale(-1, 3, (0,-1,0))
+                    world_matrix = flip_y @ world_matrix @ flip_y
+
+                if settings.unit_invert_z:
+                    flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                    world_matrix = flip_z @ world_matrix @ flip_z
+
+                quat = world_matrix.to_quaternion()
+                #quat = world_matrix.to_quaternion().rotation_difference(ref_world_matrix.to_quaternion())
 
             u = bone_index % tex_width
             v = math.floor(bone_index / tex_width)
             v += frame_index * rows_per_frame
-            buffer_index = (u * 4) + (v * tex_width * 4)
+            i = (u * 4) + (v * tex_width * 4)
 
-            pos_buffer[buffer_index + 0] = pos.x
-            pos_buffer[buffer_index + 1] = pos.y
-            pos_buffer[buffer_index + 2] = pos.z
+            pos_buffer[i:i+3] = pos
 
-            export_quat = False
-            if export_quat:
-                rot_buffer[buffer_index + 0] = quat.x
-                rot_buffer[buffer_index + 1] = quat.y
-                rot_buffer[buffer_index + 2] = quat.z
-                rot_buffer[buffer_index + 3] = quat.w
-            else:
-                rot_buffer[buffer_index + 0] = axis.x
-                rot_buffer[buffer_index + 1] = axis.y
-                rot_buffer[buffer_index + 2] = axis.z
-                rot_buffer[buffer_index + 3] = angle
+            if settings.rot_mode == "QUAT":
+                quat = quat.xyzw # @TODO test @TODO bitpack
+                rot_buffer[i+4] = quat
+            elif settings.rot_mode == "AXES": # @TODO this works
+                world_matrix = world_matrix @ ref_pose_bones[bone_index].inverted() # @TODO test
+                if settings.unit_invert_x:
+                    flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
+                    world_matrix = flip_x @ world_matrix @ flip_x
 
-            #flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
-            #world_matrix_3x3 = flip_y @ world_matrix_3x3 @ flip_y
+                if settings.unit_invert_y:
+                    flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
+                    world_matrix = flip_y @ world_matrix @ flip_y
 
-            world_matrix = world_matrix @ bones_matrices[bone_index].inverted()
-            x_axis = mathutils.Vector((1.0, 0.0, 0.0))
-            x_axis.rotate((world_matrix.to_euler()))
-            x_axis_buffer[buffer_index:buffer_index + 3] = x_axis
-            y_axis = mathutils.Vector((0.0, 1.0, 0.0))
-            y_axis.rotate((world_matrix.to_euler()))
-            y_axis_buffer[buffer_index:buffer_index + 3] = y_axis
-            z_axis = mathutils.Vector((0.0, 0.0, 1.0))
-            z_axis.rotate((world_matrix.to_euler()))
-            z_axis_buffer[buffer_index:buffer_index + 3] = z_axis
+                if settings.unit_invert_z:
+                    flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
+                    world_matrix = flip_z @ world_matrix @ flip_z
 
-            debug = True
-            if debug:
-                debug_mesh = bpy.data.meshes.new("test")
-                debug_obj = bpy.data.objects.new("test", debug_mesh)
-                
-                segment = pos + y_axis * 1
+                euler = world_matrix.to_euler()
 
-                verts = [pos, segment]
-                edges = [[0,1]]
-                debug_mesh.from_pydata(verts, edges, [])
-                bpy.context.scene.collection.objects.link(debug_obj)
+                x_axis = mathutils.Vector((1.0, 0.0, 0.0))
+                x_axis.rotate(euler)
+                x_axis_buffer[i:i+3] = x_axis
+
+                y_axis = mathutils.Vector((0.0, -1.0, 0.0)) # @TODO inverted sign!
+                y_axis.rotate(euler)
+                y_axis_buffer[i:i+3] = y_axis
+
+                z_axis = mathutils.Vector((0.0, 0.0, 1.0))
+                z_axis.rotate(euler)
+                z_axis_buffer[i:i+3] = z_axis
+            else: # ANGLE_AXIS
+                axis, angle = quat.to_axis_angle()
+                rot_buffer[i:i+3] = axis
+
+                if settings.quat_angle_unit_mode == "DEGREES":
+                    angle *= (180/math.pi)
+                elif settings.quat_angle_unit_mode == "UNIT":
+                    angle *= (180/math.pi)
+                    angle /= 360
+                else: # RADIANS
+                    pass
+
+                rot_buffer[i+3] = angle
 
     return (True, "", pos_buffer, rot_buffer, x_axis_buffer, y_axis_buffer, z_axis_buffer)
 
@@ -408,7 +509,7 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
         vertex_index = loop.vertex_index
         u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
         v = (0.5 / float(tex_height)) + (vertex_index // float(tex_width)) / float(tex_height)
-        #if settings.unit_invert_v:
+        #if settings.unit_invert_y:
         if invert_v:
             v = 1.0 - v
 

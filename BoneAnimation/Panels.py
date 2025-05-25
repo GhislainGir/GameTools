@@ -61,3 +61,18 @@ class BATBAKER_PT_MainPanel(bpy.types.Panel):
         row = layout.row()
         row.operator("gametools.batbaker_bake")
         row.scale_y = 2.0
+
+        row = layout.row()
+        row.prop(settings, "unit_scale")
+        row = layout.row()
+        row.prop(settings, "unit_invert_x")
+        row = layout.row()
+        row.prop(settings, "unit_invert_y")
+        row = layout.row()
+        row.prop(settings, "unit_invert_z")
+        row = layout.row()
+        row.prop(settings, "unit_invert_v")
+        row = layout.row()
+        row.prop(settings, "quat_angle_unit_mode")
+        row = layout.row()
+        row.prop(settings, "rot_mode")
