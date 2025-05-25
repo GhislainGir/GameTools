@@ -106,7 +106,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     export_texture(context, tex, "//", "hierarchy", "texture_name", "bake_name", True)
     
-    frames_to_bake = list(range(21))
+    frames_to_bake = list(range(121))
 
     num_bones = len(bones)
     
@@ -233,7 +233,7 @@ def get_bones_indices_weights_buffer(obj_to_bake: bpy.types.Object, armature: bp
                 bone_weight = vertex_group.weight * normalization_factor
 
                 # create bone data buffer per vertex
-                bone_indices_weights.append((bone_index, bone_weight))
+                bone_indices_weights.append((bone, bone_index, bone_weight))
         # append bone data buffer per vertex
         vertices_bones_indices_weights.append((vertex.index, bone_indices_weights))
 
@@ -246,8 +246,10 @@ def get_bones_indices_weights_buffer(obj_to_bake: bpy.types.Object, armature: bp
     for vertex_bone_index_weight in vertices_bones_indices_weights:
         vertex_index, bone_info = vertex_bone_index_weight
         for bone_channel, bone_index_weight in enumerate(bone_info):
-            bone_index, bone_weight = bone_index_weight
+            bone, bone_index, bone_weight = bone_index_weight
 
+            if bone.name == "upperarm.l":
+                print(bone_index)
             buffer_index = (vertex_index * 4) + bone_channel
             buffer[buffer_index] = bone_index
             buffer[buffer_index + buffer_half_size] = bone_weight
@@ -287,7 +289,8 @@ def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Ar
     1. cache bone matrices in reference pose
     """    
     ref_frame = min(frames_to_bake)
-    ref_pose_bones = []
+    print(ref_frame)
+    ref_pose_bones = [None] * len(bones)
 
     bpy.context.scene.frame_set(ref_frame)
     dgraph = bpy.context.evaluated_depsgraph_get()
@@ -312,7 +315,7 @@ def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Ar
         # if settings.unit_invert_z:
         #     flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
         #     ref_mat = flip_z @ ref_mat @ flip_z
-        ref_pose_bones.append(ref_mat.copy())
+        ref_pose_bones[bone_index] = ref_mat.copy()
 
     """
     2. iterate frames. Frame 0 is the ref pos and contains data in local space, subsequent frames are relative to ref pose
@@ -346,8 +349,9 @@ def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Ar
 
             if ref_pose:
                 pos = world_matrix.to_translation() * signed_scale
+                if bone.name == "upperarm.l":
+                    print(ref_pose_bones[bone_index].to_translation())
 
-                
                 world_matrix = world_matrix.to_3x3()
                 if settings.unit_invert_x:
                     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
@@ -365,8 +369,12 @@ def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Ar
             else:
                 #world_matrix = (world_matrix @ ref_pose_bones[bone_index].inverted()).to_translation # @TODO test
                 pos = (world_matrix.to_translation() - ref_pose_bones[bone_index].to_translation()) * signed_scale
+                if bone.name == "upperarm.l":
+                    print(world_matrix.to_translation())
+                    print(ref_pose_bones[bone_index].to_translation())
+                    print(bone_index)
+                    print(frame)
                 #pos = (ref_pose_bones[bone_index].inverted() @ world_matrix).to_translation() * signed_scale
-                
 
                 #world_matrix = world_matrix.to_3x3()
                 # if settings.unit_invert_x:
@@ -393,10 +401,9 @@ def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Ar
                 # if settings.unit_invert_z:
                 #     flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
                 #     ref_world_matrix = flip_z @ ref_world_matrix @ flip_z
-                
-                world_matrix = world_matrix.to_3x3() @ref_pose_bones[bone_index].to_3x3().inverted()
 
-                
+                world_matrix = world_matrix.to_3x3() @ ref_pose_bones[bone_index].to_3x3().inverted()
+
                 #world_matrix = world_matrix.to_3x3()
                 if settings.unit_invert_x:
                     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
@@ -424,18 +431,18 @@ def get_bone_transform_buffer(context: bpy.types.Context, armature: bpy.types.Ar
                 quat = quat.xyzw # @TODO test @TODO bitpack
                 rot_buffer[i+4] = quat
             elif settings.rot_mode == "AXES": # @TODO this works
-                world_matrix = world_matrix @ ref_pose_bones[bone_index].inverted() # @TODO test
-                if settings.unit_invert_x:
-                    flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
-                    world_matrix = flip_x @ world_matrix @ flip_x
+                #world_matrix = world_matrix @ ref_pose_bones[bone_index].inverted() # @TODO test
+                # if settings.unit_invert_x:
+                #     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                #     world_matrix = flip_x @ world_matrix @ flip_x
 
-                if settings.unit_invert_y:
-                    flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
-                    world_matrix = flip_y @ world_matrix @ flip_y
+                # if settings.unit_invert_y:
+                #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
+                #     world_matrix = flip_y @ world_matrix @ flip_y
 
-                if settings.unit_invert_z:
-                    flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
-                    world_matrix = flip_z @ world_matrix @ flip_z
+                # if settings.unit_invert_z:
+                #     flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                #     world_matrix = flip_z @ world_matrix @ flip_z
 
                 euler = world_matrix.to_euler()
 
