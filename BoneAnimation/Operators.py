@@ -12,16 +12,31 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import bpy
+import uuid
 
-from bpy.props import StringProperty
+from bpy.props import StringProperty, EnumProperty
 from bl_operators.presets import AddPresetBase
 
 from . import Functions
-from .Functions import bake
+from .Functions import bake, export_bake_report, reset_bake_report
 
 #######################################################################################
 ###################################### OPERATORS ######################################
 #######################################################################################
+
+##############
+### PRESET ###
+class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
+    bl_idname = 'gametools.batbaker_addpreset'
+    bl_label = 'Add preset'
+    preset_menu = 'BATBAKER_MT_BoneAnimation_Presets'
+
+    preset_defines = [ 'settings = bpy.context.scene.BATBakerSettings' ]
+
+    preset_values = [ # @TODO
+    ]
+
+    preset_subdir = 'operator/gametools_batbaker'
 
 ############
 ### MAIN ###
@@ -48,16 +63,350 @@ class BATBAKER_OT_Bake(bpy.types.Operator):
             self.report({verbose}, msg)
             return {'CANCELLED'}
 
+#####################
+### NLA EXCLUSION ###
+class BATBAKER_OT_NLAExclusion_NewItem(bpy.types.Operator):
+    """Add a new item to the list."""
+    bl_idname = "gametools.batbaker_frame_range_nla_exclusion_new_item"
+    bl_label = "Add a new item"
+    
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.frame_range_nla_exclusion_selected != "" and context.scene.BATBakerSettings.frame_range_nla_exclusion_selected not in [nla.name for nla in context.scene.BATBakerSettings.frame_range_nla_exclusion]
+    
+    def execute(self, context):
+        context.scene.BATBakerSettings.frame_range_nla_exclusion.add()
+        last_index = len(context.scene.BATBakerSettings.frame_range_nla_exclusion) - 1
+        if last_index >= 0:
+            context.scene.BATBakerSettings.frame_range_nla_exclusion_selected_index = last_index
+            context.scene.BATBakerSettings.frame_range_nla_exclusion[last_index].name = context.scene.BATBakerSettings.frame_range_nla_exclusion_selected
+
+        return{'FINISHED'}
+
+class BATBAKER_OT_NLAExclusion_DeleteItem(bpy.types.Operator):
+    """Delete the selected item from the list."""
+    bl_idname = "gametools.batbaker_frame_range_nla_exclusion_delete_item"
+    bl_label = "Deletes an item"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.frame_range_nla_exclusion
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        settings.frame_range_nla_exclusion.remove(settings.frame_range_nla_exclusion_selected_index)
+        settings.frame_range_nla_exclusion_selected_index = min(max(0, settings.frame_range_nla_exclusion_selected_index), len(settings.frame_range_nla_exclusion) - 1)
+        return{'FINISHED'}
+
+class BATBAKER_OT_NLAExclusion_MoveItem(bpy.types.Operator):
+    """Move an item in the list."""
+    bl_idname = "gametools.batbaker_frame_range_nla_exclusion_move_item"
+    bl_label = "Move an item in the list"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.frame_range_nla_exclusion
+    
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        index_offset = -1 if self.direction == 'UP' else 1
+        settings.frame_range_nla_exclusion.move(settings.frame_range_nla_exclusion_selected_index + index_offset, settings.frame_range_nla_exclusion_selected_index)
+        settings.frame_range_nla_exclusion_selected_index = max(0, min(settings.frame_range_nla_exclusion_selected_index + index_offset, len(settings.frame_range_nla_exclusion) - 1))
+
+        return{'FINISHED'}
+
+############################
+### INDEX/WEIGHT TEXTURE ###
+class BATBAKER_OT_skinningTextureList_NewItem(bpy.types.Operator):
+    """Add a new item to the list."""
+    bl_idname = "gametools.batbaker_skinning_texturelist_new_item"
+    bl_label = "Add a new item"
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        last_item = None
+        current_index = settings.skinning_textures_selected_index
+        if settings.skinning_textures and (current_index < len(settings.skinning_textures)):
+            last_item = settings.skinning_textures[current_index]
+
+        settings.skinning_textures.add()
+        last_index = len(settings.skinning_textures) - 1
+        if last_index >= 0:
+            settings.skinning_textures_selected_index = last_index
+
+            item = settings.skinning_textures[last_index]
+            item.ID = uuid.uuid4().hex
+
+            if last_item:
+                pass
+
+            texture_row = item.rows.add()
+            texture_row.name = "Indices"
+            texture_row.R.channel_mode = "INDEX"
+            texture_row.R.index = 1
+            texture_row.G.channel_mode = "INDEX"
+            texture_row.G.index = 2
+            texture_row.B.channel_mode = "INDEX"
+            texture_row.B.index = 3
+            texture_row.A.channel_mode = "INDEX"
+            texture_row.A.index = 4
+
+            texture_row = item.rows.add()
+            texture_row.name = "Weights"
+            texture_row.R.channel_mode = "WEIGHT"
+            texture_row.R.index = 1
+            texture_row.G.channel_mode = "WEIGHT"
+            texture_row.G.index = 2
+            texture_row.B.channel_mode = "WEIGHT"
+            texture_row.B.index = 3
+            texture_row.A.channel_mode = "WEIGHT"
+            texture_row.A.index = 4
+
+        return{'FINISHED'}
+
+class BATBAKER_OT_SkinningTextureList_DeleteItem(bpy.types.Operator):
+    """Delete the selected item from the list."""
+    bl_idname = "gametools.batbaker_skinning_texturelist_delete_item"
+    bl_label = "Deletes an item"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.skinning_textures
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        if settings.skinning_textures and (settings.skinning_textures_selected_index < len(settings.skinning_textures)):
+            settings.skinning_textures.remove(settings.skinning_textures_selected_index)
+            settings.skinning_textures_selected_index = min(max(0, settings.skinning_textures_selected_index), len(settings.skinning_textures) - 1)        
+
+        return{'FINISHED'}
+
+class BATBAKER_OT_SkinningTextureList_MoveItem(bpy.types.Operator):
+    """Move an item in the list."""
+    bl_idname = "gametools.batbaker_skinning_texturelist_move_item"
+    bl_label = "Move an item in the list"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.skinning_textures
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        index_offset = -1 if self.direction == 'UP' else 1
+        settings.skinning_textures.move(settings.skinning_textures_selected_index + index_offset, settings.skinning_textures_selected_index)
+        settings.skinning_textures_selected_index = max(0, min(settings.skinning_textures_selected_index + index_offset, len(settings.skinning_textures) - 1))
+
+        return{'FINISHED'}
+
+########################
+### INDEX/WEIGHT ROW ###
+class BATBAKER_OT_SkinningRowList_NewItem(bpy.types.Operator):
+    """Add a new item to the list."""
+    bl_idname = "gametools.batbaker_skinning_rowlist_new_item"
+    bl_label = "Add a new item"
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        try:
+            texture = settings.skinning_textures[settings.skinning_textures_selected_index]
+
+            last_item = None
+            current_index = texture.rows_selected_index
+            if texture.rows and (current_index < len(texture.rows)):
+                last_item = texture.rows[current_index]
+
+            texture.rows.add()
+            last_index = len(texture.rows) - 1
+            if last_index >= 0:
+                texture.rows_selected_index = last_index
+
+                item = texture.rows[last_index]
+                item.ID = uuid.uuid4().hex
+
+                if last_item:
+                    pass
+
+            return{'FINISHED'}
+        except:
+            return {'CANCELLED'}
+
+class BATBAKER_OT_SkinningRowList_DeleteItem(bpy.types.Operator):
+    """Delete the selected item from the list."""
+    bl_idname = "gametools.batbaker_skinning_rowlist_delete_item"
+    bl_label = "Deletes an item"
+
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.BATBakerSettings
+        try:
+            texture = settings.skinning_textures[settings.skinning_textures_selected_index]
+            return texture.rows
+        except:
+            return False
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        try:
+            texture = settings.skinning_textures[settings.skinning_textures_selected_index]
+
+            if texture.rows and (texture.rows_selected_index < len(texture.rows)):
+                texture.rows.remove(texture.rows_selected_index)
+                texture.rows_selected_index = min(max(0, texture.rows_selected_index), len(texture.rows) - 1)        
+
+            return{'FINISHED'}
+        except:
+            return {'CANCELLED'}
+
+class BATBAKER_OT_SkinningRowList_MoveItem(bpy.types.Operator):
+    """Move an item in the list."""
+    bl_idname = "gametools.batbaker_skinning_rowlist_move_item"
+    bl_label = "Move an item in the list"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.BATBakerSettings
+        try:
+            texture = settings.skinning_textures[settings.skinning_textures_selected_index]
+            return texture.rows
+        except:
+            return False
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        try:
+            texture = settings.skinning_textures[settings.skinning_textures_selected_index]
+
+            index_offset = -1 if self.direction == 'UP' else 1
+            texture.rows.move(texture.rows_selected_index + index_offset, texture.rows_selected_index)
+            texture.rows_selected_index = max(0, min(texture.rows_selected_index + index_offset, len(texture.rows) - 1))
+            return {'FINISHED'}
+        except:
+            return {'CANCELLED'}
+        
+#########################
+### TRANSFORM TEXTURE ###
+class BATBAKER_OT_TransformTextureList_NewItem(bpy.types.Operator):
+    """Add a new item to the list."""
+    bl_idname = "gametools.batbaker_animation_texturelist_new_item"
+    bl_label = "Add a new item"
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def execute(self, context):
+        last_item = None
+        current_index = context.scene.BATBakerSettings.animation_textures_selected_index
+        if context.scene.BATBakerSettings.animation_textures and (current_index < len(context.scene.BATBakerSettings.animation_textures)):
+            last_item = context.scene.BATBakerSettings.animation_textures[current_index]
+
+        context.scene.BATBakerSettings.animation_textures.add()
+        last_index = len(context.scene.BATBakerSettings.animation_textures) - 1
+        if last_index >= 0:
+            context.scene.BATBakerSettings.animation_textures_selected_index = last_index
+
+            item = context.scene.BATBakerSettings.animation_textures[last_index]
+            item.ID = uuid.uuid4().hex
+
+            if last_item:
+                pass
+
+        return {'FINISHED'}
+
+class BATBAKER_OT_TransformTextureList_DeleteItem(bpy.types.Operator):
+    """Delete the selected item from the list."""
+    bl_idname = "gametools.batbaker_animation_texturelist_delete_item"
+    bl_label = "Deletes an item"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.animation_textures
+
+    def execute(self, context):
+        if context.scene.BATBakerSettings.animation_textures and (context.scene.BATBakerSettings.animation_textures_selected_index < len(context.scene.BATBakerSettings.animation_textures)):
+            context.scene.BATBakerSettings.animation_textures.remove(context.scene.BATBakerSettings.animation_textures_selected_index)
+            context.scene.BATBakerSettings.animation_textures_selected_index = min(max(0, context.scene.BATBakerSettings.animation_textures_selected_index), len(context.scene.BATBakerSettings.animation_textures) - 1)        
+
+        return{'FINISHED'}
+
+class BATBAKER_OT_TransformTextureList_MoveItem(bpy.types.Operator):
+    """Move an item in the list."""
+    bl_idname = "gametools.batbaker_animation_texturelist_move_item"
+    bl_label = "Move an item in the list"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerSettings.animation_textures
+
+    def execute(self, context):
+        settings = context.scene.BATBakerSettings
+        index_offset = -1 if self.direction == 'UP' else 1
+        settings.animation_textures.move(settings.animation_textures_selected_index + index_offset, settings.animation_textures_selected_index)
+        settings.animation_textures_selected_index = max(0, min(settings.animation_textures_selected_index + index_offset, len(settings.animation_textures) - 1))
+
+        return{'FINISHED'}
+
 ##############
-### PRESET ###
-class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'gametools.batbaker_addpreset'
-    bl_label = 'Add preset'
-    preset_menu = 'BATBAKER_MT_BoneAnimation_Presets'
+### REPORT ###
+class BATBAKER_OT_ExportReport(bpy.types.Operator):
+    """ """
+    bl_idname = "gametools.batbaker_export_report"
+    bl_label = "Export"
+    bl_category = "Game Tools"
+    bl_description = "Export last report"
+    bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
-    preset_defines = [ 'settings = bpy.context.scene.BATBakerSettings' ]
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerReport.baked
 
-    preset_values = [
-    ]
+    def execute(self, context):
+        success, msg, path = export_bake_report(context)
+        if success:
+            return {'FINISHED'}
+        else:
+            return {'CANCELLED'}
 
-    preset_subdir = 'operator/gametools_batbaker'
+class BATBAKER_OT_ClearReport(bpy.types.Operator):
+    """ """
+    bl_idname = "gametools.batbaker_clear_report"
+    bl_label = "Clear"
+    bl_category = "Game Tools"
+    bl_description = "Clear last report"
+    bl_options = {'REGISTER', 'UNDO', 'PRESET'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.BATBakerReport.baked
+
+    def execute(self, context):
+        reset_bake_report()
+        return {'FINISHED'}
