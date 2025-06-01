@@ -92,12 +92,14 @@ def reset_bake_report():
     report.frame_height = 0.0
     report.frame_width = 0.0
     report.frame_rate = 0
+    report.frame_ref = 0
+    report.frame_ref_mode = ""
     
     report.num_bones = 0
+    report.num_bones_max = 0
     report.num_verts = 0
     
     report.mesh = None
-    report.mesh_maxweights = 1
     report.mesh_export = False
     report.mesh_path = ""
     report.mesh_uvmap_index = 0
@@ -154,6 +156,7 @@ def add_bake_skinning_texture_report(texture: object, img: bpy.types.Image) -> o
     report_skinning_texture.exported = False
     report_skinning_texture.path = ""
     report_skinning_texture.img = img
+    #report_skinning_texture.storage_mode = texture.storage_mode
 
     # copy all texture attributes
     if hasattr(texture, "__annotations__"):
@@ -399,56 +402,6 @@ def get_armature_nla_tracks(armature: bpy.types.Armature) -> bpy.types.NlaTrack:
     """
     return armature and armature.animation_data and armature.animation_data.nla_tracks
 
-def get_obj_nla_start_end_frames(obj_to_bake: bpy.types.Object) -> list:
-    """
-    Return the list of the object's NLA strips start/end frames, or the armature's NLA strips it may be parented to
-    
-    :param obj_to_bake: object to check
-    :return: list of frames, from start to end
-    :rtype: list
-    """
-
-    nla_frames = []
-    
-    if obj_to_bake:
-        nla_tracks = get_armature_nla_tracks(armature)
-        if nla_tracks:
-            for nla_track in nla_tracks:
-                for nla_strip in nla_track.strips:
-                    nla_frames.append((int(nla_strip.frame_start), int(nla_strip.frame_end)))
-
-    return nla_frames
-
-def get_objs_nla_allow_padding(objs_to_bake: list) -> bool:
-    """
-    Iterate objects and compares the NLA strips of two objects at a time and returns false as soon as a NLA strip name, start or end frame isn't similar. This is used to disable the padding feature because it would otherwise lead to unexpected results if selected objects don't all share the same NLA anim strips: padded/duplicated frames for a specific NLA strip by an object may correspond to frames in the middle of a NLA clip used by another object.
-    
-    :objs_to_bake: objects included in the bake
-    :return: uniform
-    :rtype: bool
-    """
-    
-    if len(objs_to_bake) <= 1:
-        return True
-
-    prev_obj_strips = get_obj_nla_start_end_frames(objs_to_bake[0])
-    for obj_index in range(1, len(objs_to_bake)):
-        obj_strips = get_obj_nla_start_end_frames(objs_to_bake[obj_index])
-
-        if len(prev_obj_strips) != len(obj_strips):
-            return False
-
-        for obj_strip_index in range(len(obj_strips)):
-            obj_strip_start_frame, obj_strip_end_frame = obj_strips[obj_strip_index]
-            prev_obj_strip_start_frame, prev_obj_strip_end_frame = prev_obj_strips[obj_strip_index]
-
-            if (obj_strip_start_frame != prev_obj_strip_start_frame) or (obj_strip_end_frame != prev_obj_strip_end_frame):
-                return False
-            
-        prev_obj_strips = obj_strips
-
-    return True
-
 def get_bake_nla_strips(objs_to_bake: list, armature: bpy.types.Armature) -> list:
     """
     Scan the NLA tracks of the given objects to return a list of unique NLA strips, paired with the list of meshes making use of it in their NLA tracks
@@ -487,7 +440,7 @@ def get_bake_nla_strips(objs_to_bake: list, armature: bpy.types.Armature) -> lis
 
     return unique_nla_strips
 
-def get_bake_apply_padding(context: bpy.types.Context, objs_to_bake: list) -> bool:
+def get_bake_apply_padding(context: bpy.types.Context, objs_to_bake: list, armature: bpy.types.Armature) -> bool:
     """
     Examine if user asks for frame padding to be added and if it safe to do so (objects all share the same NLA clips)
 
@@ -498,7 +451,7 @@ def get_bake_apply_padding(context: bpy.types.Context, objs_to_bake: list) -> bo
 
     settings = context.scene.BATBakerSettings
 
-    return (settings.frame_range_mode == "NLA") and get_objs_nla_allow_padding(objs_to_bake) and (settings.frame_padding > 0) #and (settings.tex_packing_mode == "STACK")
+    return (settings.frame_range_mode == "NLA") and (settings.frame_padding > 0) #and (settings.tex_packing_mode == "STACK")
 
 ###############
 ### PACKING ###
@@ -595,34 +548,100 @@ def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, l
     Scan the skinning textures the user wants to generate, ensuring each has a unique name and contains data in at least one of the RGBA channels.
 
     :param context: Blender current execution context
-    :return: the function's success, potential error message, list of textures to generate and bake
+    :return: the function's success, potential error message, list of textures to generate and bake, max amount of influencing bone
     :rtype: tuple
     """
 
     settings = context.scene.BATBakerSettings
 
+    
+    max_index = 0
+
+    # @TODO check we have pairing of indices/weights
+
     textures = []
+    influences = []
+    vcol = False
     for texture in settings.skinning_textures:
+        """
+        ensure textures do not share the same name
+        """
         other_tex_names = [other_texture.name for other_texture in settings.skinning_textures if other_texture != texture]
         animation_tex_names = [animation_texture.name for animation_texture in settings.animation_textures] # account for animation textures (there are two separate sets of textures)
         all_other_tex_names = other_tex_names + animation_tex_names
         if texture.name in all_other_tex_names: # texture must be uniquely named
-            return (False, "Multiple textures share the same name", None)
+            return (False, "Multiple textures share the same name", None, 0)
 
-        # ensure texture has at least one row of data (index/weight)
+        """
+        ensure vertex color isn't targeted more than once
+        """
+        if texture.storage_mode == "VCOL":
+            if vcol:
+                return (False, "Vertex Color targeted multiple times", None, 0)
+            else:
+                vcol = True
+                if len(texture.rows) > 1:
+                    return (False, "Vertex Color can only write one set of RGBA data", None, 0)
+
+        
+        """
+        ensure at least one channel outputs something and also make sure that channel aren't targeted more than once
+        """
         rows = 0
         for texture_row in texture.rows:
             if texture_row.R.channel_mode == "NONE" and texture_row.G.channel_mode == "NONE" and texture_row.B.channel_mode == "NONE" and texture_row.A.channel_mode == "NONE":
                 continue
+
             rows += 1
 
+            channels = [
+                texture_row.R,
+                texture_row.G,
+                texture_row.B,
+                texture_row.A,
+            ]
+
+            for channel in channels:
+                while len(influences) < channel.index:
+                    influences.append([None, None])
+
+                influence = influences[channel.index - 1]
+
+                if channel.channel_mode == "INDEX":
+                    if influence[0]:
+                        return (False, "Bone influence index " + str(channel.index) + " is baked more than once", None, 0)
+                    else:
+                        influence[0] = channel.index
+                else: # WEIGHT
+                    if influence[1]:
+                        return (False, "Bone influence weight " + str(channel.index) + " is baked more than once", None, 0)
+                    else:
+                        influence[1] = channel.index
+
+                max_index = max(max_index, channel.index)
+
+        # valid texture!
         if rows > 0:
             textures.append(texture)
 
     if len(textures) <= 0:
-        return (False, "No data to bake in texture(s)", None)
+        return (False, "No data to bake in texture(s)", None, 0)
 
-    return (True, "", textures)
+    for i, influence in enumerate(influences):
+        influence_index, influence_weight = influence
+
+        if influence_index == None:
+            return (False, "Bone influence index " + str(i + 1) + " missing", None, 0)
+
+        if influence_weight == None:
+            return (False, "Bone influence weight " + str(i + 1) + " missing", None, 0)
+
+        if influence_index != influence_weight:
+            return (False, "Bone influence mismatch: index " + str(influence_index) + " and weight " + str(influence_weight), None, 0)
+
+    add_bake_report("num_bones_max", max_index)
+
+    return (True, "", textures, max_index)
 
 def get_bake_animation_textures(context: bpy.types.Context) -> tuple[bool, str, list]:
     """
@@ -1041,12 +1060,12 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             add_bake_report("num_frames", num_frames)
 
             if num_frames < 2:
-                return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0))
+                return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0, 0))
 
             """
             2. padding
             """
-            padding_apply = get_bake_apply_padding(context, objs_to_bake)
+            padding_apply = get_bake_apply_padding(context, objs_to_bake, armature)
             padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
             padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
 
@@ -1084,11 +1103,11 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
 
                 start_index, end_index = get_nla_strip_start_end_indices(nla_strip, frames_to_bake)
 
-                # 0-based indices are converted to the actual 1-based frame count
-                start_frame = start_index + 1
-                end_frame = end_index + 1
-                start_time = (start_frame - 1) / num_frames
-                end_time = end_frame / num_frames
+                # 0-based indices are converted to the actual 1-based frame count, with an extra offset for the ref frame
+                start_frame = start_index + 1 + 1
+                end_frame = end_index + 1 + 1
+                start_time = start_frame / (num_frames + 1)
+                end_time = end_frame / (num_frames + 1)
                 add_bake_report_anim(strip.name, start_frame, end_frame, start_time, end_time)
 
             """
@@ -1103,9 +1122,23 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             end_frame = max(frames_to_bake)
             add_bake_report("end_frame", end_frame)
 
-            return (True, "", (frames_to_bake, start_frame, end_frame))
+            """
+            5. add reference frame
+            """
+            ref_frame = start_frame
+            if settings.frame_ref_mode == "END":
+                ref_frame = end_frame
+            elif settings.frame_ref_mode == "CUSTOM":
+                ref_frame = settings.frame_ref_custom
+
+            add_bake_report("frame_ref_mode", settings.frame_ref_mode)
+            add_bake_report("frame_ref", ref_frame)
+
+            frames_to_bake.insert(0, ref_frame) # insert ref frame
+
+            return (True, "", (frames_to_bake, start_frame, end_frame, ref_frame))
         else:
-            return (False, "No NLA tracks or strips found", (None, 0, 0))
+            return (False, "No NLA tracks or strips found", (None, 0, 0, 0))
     else: # CUSTOM or SCENE
         if (settings.frame_range_mode == "CUSTOM"):
             frame_start = settings.frame_range_custom_start
@@ -1127,7 +1160,7 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
         add_bake_report("num_frames_padded", num_frames)
 
         if num_frames < 2:
-            return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0))
+            return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0, 0))
 
         add_bake_report("padded", False)
         add_bake_report("padding", 0)
@@ -1151,10 +1184,10 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
                         frame_nla_strips.append(nla_strip)
 
                         # clamp start/end frames
-                        start_frame = min(frame_end, max(frame_start, start))
-                        end_frame = min(frame_end, max(frame_start, end))
-                        start_time = (start_frame - 1) / num_frames
-                        end_time = end_frame / num_frames
+                        start_frame = min(frame_end, max(frame_start, start)) + 1 # extra offset for reference frame
+                        end_frame = min(frame_end, max(frame_start, end)) + 1
+                        start_time = start_frame / (num_frames + 1)
+                        end_time = end_frame / (num_frames + 1)
                         add_bake_report_anim(strip.name, start_frame, end_frame, start_time, end_time)
 
             frames_to_bake.append((frame, frame_nla_strips))
@@ -1168,7 +1201,21 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
         end_frame = max(frames_to_bake)
         add_bake_report("end_frame", end_frame)
 
-        return (True, "", (frames_to_bake, start_frame, end_frame))
+        """
+        5. add reference frame
+        """
+        ref_frame = start_frame
+        if settings.frame_ref_mode == "END":
+            ref_frame = end_frame
+        elif settings.frame_ref_mode == "CUSTOM":
+            ref_frame = settings.frame_ref_custom
+
+        add_bake_report("frame_ref_mode", settings.frame_ref_mode)
+        add_bake_report("frame_ref", ref_frame)
+
+        frames_to_bake.insert(0, ref_frame) # insert ref frame
+
+        return (True, "", (frames_to_bake, start_frame, end_frame, ref_frame))
 
 def get_bake_vertices(context: bpy.types.Context, objs_to_bake: list) -> int:
     """
@@ -1239,7 +1286,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     
     bake_start_time = time.time()
 
-    success, msg, skinning_textures = get_bake_skinning_textures(context)
+    success, msg, skinning_textures, max_bones = get_bake_skinning_textures(context)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1264,7 +1311,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     wm.progress_update(3)
 
     success, msg, bake_frames_info = get_bake_frames(context, objs_to_bake, armature)
-    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
+    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1285,7 +1332,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     wm.progress_update(6)
 
-    success, msg, bones, skinning_data, bounds_info = get_skinning_data(context, objs_to_bake, armature, bake_frames_info)
+    success, msg, bones, skinning_data, bounds_info = get_skinning_data(context, objs_to_bake, armature, bake_frames_info, max_bones)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1321,6 +1368,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     bake_progress = 10
     bake_progress_step = (1.0 / (len(skinning_textures) * 4 * 3)) * 40
     for skinning_texture in skinning_textures:
+        if skinning_texture.storage_mode == "VCOL":
+            continue
+
         buffer = get_skinning_texture_buffer(context, skinning_texture, skinning_data, skinning_tex_width, skinning_tex_height)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
@@ -1383,13 +1433,22 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ########
     # MESH #
 
-    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, skinning_tex_width, skinning_tex_height, bake_start_frame) # @TODO start frame should be ref frame?! check other tools as well
+    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, skinning_tex_width, skinning_tex_height, bake_ref_frame)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
     add_bake_report("mesh", obj_to_export)
     add_bake_report("mesh_uvmap_index", bake_uvmap_index)
+
+    for skinning_texture in skinning_textures:
+        if skinning_texture.storage_mode != "VCOL":
+            continue
+
+        buffer = get_skinning_texture_buffer(context, skinning_texture, skinning_data, skinning_tex_width, skinning_tex_height)
+        generate_mesh_vcol(context, skinning_texture, obj_to_export, buffer)
+        report_texture = add_bake_skinning_texture_report(skinning_texture, tex)
+        break # there should only be one texture targeting vertex color
 
     if settings.export_mesh and bpy.data.is_saved:
         success, msg, mesh_path = export_mesh_selection(context, bake_name)
@@ -1607,6 +1666,45 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
 
     return (True, "", uvmap_index)
 
+def generate_mesh_vcol(context: bpy.types.Context, texture: object, obj_to_bake: bpy.types.Object, vcol_buffer: list):
+    """
+
+    :param context: Blender current execution context
+    :param texture: the 'texture' property group responsible for writing to the vertex color
+    :param obj_to_bake: the mesh object to modify
+    :param vcol_buffer: the vertex color buffer to get values from
+    :return: None
+    :rtype: None
+    """
+
+    try:
+        texture_row = texture.rows[0] # vcol texture has only one 'row'
+    except:
+        texture_row = None
+
+    if texture_row:
+        mesh_to_bake = obj_to_bake.data
+
+        if mesh_to_bake.vertex_colors:
+            vcol = mesh_to_bake.vertex_colors.active
+        else:
+            vcol = mesh_to_bake.vertex_colors.new()
+            for loop_id in mesh_to_bake.loops:
+                vcol.data[loop_id.index].color = [0.0, 0.0, 0.0, 0.0]
+
+        for poly in mesh_to_bake.polygons:
+            for loop_index in poly.loop_indices:
+                buffer_index = mesh_to_bake.loops[loop_index].vertex_index * 4 # RGBA
+
+                if texture_row.R.channel_mode != "NONE":
+                    vcol.data[loop_index].color[0] = vcol_buffer[buffer_index + 0] / 255
+                if texture_row.G.channel_mode != "NONE":
+                    vcol.data[loop_index].color[1] = vcol_buffer[buffer_index + 1] / 255
+                if texture_row.B.channel_mode != "NONE":
+                    vcol.data[loop_index].color[2] = vcol_buffer[buffer_index + 2] / 255
+                if texture_row.A.channel_mode != "NONE":
+                    vcol.data[loop_index].color[3] = vcol_buffer[buffer_index + 3] / 255
+
 def export_mesh_selection(context: bpy.types.Context, bake_name: str):
     """
     Export the current selection to FBX
@@ -1630,7 +1728,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
 
 #################
 ### GEO NODES ###
-def generate_mesh_geonodes(context: bpy.types.Context, obj_to_export: bpy.types.Object, num_vertices: int, tex_width: int, bake_frames_info: tuple[list, int, int], bake_frame_height: int, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image) -> tuple[bool, str]:
+def generate_mesh_geonodes(context: bpy.types.Context, obj_to_export: bpy.types.Object, num_vertices: int, tex_width: int, bake_frames_info: tuple[list, int, int, int], bake_frame_height: int, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image) -> tuple[bool, str]:
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exist from a previous call and is thus assigned to the modifier or is generated to previsualize the baked BAT texture(s)
 
@@ -1656,7 +1754,7 @@ def generate_mesh_geonodes(context: bpy.types.Context, obj_to_export: bpy.types.
 
     return (True, "")
 
-def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int], bake_frame_height: int, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
+def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int, int], bake_frame_height: int, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exists from a previous call and is thus assigned to the modifier or is generated to previsualize the baked BAT texture(s) using a simple V offset to playback the animation
 
@@ -1673,7 +1771,7 @@ def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.ty
 
     settings = context.scene.BATBakerSettings
 
-    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
+    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
     ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset = vertices_bounds
     max_offset = mathutils.Vector((max(abs(min_bounds.x), abs(max_bounds.x)),
                                   max(abs(min_bounds.y), abs(max_bounds.y)),
@@ -1710,7 +1808,7 @@ def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.ty
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.unit_invert_y
     geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.unit_invert_z
 
-def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int], frame_step: float, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
+def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int, int], frame_step: float, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exist from a previous call and is thus assigned to the modifier or is generated to previsualize the baked BAT texture(s) using a complex U & V offset to playback the animation
 
@@ -1726,7 +1824,7 @@ def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export:
 
     settings = context.scene.BATBakerSettings
 
-    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
+    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
     ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset= vertices_bounds
     max_offset = mathutils.Vector((max(abs(min_bounds.x), abs(max_bounds.x)),
                                   max(abs(min_bounds.y), abs(max_bounds.y)),
@@ -1787,15 +1885,15 @@ def build_mesh_geonodes_partialrow_group():
 
 ###############
 ### BUFFERS ###
-def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: bpy.types.Armature, bake_frames_info: tuple[list, int, int]) -> tuple[bool, str, list, list, tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]]:
+def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: bpy.types.Armature, bake_frames_info: tuple[list, int, int, int], max_bones: int) -> tuple[bool, str, list, list, tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]]:
     """
-    Compile and return the list of [vertex_index, [bone_index, bone_weight]], per object. To account for multiple mesh selection, the vertex_index is offset by the number of vertices each mesh has, in increment. Each vertex may list up to 'max_weights' number of bone data.
+    Compile and return the list of [vertex_index, [bone_index, bone_weight]], per object. To account for multiple mesh selection, the vertex_index is offset by the number of vertices each mesh has, in increment. Each vertex may list up to 'max_bones' number of bone data.
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to bake
     :param armature: deforming armature
     :param bake_frames_info: list of frames to bake
-    :param max_weights: maximum amount of bones allowed to influence a vertex
+    :param max_bones: maximum amount of bones allowed to influence a vertex
     :return: the function's success, potential error message, list of bones, list of vertex skinning data, bounds
     :rtype: tuple
     """
@@ -1806,16 +1904,7 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
     Go to frame of reference to evaluate objects to bake and gather bone & skinning data as well as overall min/max bounds in ref pose
     """
 
-    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
-
-    bake_ref_frame = bake_start_frame
-    if settings.frame_ref_mode == "END":
-        bake_ref_frame = bake_end_frame
-    elif settings.frame_ref_mode == "CUSTOM":
-        bake_ref_frame = settings.frame_ref_custom
-
-    add_bake_report("ref_mode", settings.frame_ref_mode)
-    add_bake_report("ref", bake_ref_frame)
+    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
 
     context.scene.frame_set(bake_ref_frame)
     dgraph = context.evaluated_depsgraph_get()
@@ -1827,8 +1916,6 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
 
     ref_min_bounds = mathutils.Vector((float('inf'), float('inf'), float('inf')))
     ref_max_bounds = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
-
-    add_bake_report("mesh_maxweights", settings.mesh_maxweights)
 
     for obj_to_bake in objs_to_bake:
         # account for modifiers that may change weightgroups & vertex count/order
@@ -1847,7 +1934,7 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
             vertex_groups = sorted(vertex.groups, key=lambda x: x.weight, reverse=True)
 
             # discard least participating vertex groups
-            vertex_groups = vertex_groups[0:settings.mesh_maxweights]
+            vertex_groups = vertex_groups[0:max_bones]
 
             # sum of remaining weights must equal 1.0
             normalization_sum = sum([vertex_group.weight for vertex_group in vertex_groups])
@@ -1952,7 +2039,7 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
                 sorted_source_indices_weights = sorted(source_indices_weights, key=lambda x: x[2], reverse=True)
 
                 # discard least participating vertex groups
-                sorted_source_indices_weights = sorted_source_indices_weights[0:settings.mesh_maxweights]
+                sorted_source_indices_weights = sorted_source_indices_weights[0:max_bones]
 
                 # sum of remaining weights must equal 1.0
                 normalization_sum = sum([sorted_merged_indices_weight[2] for sorted_merged_indices_weight in sorted_source_indices_weights])
@@ -2016,7 +2103,9 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
     min_bounds = mathutils.Vector((float('inf'), float('inf'), float('inf')))
     max_bounds = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
 
-    for frame in frames_to_bake:
+    for frame_index in range(1, len(frames_to_bake)): # skip ref frame
+        frame = frames_to_bake[frame_index]
+
         context.scene.frame_set(frame)
         dgraph = context.evaluated_depsgraph_get()
         for obj_to_bake in objs_to_bake:
@@ -2092,7 +2181,7 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
             (row.A if row.A.channel_mode != "NONE" else None),
             ]
 
-        for texture_channel_index, texture_channel in enumerate(texture_channels): # @NOTE performance
+        for texture_channel_index, texture_channel in enumerate(texture_channels):
             if texture_channel is None:
                 continue
 
@@ -2104,7 +2193,7 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
 
     return buffer
 
-def get_animation_data(context: bpy.types.Context, armature: bpy.types.Armature, bones: list, bake_frames_info: tuple[list, int, int]) -> tuple[bool, str, list]:
+def get_animation_data(context: bpy.types.Context, armature: bpy.types.Armature, bones: list, bake_frames_info: tuple[list, int, int]) -> tuple[bool, str, tuple[list, list]]:
     """
     Compile and return the list of bone matrices, per frame. This only accounts for bones that were listed in weight groups. Order is important and each position in the list describes the linear index at which the transform must be stored in the anim texture(s).
 
@@ -2112,51 +2201,23 @@ def get_animation_data(context: bpy.types.Context, armature: bpy.types.Armature,
     :param armature: armature to evaluate
     :param bones: bones to search for in the armature
     :param bake_frames_info: list of frames to bake
-    :return: the function's success, potential error message, list of bone matrices per frame
+    :return: the function's success, potential error message, tuple containing list of posed bone matrices, per frame, and list of bone matrices in ref pose
     :rtype: tuple
     """
     settings = context.scene.BATBakerSettings
-    
-    signed_axis = mathutils.Vector((
-        -1.0 if settings.unit_invert_x else 1.0,
-        -1.0 if settings.unit_invert_y else 1.0,
-        -1.0 if settings.unit_invert_z else 1.0
-    ))
-    signed_scale = settings.unit_scale * signed_axis
+    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
 
     """
-    1. cache bone matrices in reference pose
+    create buffer containing posed & ref bone matrices, per frame.
+    Ref matrices are duplicated each frame but that's for convenience.
+    They *may* be evaluated at a custom frame that isn't in the frames
+    to bake.
     """
-    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
-    
-    bake_ref_frame = bake_start_frame
-    if settings.frame_ref_mode == "END":
-        bake_ref_frame = bake_end_frame
-    elif settings.frame_ref_mode == "CUSTOM":
-        bake_ref_frame = settings.frame_ref_custom
-
-    context.scene.frame_set(bake_ref_frame)
-    dgraph = context.evaluated_depsgraph_get()
-    eval_arm = armature.evaluated_get(dgraph)
-
-    ref_pose_bones = [None] * len(bones)
-    for bone in eval_arm.pose.bones:
-        try:
-            bone_index = bones.index(bone.name)
-        except:
-            continue
-
-        ref_pose_bones[bone_index] = eval_arm.matrix_world @ bone.matrix
-
-    """
-    2. iterate frames. Frame 0 is the ref pos and contains data in local space, subsequent frames are relative to ref pose
-    """    
-    frame_bone_matrix_buffer = []
+    frame_bone_matrix_buffer = [None] * len(frames_to_bake)
     for frame_index, frame in enumerate(frames_to_bake):
         context.scene.frame_set(frame)
         dgraph = context.evaluated_depsgraph_get()
         eval_arm = armature.evaluated_get(dgraph)
-        ref_pose = frame_index == 0 # frame == bake_ref_frame # @TODO check using custom ref frame
 
         matrix_buffer = [None] * len(bones)
         for bone in eval_arm.pose.bones:
@@ -2165,64 +2226,9 @@ def get_animation_data(context: bpy.types.Context, armature: bpy.types.Armature,
             except:
                 continue
 
-            world_matrix = eval_arm.matrix_world @ bone.matrix
-            if ref_pose:
-                world_matrix = ref_pose_bones[bone_index] # @TODO check!
-                pass
+            matrix_buffer[bone_index] = eval_arm.matrix_world @ bone.matrix
 
-                # pos = world_matrix.to_translation() * signed_scale
-
-                # world_matrix = world_matrix.to_3x3()
-                # if settings.unit_invert_x:
-                #     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-                #     world_matrix = flip_x @ world_matrix @ flip_x
-
-                # if settings.unit_invert_y:
-                #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
-                #     world_matrix = flip_y @ world_matrix @ flip_y
-
-                # if settings.unit_invert_z:
-                #     flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-                #     world_matrix = flip_z @ world_matrix @ flip_z
-
-                # quat = world_matrix.to_quaternion()
-            else:
-                world_matrix = world_matrix @ ref_pose_bones[bone_index].inverted()
-
-                # pos = (world_matrix.to_translation() - ref_pose_bones[bone_index].to_translation()) * signed_scale
-
-                # world_matrix = world_matrix.to_3x3() @ ref_pose_bones[bone_index].to_3x3().inverted()
-                # if settings.unit_invert_x:
-                #     flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-                #     world_matrix = flip_x @ world_matrix @ flip_x
-
-                # if settings.unit_invert_y:
-                #     flip_y = mathutils.Matrix.Scale(-1, 3, (0,-1,0))
-                #     world_matrix = flip_y @ world_matrix @ flip_y
-
-                # if settings.unit_invert_z:
-                #     flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-                #     world_matrix = flip_z @ world_matrix @ flip_z
-
-                # quat = world_matrix.to_quaternion()
-            if settings.unit_invert_x:
-                flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
-                world_matrix = flip_x @ world_matrix @ flip_x
-
-            if settings.unit_invert_y:
-                flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
-                world_matrix = flip_y @ world_matrix @ flip_y
-
-            if settings.unit_invert_z:
-                flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
-                world_matrix = flip_z @ world_matrix @ flip_z
-
-            #scale_matrix = mathutils.Matrix.Scale(settings.unit_scale, 4, (1,1,1))
-            #world_matrix = scale_matrix @ world_matrix @ scale_matrix # @TODO handedness?
-            world_matrix = eval_arm.matrix_world @ bone.matrix # @TODO remove
-            matrix_buffer[bone_index] = (world_matrix, ref_pose_bones[bone_index])
-
-        frame_bone_matrix_buffer.append(matrix_buffer)
+        frame_bone_matrix_buffer[frame_index] = matrix_buffer
 
     return (True, "", frame_bone_matrix_buffer)
 
@@ -2245,7 +2251,7 @@ def get_animation_texture_buffer_function(texture_channel: object) -> callable:
 
     return animation_texture_buffer_zeros
 
-def get_animation_texture_buffer(context: bpy.types.Context, texture: object, animation_data: list, tex_width: int, tex_height: int, bake_frame_height, num_bones) -> tuple[list, list, list, list]:
+def get_animation_texture_buffer(context: bpy.types.Context, texture: object, animation_data: tuple, tex_width: int, tex_height: int, bake_frame_height, num_bones) -> tuple[list, list, list, list]:
     """
     Intermediate buffer function to return the values to store in the texture RGBA channels
 
@@ -2258,7 +2264,7 @@ def get_animation_texture_buffer(context: bpy.types.Context, texture: object, an
     :rtype: list
     """
     buffer = [0.0] * tex_width * tex_height * 4 # RGBA
-    
+
     texture_channels = [
         (texture.R if texture.R.channel_mode != "NONE" else None),
         (texture.G if texture.G.channel_mode != "NONE" else None),
@@ -2270,11 +2276,10 @@ def get_animation_texture_buffer(context: bpy.types.Context, texture: object, an
     buffer_ranges = [1.0] * 4
     buffer_ranges_valid = [False] * 4
 
-    for texture_channel_index, texture_channel in enumerate(texture_channels): # @NOTE performance
+    for texture_channel_index, texture_channel in enumerate(texture_channels):
         if texture_channel is None:
             continue
-        print(texture_channel_index)
-        print(texture_channel.component)
+
         pre_bake_func = get_animation_texture_buffer_function(texture_channel)
         channel_buffer = pre_bake_func(context, animation_data, texture_channel, (tex_width * tex_height), tex_width, bake_frame_height, num_bones)
         if channel_buffer:
@@ -2413,15 +2418,23 @@ def animation_texture_buffer_position(context: bpy.types.Context, animation_data
     """
     settings = context.scene.BATBakerSettings
 
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
+    signed_scale = signed_axis * settings.unit_scale
+    
     pos_buffer = [0.0] * buffer_length
+    bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
         buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
         for bone_index, bone_matrix in enumerate(bone_frame_data):
-            mat, ref_mat = bone_matrix
-            if bone_frame_index > 0:
-                vector_to_bake = (mat.to_translation() - ref_mat.to_translation()) * mathutils.Vector((100.0, -100.0, 100.0)) # @TODO weird
+            pose_mat = bone_matrix
+            ref_mat = bone_ref_matrices[bone_index]
+
+            if bone_frame_index <= 0: # ref frame is the first animation data in list
+                vector_to_bake = ref_mat.to_translation() * signed_scale
             else:
-                vector_to_bake = mat.to_translation() * mathutils.Vector((100.0, -100.0, 100.0))
+                vector_to_bake = (pose_mat.to_translation() - ref_mat.to_translation()) * signed_scale
 
             if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
@@ -2453,12 +2466,69 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, animation_data
     settings = context.scene.BATBakerSettings
 
     rot_buffer = [0.0] * buffer_length
+    bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
         buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
         for bone_index, bone_matrix in enumerate(bone_frame_data):
-            mat, ref_mat = bone_matrix
+            pose_mat = bone_matrix
+            ref_mat = bone_ref_matrices[bone_index]
+
+            pose_mat_3x3 = pose_mat.to_3x3()
+            pose_mat_3x3_ordered = pose_mat_3x3
+
+            ref_mat_3x3 = ref_mat.to_3x3()
+            ref_mat_3x3_ordered = ref_mat_3x3
+
+            # reorder axes if desired
+            if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
+                pose_mat_3x3_ordered[0] = pose_mat_3x3[0]
+                ref_mat_3x3_ordered[0] = ref_mat_3x3[0]
+            elif texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "ZXY":
+                pose_mat_3x3_ordered[0] = pose_mat_3x3[1]
+                ref_mat_3x3_ordered[0] = ref_mat_3x3[1]
+            elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "ZYX":
+                pose_mat_3x3_ordered[0] = pose_mat_3x3[2]
+                ref_mat_3x3_ordered[0] = ref_mat_3x3[2]
+
+            if texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "YZX":
+                pose_mat_3x3_ordered[1] = pose_mat_3x3[0]
+                ref_mat_3x3_ordered[1] = ref_mat_3x3[0]
+            elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "ZYX":
+                pose_mat_3x3_ordered[1] = pose_mat_3x3[1]
+                ref_mat_3x3_ordered[1] = ref_mat_3x3[1]
+            elif texture_channel.quat_xyz_order == "ZXY" or texture_channel.quat_xyz_order == "XZY":
+                pose_mat_3x3_ordered[1] = pose_mat_3x3[2]
+                ref_mat_3x3_ordered[1] = ref_mat_3x3[2]
+
+            if texture_channel.quat_xyz_order == "ZYX" or texture_channel.quat_xyz_order == "ZXY":
+                pose_mat_3x3_ordered[2] = pose_mat_3x3[0]
+                ref_mat_3x3_ordered[2] = ref_mat_3x3[0]
+            elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "XZY":
+                pose_mat_3x3_ordered[2] = pose_mat_3x3[1]
+                ref_mat_3x3_ordered[2] = ref_mat_3x3[1]
+            elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "YXZ":
+                pose_mat_3x3_ordered[2] = pose_mat_3x3[2]
+                ref_mat_3x3_ordered[2] = ref_mat_3x3[2]
+
+            if bone_frame_index <= 0: # ref frame is the first animation data in list
+                rot_matrix = ref_mat_3x3_ordered
+            else:
+                rot_matrix = pose_mat_3x3_ordered @ ref_mat_3x3_ordered.inverted()
+
+            if settings.unit_invert_x:
+                flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                rot_matrix = flip_x @ rot_matrix @ flip_x
+
+            if settings.unit_invert_y:
+                flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
+                rot_matrix = flip_y @ rot_matrix @ flip_y
+
+            if settings.unit_invert_z:
+                flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                rot_matrix = flip_z @ rot_matrix @ flip_z
+
             if texture_channel.rot_mode == "QUAT":
-                quat = mat.to_quaternion()
+                quat = rot_matrix.to_quaternion()
                 #texture_channel.quat_xyz_order @TODO
 
                 if texture_channel.quat == "X":
@@ -2472,7 +2542,7 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, animation_data
                 else: # XYZW
                     data_to_bake = get_compressed_quat(quat)
             elif texture_channel.rot_mode == "AXES":
-                euler = mat.to_euler()
+                euler = rot_matrix.to_euler('XYZ')
 
                 if texture_channel.axis == "X":
                     vector_to_bake = mathutils.Vector((1.0, 0.0, 0.0))
@@ -2492,7 +2562,7 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, animation_data
                 else:
                     data_to_bake == 0.0
             else: # AXIS_ANGLE
-                axis, angle = mat.to_quaternion().to_axis_angle()
+                axis, angle = rot_matrix.to_quaternion().to_axis_angle()
 
                 if texture_channel.axis_angle_mode == "AXIS_X":
                     data_to_bake = axis.x
@@ -2530,21 +2600,27 @@ def animation_texture_buffer_scale(context: bpy.types.Context, animation_data: l
     settings = context.scene.BATBakerSettings
 
     scale_buffer = [0.0] * buffer_length
+    bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
         buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
         for bone_index, bone_matrix in enumerate(bone_frame_data):
-            mat, ref_mat = bone_matrix
-            vector_to_bake = mat.to_scale()
+            pose_mat = bone_matrix
+            ref_mat = bone_ref_matrices[bone_index]
+
+            if bone_frame_index <= 0: # ref frame is the first animation data in list
+                vector_to_bake = pose_mat.to_scale()
+            else:
+                vector_to_bake = (pose_mat @ ref_mat.inverted()).to_scale()
 
             if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
             elif texture_channel.component == "Y":
                 data_to_bake = vector_to_bake.y
             elif texture_channel.component == "Z":
-                data_to_bake = vector_to_bake.z # @TODO
+                data_to_bake = vector_to_bake.z
             else:
                 data_to_bake == 0.0
-        
+
             try:
                 scale_buffer[bone_index + buffer_frame_offset] = data_to_bake
             except:
@@ -2737,6 +2813,9 @@ def get_best_skinning_texture_resolution(context: bpy.types.Context, num_vertice
     """
     rows = 0
     for skinning_texture in settings.skinning_textures:
+        if skinning_texture.storage_mode == "VCOL":
+            continue
+
         rows = max(rows, len(skinning_texture.rows))
 
     """
@@ -2913,7 +2992,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                              rate=str(report.frame_rate),
                              width=str(report.frame_width),
                              height=str(report.frame_height),
-                             ref=str(report.ref))
+                             ref=str(report.frame_ref))
 
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""
@@ -2925,15 +3004,50 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                              bounds_offset_min_z=str(abs(report.mesh_min_bounds_offset[2])),
                              bounds_offset_max_x=str(abs(report.mesh_max_bounds_offset[0])),
                              bounds_offset_max_y=str(abs(report.mesh_max_bounds_offset[1])),
-                             bounds_offset_max_z=str(abs(report.mesh_max_bounds_offset[2]))) # @TODO
+                             bounds_offset_max_z=str(abs(report.mesh_max_bounds_offset[2])))
 
-    # textures info
-    tex_el = ET.SubElement(root, "Textures")
-
-    # indices/weights
+    # vcol info
     if report.skinning_textures:
         for skinning_texture in report.skinning_textures:
-            if skinning_texture.path != "":
+            if skinning_texture.storage_mode == "VCOL":
+                vcol_el = ET.SubElement(root, "VCol")
+
+                try:
+                    skinning_texture_row = skinning_texture.rows[0] # only one texture targetting vcol
+                except:
+                    skinning_texture_row = None
+
+                if skinning_texture_row:
+                    vcol_subel = ET.SubElement(vcol_el, "R",
+                                            mode=skinning_texture_row.R.channel_mode,
+                                            index=str(skinning_texture_row.R.index)
+                                            )
+                    vcol_subel = ET.SubElement(vcol_el, "G",
+                                            mode=skinning_texture_row.G.channel_mode,
+                                            index=str(skinning_texture_row.G.index)
+                                            )
+                    vcol_subel = ET.SubElement(vcol_el, "B",
+                                            mode=skinning_texture_row.B.channel_mode,
+                                            index=str(skinning_texture_row.B.index)
+                                            )
+                    vcol_subel = ET.SubElement(vcol_el, "A",
+                                            mode=skinning_texture_row.A.channel_mode,
+                                            index=str(skinning_texture_row.A.index)
+                                            )
+                break
+            else:
+                continue
+
+    # textures info
+    if report.skinning_textures or report.animation_textures:
+        tex_el = ET.SubElement(root, "Textures")
+
+        # skinning textures
+        if report.skinning_textures:
+            for skinning_texture in report.skinning_textures:
+                if skinning_texture.storage_mode == "VCOL":
+                    continue
+
                 tex_subel = ET.SubElement(tex_el, "Texture",
                                             type="Skinning",
                                             width=str(report.skinning_tex_width),
@@ -2941,9 +3055,31 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                                             path=skinning_texture.path,
                                             )
 
-    if report.animation_textures:
-        for animation_texture in report.animation_textures:
-            if animation_texture.path != "":
+                for skinning_texture_row in skinning_texture.rows:
+                    tex_rowel = ET.SubElement(tex_subel, "Row",
+                                            name=skinning_texture_row.name,
+                                            )
+
+                    tex_rowsubel = ET.SubElement(tex_rowel, "R",
+                                            mode=skinning_texture_row.R.channel_mode,
+                                            index=str(skinning_texture_row.R.index)
+                                            )
+                    tex_rowsubel = ET.SubElement(tex_rowel, "G",
+                                            mode=skinning_texture_row.G.channel_mode,
+                                            index=str(skinning_texture_row.G.index)
+                                            )
+                    tex_rowsubel = ET.SubElement(tex_rowel, "B",
+                                            mode=skinning_texture_row.B.channel_mode,
+                                            index=str(skinning_texture_row.B.index)
+                                            )
+                    tex_rowsubel = ET.SubElement(tex_rowel, "A",
+                                            mode=skinning_texture_row.A.channel_mode,
+                                            index=str(skinning_texture_row.A.index)
+                                            )
+
+        # animation textures
+        if report.animation_textures:
+            for animation_texture in report.animation_textures:
                 tex_subel = ET.SubElement(tex_el, "Texture",
                                             type="Animation",
                                             width=str(report.animation_tex_width),
@@ -2959,15 +3095,56 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                 ]
                 for channel, channel_name, channel_range_offset, channel_range, channel_range_valid in channels:
                     channel_remapped = channel.remapping and get_animation_texture_channel_allow_remap(channel)
-                    channel_el = ET.SubElement(tex_subel, channel_name,
-                                            mode=channel.channel_mode,
-                                            component=channel.component,
-                                            axis=channel.axis,
-                                            quat=channel.quat,
-                                            remapped=str(channel_remapped),
-                                            range_offset=str(channel_range_offset),
-                                            range=str(channel_range),
-                                            range_valid=str(channel_range_valid))
+
+                    if channel.channel_mode == "POSITION":
+                        channel_el = ET.SubElement(tex_subel, channel_name,
+                                                mode=channel.channel_mode,
+                                                component=channel.component,
+                                                remapped=str(channel_remapped),
+                                                range_offset=str(channel_range_offset),
+                                                range=str(channel_range),
+                                                range_valid=str(channel_range_valid))
+                    elif channel.channel_mode == "ROTATION":
+                        if channel.rot_mode == "QUAT":
+                            channel_el = ET.SubElement(tex_subel, channel_name,
+                                                    mode=channel.channel_mode,
+                                                    rot_mode=channel.rot_mode,
+                                                    quat=channel.quat,
+                                                    axis_order=channel.quat_xyz_order,
+                                                    remapped=str(channel_remapped),
+                                                    range_offset=str(channel_range_offset),
+                                                    range=str(channel_range),
+                                                    range_valid=str(channel_range_valid))
+                        elif channel.rot_mode == "AXES":
+                            channel_el = ET.SubElement(tex_subel, channel_name,
+                                                    mode=channel.channel_mode,
+                                                    rot_mode=channel.rot_mode,
+                                                    component=channel.component,
+                                                    axis=channel.axis,
+                                                    axis_order=channel.quat_xyz_order,
+                                                    remapped=str(channel_remapped),
+                                                    range_offset=str(channel_range_offset),
+                                                    range=str(channel_range),
+                                                    range_valid=str(channel_range_valid))
+                        elif channel.rot_mode == "AXIS_ANGLE":
+                            channel_el = ET.SubElement(tex_subel, channel_name,
+                                                    mode=channel.channel_mode,
+                                                    rot_mode=channel.rot_mode,
+                                                    axis_angle=channel.axis_angle_mode,
+                                                    angle_mode=channel.quat_angle_unit_mode,
+                                                    axis_order=channel.quat_xyz_order,
+                                                    remapped=str(channel_remapped),
+                                                    range_offset=str(channel_range_offset),
+                                                    range=str(channel_range),
+                                                    range_valid=str(channel_range_valid))
+                    else: # SCALE
+                        channel_el = ET.SubElement(tex_subel, channel_name,
+                                                mode=channel.channel_mode,
+                                                component=channel.component,
+                                                remapped=str(channel_remapped),
+                                                range_offset=str(channel_range_offset),
+                                                range=str(channel_range),
+                                                range_valid=str(channel_range_valid))
 
     # anims info
     if report.anims:

@@ -28,14 +28,14 @@ class BATBAKER_PG_SkinningTexChannelPropertyGroup(PropertyGroup):
         ("INDEX", "Index", "Bone index"),
         ("WEIGHT", "Weight", "Bone weight"),
     ]
-    channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
-    index: IntProperty(name="Index", min=1, default=0, description="1 - the bone influencing the vertex the most\n2 - the second most influencing bone\n3 - the third\n4 - ...")
+    channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="Select the type of skinning data to write")
+    index: IntProperty(name="Index", min=1, default=0, description="1 - most influential bone\n2 - second most influential bone\n3 - third most...")
 
 class BATBAKER_PG_SkinningTexRowPropertyGroup(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Row", description="")
-    
+
     R: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
     G: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
     B: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
@@ -46,16 +46,22 @@ class BATBAKER_PG_SkinningTexLayerPropertyGroup(PropertyGroup):
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
 
+    storage_modes = [
+        ("TEXTURE", "Texture", ""),
+        ("VCOL", "Vertex Color", ""),
+    ]
+    storage_mode: EnumProperty(name="Storage", items=storage_modes, default="TEXTURE", description="")
+
     rows: CollectionProperty(type=BATBAKER_PG_SkinningTexRowPropertyGroup)
     rows_selected_index: IntProperty(name="Selected", default=0)
 
-class BATBAKER_PG_TransformTexChannelPropertyGroup(PropertyGroup):
+class BATBAKER_PG_AnimationTexChannelPropertyGroup(PropertyGroup):
     """ """
     channel_modes = [
         ("NONE", "None", "Write 0 to the channel"),
         ("POSITION", "Position", "Bone position"),
         ("ROTATION", "Rotation", "Bone rotation"),
-        ("SCALE", "Scale", "Bone scale @TODO"),
+        ("SCALE", "Scale", "Bone scale"),
     ]
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
 
@@ -116,15 +122,15 @@ class BATBAKER_PG_TransformTexChannelPropertyGroup(PropertyGroup):
 
     remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
-class BATBAKER_PG_TransformTexLayerPropertyGroup(PropertyGroup):
+class BATBAKER_PG_AnimationTexLayerPropertyGroup(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
 
-    R: PointerProperty(type=BATBAKER_PG_TransformTexChannelPropertyGroup)
-    G: PointerProperty(type=BATBAKER_PG_TransformTexChannelPropertyGroup)
-    B: PointerProperty(type=BATBAKER_PG_TransformTexChannelPropertyGroup)
-    A: PointerProperty(type=BATBAKER_PG_TransformTexChannelPropertyGroup)
+    R: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
+    G: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
+    B: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
+    A: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
 
 class BATBAKER_PG_SettingsNLAProperty(PropertyGroup):
     """ """
@@ -135,7 +141,7 @@ class BATBAKER_PG_Settings(PropertyGroup):
     skinning_textures: CollectionProperty(type=BATBAKER_PG_SkinningTexLayerPropertyGroup)
     skinning_textures_selected_index: IntProperty(name="Selected", default=0)
 
-    animation_textures: CollectionProperty(type=BATBAKER_PG_TransformTexLayerPropertyGroup)
+    animation_textures: CollectionProperty(type=BATBAKER_PG_AnimationTexLayerPropertyGroup)
     animation_textures_selected_index: IntProperty(name="Selected", default=0)
 
     # scene 
@@ -147,7 +153,6 @@ class BATBAKER_PG_Settings(PropertyGroup):
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.BAT", description="Name of the baked object")
-    mesh_maxweights: IntProperty(name="Max Weights", default=4, min=1, max=4, description="@TODO")
     mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData.BAT", description="Name of the UVMap to be created or used for baking mesh UVs")
     mesh_target_prop: StringProperty(name="Property", default="BakeTarget", description="Custom property name for the retargeting feature (to bake a high-res animated mesh to a low-res mesh)")
     mesh_materials: BoolProperty(name="Materials", default=True, description="Enable to copy materials")
@@ -274,10 +279,12 @@ class BATBAKER_PG_ReportSkinningTexLayer(PropertyGroup):
     path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH')
     img: PointerProperty(type=bpy.types.Image)
 
+    storage_mode: StringProperty(name="Storage", default="", description="")
+
     rows: CollectionProperty(type=BATBAKER_PG_ReportSkinningTexRow)
     rows_selected_index: IntProperty(name="Selected", default=0)
 
-class BATBAKER_PG_ReportTransformTexChannel(PropertyGroup):
+class BATBAKER_PG_ReportAnimationTexChannel(PropertyGroup):
     """ """
     channel_modes = [
         ("NONE", "None", "Write 0 to the channel"),
@@ -344,7 +351,7 @@ class BATBAKER_PG_ReportTransformTexChannel(PropertyGroup):
 
     remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
-class BATBAKER_PG_ReportTransformTexLayer(PropertyGroup):
+class BATBAKER_PG_ReportAnimationTexLayer(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
@@ -352,19 +359,19 @@ class BATBAKER_PG_ReportTransformTexLayer(PropertyGroup):
     path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH')
     img: PointerProperty(type=bpy.types.Image)
 
-    R: PointerProperty(type=BATBAKER_PG_ReportTransformTexChannel)
+    R: PointerProperty(type=BATBAKER_PG_ReportAnimationTexChannel)
     R_range_offset: FloatProperty(name="Offset", default=0.0)
     R_range: FloatProperty(name="Range", default=1.0)
     R_range_valid: BoolProperty(name="Valid", default=False)
-    G: PointerProperty(type=BATBAKER_PG_ReportTransformTexChannel)
+    G: PointerProperty(type=BATBAKER_PG_ReportAnimationTexChannel)
     G_range_offset: FloatProperty(name="Offset", default=0.0)
     G_range: FloatProperty(name="Range", default=1.0)
     G_range_valid: BoolProperty(name="Valid", default=False)
-    B: PointerProperty(type=BATBAKER_PG_ReportTransformTexChannel)
+    B: PointerProperty(type=BATBAKER_PG_ReportAnimationTexChannel)
     B_range_offset: FloatProperty(name="Offset", default=0.0)
     B_range: FloatProperty(name="Range", default=1.0)
     B_range_valid: BoolProperty(name="Valid", default=False)
-    A: PointerProperty(type=BATBAKER_PG_ReportTransformTexChannel)
+    A: PointerProperty(type=BATBAKER_PG_ReportAnimationTexChannel)
     A_range_offset: FloatProperty(name="Offset", default=0.0)
     A_range: FloatProperty(name="Range", default=1.0)
     A_range_valid: BoolProperty(name="Valid", default=False)
@@ -382,7 +389,7 @@ class BATBAKER_PG_Report(PropertyGroup):
     skinning_textures: CollectionProperty(type=BATBAKER_PG_ReportSkinningTexLayer)
     skinning_textures_selected_index: IntProperty(name="Selected", default=0)
 
-    animation_textures: CollectionProperty(type=BATBAKER_PG_ReportTransformTexLayer)
+    animation_textures: CollectionProperty(type=BATBAKER_PG_ReportAnimationTexLayer)
     animation_textures_selected_index: IntProperty(name="Selected", default=0)
 
     baked: BoolProperty(name="Baked", default=False, description="")
@@ -402,14 +409,9 @@ class BATBAKER_PG_Report(PropertyGroup):
 
     padded: BoolProperty(name="Padded", default=False, description="")
     padding: IntProperty(name="Padding", default=0, description="")
-    padding_modes = [
-        ('PREFIX', 'Prefix', 'Last frame was added before first frame'),
-        ('SUFFIX', 'Suffix', 'First frame was added after last frame'),
-        ('PREFIX_SUFFIX', 'Prefix & Suffix', 'Last frame was added before first frame AND first frame was added after last frame')
-    ]
-    padding_mode: EnumProperty(name="Sampling", items=padding_modes, default=0, description="")
-    ref_mode: StringProperty(name="Frame Ref Mode", default="", description="")
-    ref: IntProperty(name="Frame Ref", default=1, description="")
+    padding_mode: StringProperty(name="Sampling", default="", description="")
+    frame_ref_mode: StringProperty(name="Frame Ref Mode", default="", description="")
+    frame_ref: IntProperty(name="Frame Ref", default=1, description="")
     anims: CollectionProperty(type=BATBAKER_PG_ReportAnim)
     selected_anim: IntProperty(name="Selected Anim", default=0, description="")
 
@@ -425,9 +427,9 @@ class BATBAKER_PG_Report(PropertyGroup):
 
     num_verts: IntProperty(name="Vertices", default=0, description="")
     num_bones: IntProperty(name="Bones", default=0, description="")
+    num_bones_max: IntProperty(name="Max Weights", default=4, min=1, max=4, description="")
 
     mesh: PointerProperty(type=bpy.types.Object)
-    mesh_maxweights: IntProperty(name="Max Weights", default=4, min=1, max=4, description="")
     mesh_export: BoolProperty(name="Export", default=False, description="")
     mesh_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
     mesh_uvmap_index: IntProperty(name="UV Index", default=0, description="")

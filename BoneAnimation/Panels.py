@@ -183,7 +183,7 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
-    bl_order = 1
+    bl_order = 2
     
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -293,7 +293,7 @@ class BATBAKER_PT_TexturesPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
-    bl_order = 0
+    bl_order = 1
     
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -314,7 +314,13 @@ class BATBAKER_UL_SkinningTextureList(bpy.types.UIList):
                 if item.name in all_other_tex_names:
                     layout.prop(item, "name", text="", emboss=False, icon="ERROR")
                 else:
-                    layout.prop(item, "name", text="", emboss=False, icon="TEXTURE")
+                    if item.storage_mode == "VCOL":
+                        if len(item.rows) > 1:
+                            layout.prop(item, "name", text="", emboss=False, icon="ERROR")
+                        else:
+                            layout.prop(item, "name", text="", emboss=False, icon="COLOR")
+                    else:
+                        layout.prop(item, "name", text="", emboss=False, icon="TEXTURE")
             else:
                 layout.label(text="", translate=False, icon="TEXTURE")
         elif self.layout_type == 'GRID':
@@ -382,6 +388,9 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
             if texture:
                 row = layout.row()
                 row.prop(texture, "name", text="Name")
+                
+                row = layout.row()
+                row.prop(texture, "storage_mode")
 
                 row = layout.row()
                 row.template_list("BATBAKER_UL_SkinningRowList", "", texture, "rows", texture, "rows_selected_index", rows=3)
@@ -428,7 +437,7 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
                                     row.prop(texture_row, "index", text="Bone Index")
 
 # ANIMATION TEXTURES #
-class BATBAKER_UL_TransformTextureList(bpy.types.UIList):
+class BATBAKER_UL_AnimationTextureList(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         settings = context.scene.BATBakerSettings
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
@@ -446,14 +455,14 @@ class BATBAKER_UL_TransformTextureList(bpy.types.UIList):
             layout.alignment = 'CENTER'
             layout.label(text="", icon="ANIM_DATA")
 
-class BATBAKER_PT_TransformTexturesPanel(bpy.types.Panel):
+class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
     bl_idname = "BATBAKER_PT_animationtexturespanel"
     bl_parent_id = "BATBAKER_PT_texturespanel"
     bl_label = "Animation Data"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
-    bl_order = 0
+    bl_order = 1
     
     #bl_options = {'DEFAULT_CLOSED'}
 
@@ -479,7 +488,7 @@ class BATBAKER_PT_TransformTexturesPanel(bpy.types.Panel):
         row.prop(settings, "animation_tex_packing_mode")
 
         row = layout.row()
-        row.template_list("BATBAKER_UL_TransformTextureList", "", settings, "animation_textures", settings, "animation_textures_selected_index", rows=5)
+        row.template_list("BATBAKER_UL_AnimationTextureList", "", settings, "animation_textures", settings, "animation_textures_selected_index", rows=5)
 
         col = row.column(align=True)
         col.operator("gametools.batbaker_animation_texturelist_new_item", text="", icon="ADD")
@@ -740,7 +749,10 @@ class BATBAKER_UL_ReportSkinningTextureList(bpy.types.UIList):
         settings = context.scene.BATBakerSettings
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             if item.name:
-                layout.prop(item, "name", text="", emboss=False, icon="TEXTURE")
+                if item.storage_mode == "VCOL":
+                    layout.prop(item, "name", text="", emboss=False, icon="COLOR")
+                else:
+                    layout.prop(item, "name", text="", emboss=False, icon="TEXTURE")
             else:
                 layout.label(text="", translate=False, icon="DOT")
         elif self.layout_type == 'GRID':
@@ -792,6 +804,22 @@ class BATBAKER_PT_ReportSkinningTexPanel(bpy.types.Panel):
                 row = layout.row()
                 row.template_list("BATBAKER_UL_ReportSkinningRowList", "", texture, "rows", texture, "rows_selected_index", rows=3)
 
+                row = layout.row()
+                row.prop(texture, "storage_mode")
+                row.enabled = False
+
+                if texture.storage_mode == "TEXTURE":
+                    row = layout.row()
+                    row.prop(texture, "img", text="")
+                    row.enabled = False
+
+                    if texture.exported:
+                        row = layout.row()
+                        row.label(text=texture.path, icon="CHECKMARK")
+                    else:
+                        row = layout.row()
+                        row.label(text="Not exported", icon="ERROR")
+
                 try:
                     texture_row = texture.rows[texture.rows_selected_index]
                 except:
@@ -800,6 +828,7 @@ class BATBAKER_PT_ReportSkinningTexPanel(bpy.types.Panel):
                 if texture_row:
                     row = layout.row()
                     row.prop(texture_row, "name", text="Name")
+                    row.enabled = False
 
                     channels = [
                         (texture_row.R, "R"),
@@ -846,7 +875,7 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
-    bl_order = 1
+    bl_order = 2
 
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -870,6 +899,17 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
                 texture = None
 
             if texture:
+                row = layout.row()
+                row.prop(texture, "img", text="")
+                row.enabled = False
+
+                if texture.exported:
+                    row = layout.row()
+                    row.label(text=texture.path, icon="CHECKMARK")
+                else:
+                    row = layout.row()
+                    row.label(text="Not exported", icon="ERROR")
+
                 texture_channels = [
                     ("texture_channel_R", "R", texture.R, texture.R_range_offset, texture.R_range, texture.R_range_valid),
                     ("texture_channel_G", "G", texture.G, texture.G_range_offset, texture.G_range, texture.G_range_valid),
@@ -965,6 +1005,12 @@ class BATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
             
             row = layout.row()
             row.label(text="Verts: " + str(report.num_verts))
+
+            row = layout.row()
+            row.label(text="Bones: " + str(report.num_bones))
+
+            row = layout.row()
+            row.label(text="Max Weights: " + str(report.num_bones_max))
 
             layout.separator()
             

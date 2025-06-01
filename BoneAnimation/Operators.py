@@ -33,7 +33,56 @@ class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
 
     preset_defines = [ 'settings = bpy.context.scene.BATBakerSettings' ]
 
-    preset_values = [ # @TODO
+    preset_values = [
+        'skinning_textures',
+        'skinning_textures_selected_index',
+        'animation_textures',
+        'animation_textures_selected_index',
+        'unit_scale',
+        'unit_invert_x',
+        'unit_invert_y',
+        'unit_invert_z',
+        'unit_invert_v',
+        'mesh_name',
+        'mesh_uvmap_name',
+        'mesh_target_prop',
+        'mesh_materials',
+        'export_mesh',
+        'export_mesh_file_name',
+        'export_mesh_file_path',
+        'export_mesh_file_override',
+        'require_triangulation',
+        'previz_result',
+        'export_xml',
+        'export_xml_mode',
+        'export_xml_file_name',
+        'export_xml_file_path',
+        'export_xml_override',
+        'frame_range_mode',
+        'frame_range_nla_exclusion',
+        'frame_range_nla_exclusion_selected_index',
+        'frame_range_nla_exclusion_selected',
+        'frame_range_custom_start',
+        'frame_range_custom_end',
+        'frame_range_custom_step',
+        'frame_range_custom_step_mode',
+        'frame_padding_mode',
+        'frame_padding',
+        'frame_ref_mode',
+        'frame_ref_custom',
+        'export_tex',
+        'export_tex_file_name',
+        'export_tex_file_path',
+        'export_tex_override',
+        'skinning_tex_max_width',
+        'skinning_tex_max_height',
+        'skinning_tex_force_power_of_two',
+        'skinning_tex_force_power_of_two_square',
+        'animation_tex_max_width',
+        'animation_tex_max_height',
+        'animation_tex_force_power_of_two',
+        'animation_tex_force_power_of_two_square',
+        'animation_tex_packing_mode',
     ]
 
     preset_subdir = 'operator/gametools_batbaker'
@@ -122,7 +171,7 @@ class BATBAKER_OT_NLAExclusion_MoveItem(bpy.types.Operator):
 
 ############################
 ### INDEX/WEIGHT TEXTURE ###
-class BATBAKER_OT_skinningTextureList_NewItem(bpy.types.Operator):
+class BATBAKER_OT_SkinningTextureList_NewItem(bpy.types.Operator):
     """Add a new item to the list."""
     bl_idname = "gametools.batbaker_skinning_texturelist_new_item"
     bl_label = "Add a new item"
@@ -221,7 +270,19 @@ class BATBAKER_OT_SkinningRowList_NewItem(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return True
+        settings = context.scene.BATBakerSettings
+        try:
+            skinning_texture = settings.skinning_textures[settings.skinning_textures_selected_index]
+        except:
+            skinning_texture = None
+
+        if skinning_texture:
+            if skinning_texture.storage_mode == "VCOL":
+                return len(skinning_texture.rows) <= 0
+            else:
+                return True
+        else:
+            return True
 
     def execute(self, context):
         settings = context.scene.BATBakerSettings
@@ -308,7 +369,7 @@ class BATBAKER_OT_SkinningRowList_MoveItem(bpy.types.Operator):
         
 #########################
 ### TRANSFORM TEXTURE ###
-class BATBAKER_OT_TransformTextureList_NewItem(bpy.types.Operator):
+class BATBAKER_OT_AnimationTextureList_NewItem(bpy.types.Operator):
     """Add a new item to the list."""
     bl_idname = "gametools.batbaker_animation_texturelist_new_item"
     bl_label = "Add a new item"
@@ -336,7 +397,7 @@ class BATBAKER_OT_TransformTextureList_NewItem(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class BATBAKER_OT_TransformTextureList_DeleteItem(bpy.types.Operator):
+class BATBAKER_OT_AnimationTextureList_DeleteItem(bpy.types.Operator):
     """Delete the selected item from the list."""
     bl_idname = "gametools.batbaker_animation_texturelist_delete_item"
     bl_label = "Deletes an item"
@@ -352,7 +413,7 @@ class BATBAKER_OT_TransformTextureList_DeleteItem(bpy.types.Operator):
 
         return{'FINISHED'}
 
-class BATBAKER_OT_TransformTextureList_MoveItem(bpy.types.Operator):
+class BATBAKER_OT_AnimationTextureList_MoveItem(bpy.types.Operator):
     """Move an item in the list."""
     bl_idname = "gametools.batbaker_animation_texturelist_move_item"
     bl_label = "Move an item in the list"
