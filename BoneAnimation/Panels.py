@@ -191,7 +191,7 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         settings = scene.BATBakerSettings
-        
+
         row = layout.row()
         row.prop(settings, "unit_scale")
 
@@ -209,6 +209,14 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "mesh_target_prop")
+
+        panel_header, panel_body = layout.panel("bat_mesh_previz")
+        if panel_header:
+            panel_header.label(text="Previz")
+        if panel_body:
+            row = panel_body.row()
+            row.prop(settings, "previz_result", text="Anim")
+            row.prop(settings, "previz_bounds", text="Bounds")
 
 class BATBAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "BATBAKER_PT_meshuvpanel"
@@ -538,16 +546,7 @@ class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
 
                                     row = panel_body.row()
                                     row.prop(texture_channel, "quat_xyz_order")
-                                elif texture_channel.rot_mode == "AXES":
-                                    row = panel_body.row()
-                                    row.prop(texture_channel, "axis")
-
-                                    row = panel_body.row()
-                                    row.prop(texture_channel, "component")
                                 else: #AXIS_ANGLE
-                                    row = panel_body.row()
-                                    row.prop(texture_channel, "quat_xyz_order")
-
                                     row = panel_body.row()
                                     row.prop(texture_channel, "axis_angle_mode")
 
@@ -555,9 +554,25 @@ class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
                                         row = panel_body.row()
                                         row.prop(texture_channel, "quat_angle_unit_mode")
 
-                            else: # SCALE
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "quat_xyz_order")
+                            elif texture_channel.channel_mode == "SCALE":
                                 row = panel_body.row()
                                 row.prop(texture_channel, "component")
+                            elif texture_channel.channel_mode == "AXIS":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "axis")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "component")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "axis_scaled")
+                            elif texture_channel.channel_mode == "CUSTOM_PROP":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "name")
+                            else:
+                                pass
 
                             if get_animation_texture_channel_allow_remap(texture_channel):
                                 row = panel_body.row()
@@ -792,6 +807,10 @@ class BATBAKER_PT_ReportSkinningTexPanel(bpy.types.Panel):
         col.label(text="Height: " + str(report.skinning_tex_height))
 
         row = layout.row()
+        row.label(text="Rows: " + str(report.skinning_tex_rows))
+        row.enabled = report.skinning_tex_rows > 1
+
+        row = layout.row()
         row.template_list("BATBAKER_UL_ReportSkinningTextureList", "", report, "skinning_textures", report, "skinning_textures_selected_index", rows=5)
 
         if report.skinning_textures:
@@ -890,6 +909,14 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
         col.label(text="Height: " + str(report.animation_tex_height))
 
         row = layout.row()
+        if report.animation_tex_sampling_mode == 'CONTINUOUS': # @TODO change panel
+            row.label(text="Width: " + str(report.animation_tex_frame_width))
+            row.enabled = report.animation_tex_underflow or report.animation_tex_overflow
+        else:
+            row.label(text="Height: " + str(report.animation_tex_frame_height))
+            row.enabled = report.animation_tex_overflow
+
+        row = layout.row()
         row.template_list("BATBAKER_UL_ReportAnimationTextureList", "", report, "animation_textures", report, "animation_textures_selected_index", rows=5)
 
         if report.animation_textures:
@@ -937,25 +964,31 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
 
                                 row = panel_body.row()
                                 row.prop(texture_channel, "quat_xyz_order")
-                            elif texture_channel.rot_mode == "AXES":
-                                row = panel_body.row()
-                                row.prop(texture_channel, "axis")
-
-                                row = panel_body.row()
-                                row.prop(texture_channel, "component")
                             else: #AXIS_ANGLE
-                                row = panel_body.row()
-                                row.prop(texture_channel, "quat_xyz_order")
-
                                 row = panel_body.row()
                                 row.prop(texture_channel, "axis_angle_mode")
 
                                 if texture_channel.axis_angle_mode == "ANGLE":
                                     row = panel_body.row()
                                     row.prop(texture_channel, "quat_angle_unit_mode")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "quat_xyz_order")
                         elif texture_channel.channel_mode == "SCALE":
                             row = panel_body.row()
                             row.prop(texture_channel, "component")
+                        elif texture_channel.channel_mode == "AXIS":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "component")
+
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis_scaled")
+                        elif texture_channel.channel_mode == "CUSTOM_PROP":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "name")
                         else:
                             pass
 
@@ -1115,25 +1148,9 @@ class BATBAKER_PT_ReportAnimsPanel(bpy.types.Panel):
                 row.label(text="Length: " + str(anim.end_frame - (anim.start_frame - 1)))
 
                 row = layout.row()
-                row.label(text="Start")
+                row.label(text="Start: " + str(anim.start_frame))
                 row = layout.row()
-                row.label(text="Frame: " + str(anim.start_frame - 1), icon="KEYFRAME")
-                row = layout.row()
-                row.label(text="Time: " + str(anim.start_time), icon="TIME")
-
-                layout.separator()
-
-                row = layout.row()
-                row.label(text="End")
-                row = layout.row()
-                row.label(text="Frame: " + str(anim.end_frame - 1), icon="KEYFRAME")
-                row = layout.row()
-                row.label(text="Time: " + str(anim.end_time), icon="TIME")
-
-                layout.separator()
-
-                row = layout.row()
-                row.label(text="Associated Objects")
+                row.label(text="End: " + str(anim.end_frame))
 
 class BATBAKER_UL_ReportAnimsList(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
@@ -1194,14 +1211,6 @@ class BATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
         col.enabled = report.frame_step != 1
         col.label(text="FPS: " + str(report.frame_rate))
         col.enabled = report.frame_rate != 24.0
-
-        row = layout.row()
-        if report.animation_tex_sampling_mode == 'CONTINUOUS':
-            row.label(text="Width: " + str(report.frame_width))
-            row.enabled = report.animation_tex_underflow or report.animation_tex_overflow
-        else:
-            row.label(text="Height: " + str(report.frame_height))
-            row.enabled = report.animation_tex_overflow
 
 # UNIT #
 class BATBAKER_PT_ReportUnitPanel(bpy.types.Panel):

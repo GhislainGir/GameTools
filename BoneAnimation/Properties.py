@@ -21,7 +21,7 @@ from bpy.types import PropertyGroup
 #############################################################################################
 ################
 ### SETTINGS ###
-class BATBAKER_PG_SkinningTexChannelPropertyGroup(PropertyGroup):
+class BATBAKER_PG_SettingsSkinningTexChannel(PropertyGroup):
     """ """
     channel_modes = [
         ("NONE", "None", "Write 0 to the channel"),
@@ -31,20 +31,20 @@ class BATBAKER_PG_SkinningTexChannelPropertyGroup(PropertyGroup):
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="Select the type of skinning data to write")
     index: IntProperty(name="Index", min=1, default=0, description="1 - most influential bone\n2 - second most influential bone\n3 - third most...")
 
-class BATBAKER_PG_SkinningTexRowPropertyGroup(PropertyGroup):
+class BATBAKER_PG_SettingsSkinningTexRow(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Row", description="")
 
-    R: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
-    G: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
-    B: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
-    A: PointerProperty(type=BATBAKER_PG_SkinningTexChannelPropertyGroup)
+    R: PointerProperty(type=BATBAKER_PG_SettingsSkinningTexChannel)
+    G: PointerProperty(type=BATBAKER_PG_SettingsSkinningTexChannel)
+    B: PointerProperty(type=BATBAKER_PG_SettingsSkinningTexChannel)
+    A: PointerProperty(type=BATBAKER_PG_SettingsSkinningTexChannel)
 
-class BATBAKER_PG_SkinningTexLayerPropertyGroup(PropertyGroup):
+class BATBAKER_PG_SettingsSkinningTexLayer(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
-    name: StringProperty(name="name", default="Texture", description="")
+    name: StringProperty(name="name", default="", description="")
 
     storage_modes = [
         ("TEXTURE", "Texture", ""),
@@ -52,16 +52,18 @@ class BATBAKER_PG_SkinningTexLayerPropertyGroup(PropertyGroup):
     ]
     storage_mode: EnumProperty(name="Storage", items=storage_modes, default="TEXTURE", description="")
 
-    rows: CollectionProperty(type=BATBAKER_PG_SkinningTexRowPropertyGroup)
+    rows: CollectionProperty(type=BATBAKER_PG_SettingsSkinningTexRow)
     rows_selected_index: IntProperty(name="Selected", default=0)
 
-class BATBAKER_PG_AnimationTexChannelPropertyGroup(PropertyGroup):
+class BATBAKER_PG_SettingsAnimationTexChannel(PropertyGroup):
     """ """
     channel_modes = [
         ("NONE", "None", "Write 0 to the channel"),
         ("POSITION", "Position", "Bone position"),
         ("ROTATION", "Rotation", "Bone rotation"),
         ("SCALE", "Scale", "Bone scale"),
+        ("AXIS", "Axis", "Bone axis"),
+        ("CUSTOM_PROP", "Custom Property", "Bone custom property"),
     ]
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
 
@@ -100,7 +102,6 @@ class BATBAKER_PG_AnimationTexChannelPropertyGroup(PropertyGroup):
 
     rot_modes = [
         ("QUAT", "Quaternion", ""),
-        ("AXES", "Axes", ""),
         ("AXIS_ANGLE", "Axis & Angle", ""),
     ]
     rot_mode: EnumProperty(name="Mode", items=rot_modes, default="AXIS_ANGLE", description="")
@@ -120,28 +121,32 @@ class BATBAKER_PG_AnimationTexChannelPropertyGroup(PropertyGroup):
     ]
     axis_angle_mode: EnumProperty(name="Component", items=axis_angle_modes, default="AXIS_X", description="")
 
+    axis_scaled: BoolProperty(name="Scale", default=False, description="Include bone scale in forward/right/up axes. Rotation can still be applied by normalizing vectors")
+
     remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
-class BATBAKER_PG_AnimationTexLayerPropertyGroup(PropertyGroup):
+    name: StringProperty(name="Name", default="", description="")
+
+class BATBAKER_PG_SettingsAnimationTexLayer(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
 
-    R: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
-    G: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
-    B: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
-    A: PointerProperty(type=BATBAKER_PG_AnimationTexChannelPropertyGroup)
+    R: PointerProperty(type=BATBAKER_PG_SettingsAnimationTexChannel)
+    G: PointerProperty(type=BATBAKER_PG_SettingsAnimationTexChannel)
+    B: PointerProperty(type=BATBAKER_PG_SettingsAnimationTexChannel)
+    A: PointerProperty(type=BATBAKER_PG_SettingsAnimationTexChannel)
 
-class BATBAKER_PG_SettingsNLAProperty(PropertyGroup):
+class BATBAKER_PG_SettingsNLAClip(PropertyGroup):
     """ """
     name: StringProperty(name="Name", default="")
 
 class BATBAKER_PG_Settings(PropertyGroup):
     """ """
-    skinning_textures: CollectionProperty(type=BATBAKER_PG_SkinningTexLayerPropertyGroup)
+    skinning_textures: CollectionProperty(type=BATBAKER_PG_SettingsSkinningTexLayer)
     skinning_textures_selected_index: IntProperty(name="Selected", default=0)
 
-    animation_textures: CollectionProperty(type=BATBAKER_PG_AnimationTexLayerPropertyGroup)
+    animation_textures: CollectionProperty(type=BATBAKER_PG_SettingsAnimationTexLayer)
     animation_textures_selected_index: IntProperty(name="Selected", default=0)
 
     # scene 
@@ -161,7 +166,8 @@ class BATBAKER_PG_Settings(PropertyGroup):
     export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
     require_triangulation: BoolProperty(name="Require Triangulation", default=False, description="Enable to enforce triangulation, potentially improving remapping stability")
-    previz_result: BoolProperty(name="Previz", default=True, description="Enable to add a geometry node modifier to the baked mesh for previewing baked offsets and normals after bake completion")
+    previz_result: BoolProperty(name="Previz", default=True, description="Enable to add a geometry node modifier to the baked mesh for previewing baked bone transforms after bake completion")
+    previz_bounds: BoolProperty(name="Bounds", default=True, description="Enable to display the animation bounds after bake completion")
 
     # xml
     export_xml: BoolProperty(name="Export", default=True, description="Enable to export an XML file containing information about the bake process (recommended). Only available if the Blender file is saved")
@@ -181,7 +187,7 @@ class BATBAKER_PG_Settings(PropertyGroup):
             ("CUSTOM", "Custom", "Use a custom frame range (start and end frames are inclusive)"),
         ]
     frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived")
-    frame_range_nla_exclusion: CollectionProperty(type=BATBAKER_PG_SettingsNLAProperty)
+    frame_range_nla_exclusion: CollectionProperty(type=BATBAKER_PG_SettingsNLAClip)
     frame_range_nla_exclusion_selected_index: IntProperty(name="Selected", min=0, default=0, description="")
     frame_range_nla_exclusion_selected: StringProperty(name="Name", default="Clip", description="")
     frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)")
@@ -264,7 +270,7 @@ class BATBAKER_PG_ReportSkinningTexChannel(PropertyGroup):
 class BATBAKER_PG_ReportSkinningTexRow(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
-    name: StringProperty(name="name", default="Row", description="")
+    name: StringProperty(name="name", default="", description="")
 
     R: PointerProperty(type=BATBAKER_PG_ReportSkinningTexChannel)
     G: PointerProperty(type=BATBAKER_PG_ReportSkinningTexChannel)
@@ -290,7 +296,9 @@ class BATBAKER_PG_ReportAnimationTexChannel(PropertyGroup):
         ("NONE", "None", "Write 0 to the channel"),
         ("POSITION", "Position", "Bone position"),
         ("ROTATION", "Rotation", "Bone rotation"),
-        ("SCALE", "Scale", "Bone scale @TODO"),
+        ("SCALE", "Scale", "Bone scale"),
+        ("AXIS", "Axis", "Bone axis"),
+        ("CUSTOM_PROP", "Custom Property", "Bone custom property"),
     ]
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
 
@@ -329,7 +337,6 @@ class BATBAKER_PG_ReportAnimationTexChannel(PropertyGroup):
 
     rot_modes = [
         ("QUAT", "Quaternion", ""),
-        ("AXES", "Axes", ""),
         ("AXIS_ANGLE", "Axis & Angle", ""),
     ]
     rot_mode: EnumProperty(name="Mode", items=rot_modes, default="AXIS_ANGLE", description="")
@@ -348,6 +355,8 @@ class BATBAKER_PG_ReportAnimationTexChannel(PropertyGroup):
         ("ANGLE", "Angle", ""),
     ]
     axis_angle_mode: EnumProperty(name="Component", items=axis_angle_modes, default="AXIS_X", description="")
+
+    axis_scaled: BoolProperty(name="Scale", default=False, description="")
 
     remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
@@ -380,9 +389,7 @@ class BATBAKER_PG_ReportAnim(PropertyGroup):
     """ """
     name: StringProperty(name="Name", default="", description="")
     start_frame: IntProperty(name="Start", default=0, description="")
-    start_time: FloatProperty(name="Start", default=0.0)
     end_frame: IntProperty(name="End", default=0, description="")
-    end_time: FloatProperty(name="End", default=0.0)
 
 class BATBAKER_PG_Report(PropertyGroup):
     """ """
@@ -421,8 +428,6 @@ class BATBAKER_PG_Report(PropertyGroup):
     num_frames_padded: IntProperty(name="Padded", default=0, description="")
     frame_step: IntProperty(name="Frame Step", default=0, description="")
     frame_step_mode: StringProperty(name="Step Mode", default="", description="")
-    frame_width: FloatProperty(name="Frame Width", default=0.0, description="")
-    frame_height: FloatProperty(name="Frame Height", default=0.0, description="")
     frame_rate: FloatProperty(name="FPS", default=24.0, description="")
 
     num_verts: IntProperty(name="Vertices", default=0, description="")
@@ -438,10 +443,12 @@ class BATBAKER_PG_Report(PropertyGroup):
     
     skinning_tex_width: IntProperty(name="Width", default=0, description="")
     skinning_tex_height: IntProperty(name="Height", default=0, description="")
-    skinning_tex_rows: IntProperty(name="Rows of Vertices", default=1, description="")
+    skinning_tex_rows: FloatProperty(name="Rows of Vertices", default=1, description="")
     
     animation_tex_width: IntProperty(name="Width", default=0, description="")
+    animation_tex_frame_width: FloatProperty(name="Frame Width", default=0, description="")
     animation_tex_height: IntProperty(name="Height", default=0, description="")
+    animation_tex_frame_height: FloatProperty(name="Frame Height", default=0, description="")
     animation_tex_underflow: BoolProperty(name="Underflow", default=False, description="")
     animation_tex_overflow: BoolProperty(name="Overflow", default=False, description="")
     animation_tex_sampling_mode: StringProperty(name="Sampling", default="", description="")

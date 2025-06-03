@@ -53,6 +53,7 @@ class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'export_mesh_file_override',
         'require_triangulation',
         'previz_result',
+        'previz_bounds',
         'export_xml',
         'export_xml_mode',
         'export_xml_file_name',
@@ -195,6 +196,15 @@ class BATBAKER_OT_SkinningTextureList_NewItem(bpy.types.Operator):
             item = settings.skinning_textures[last_index]
             item.ID = uuid.uuid4().hex
 
+            name = "Skinning"
+            name_suffix = 0
+            names = [skinning_texture.name for skinning_texture in settings.skinning_textures if skinning_texture != item]
+            while name in names:
+                name_suffix += 1
+                name_suffix_str = str(name_suffix).zfill(3)
+                name = "Skinning." + name_suffix_str
+            item.name = name
+
             if last_item:
                 pass
 
@@ -302,6 +312,15 @@ class BATBAKER_OT_SkinningRowList_NewItem(bpy.types.Operator):
                 item = texture.rows[last_index]
                 item.ID = uuid.uuid4().hex
 
+                name = "Row"
+                name_suffix = 0
+                names = [skinning_texture_row.name for skinning_texture_row in texture.rows if skinning_texture_row != item]
+                while name in names:
+                    name_suffix += 1
+                    name_suffix_str = str(name_suffix).zfill(3)
+                    name = "Row." + name_suffix_str
+                item.name = name
+
                 if last_item:
                     pass
 
@@ -379,18 +398,28 @@ class BATBAKER_OT_AnimationTextureList_NewItem(bpy.types.Operator):
         return True
 
     def execute(self, context):
+        settings = context.scene.BATBakerSettings
         last_item = None
-        current_index = context.scene.BATBakerSettings.animation_textures_selected_index
-        if context.scene.BATBakerSettings.animation_textures and (current_index < len(context.scene.BATBakerSettings.animation_textures)):
-            last_item = context.scene.BATBakerSettings.animation_textures[current_index]
+        current_index = settings.animation_textures_selected_index
+        if settings.animation_textures and (current_index < len(settings.animation_textures)):
+            last_item = settings.animation_textures[current_index]
 
-        context.scene.BATBakerSettings.animation_textures.add()
-        last_index = len(context.scene.BATBakerSettings.animation_textures) - 1
+        settings.animation_textures.add()
+        last_index = len(settings.animation_textures) - 1
         if last_index >= 0:
-            context.scene.BATBakerSettings.animation_textures_selected_index = last_index
+            settings.animation_textures_selected_index = last_index
 
-            item = context.scene.BATBakerSettings.animation_textures[last_index]
+            item = settings.animation_textures[last_index]
             item.ID = uuid.uuid4().hex
+
+            name = "Texture"
+            name_suffix = 0
+            names = [animation_texture.name for animation_texture in settings.animation_textures if animation_texture != item]
+            while name in names:
+                name_suffix += 1
+                name_suffix_str = str(name_suffix).zfill(3)
+                name = "Texture." + name_suffix_str
+            item.name = name
 
             if last_item:
                 pass

@@ -1,15 +1,15 @@
 # @TODO geonodes setup
-# @TODO bone scale
+
 # @TODO crash test remapping
-# @TODO test quaternion
-# @TODO test bitpacked quaternion
 # @TODO test value remapping/8bit textures
 # @TODO test continuous
-# @TODO test frame step etc.
 # @TODO test frame size pot, square pot etc
+
+# @TODO redo UV for better cache > pixel underneath, not way below whole stack of rows
 
 # @TODO xml stack mode
 
-# @TODO test what happens with multiple nla tracks on armature
+# @TODO ref pose example
 
 # @TODO rewrite error messages
+# @TODO bake custom prop per bone - architectural challenge
