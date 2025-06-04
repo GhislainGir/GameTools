@@ -31,6 +31,8 @@ class BATBAKER_PG_SettingsSkinningTexChannel(PropertyGroup):
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="Select the type of skinning data to write")
     index: IntProperty(name="Index", min=1, default=0, description="1 - most influential bone\n2 - second most influential bone\n3 - third most...")
 
+    remapping: BoolProperty(name="Remap", default=False, description="Remap indices to [0:1] range to experiment with using an 8-bit skinning texture. This can only be done if number of deforming bones to bake is less than 256")
+
 class BATBAKER_PG_SettingsSkinningTexRow(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
@@ -218,13 +220,18 @@ class BATBAKER_PG_Settings(PropertyGroup):
     export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
 
-    skinning_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of vertices or frames")
-    skinning_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of vertices or frame")
-    skinning_tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported. May lead to overflow issues when vertices exceed the image width, resulting in multiple rows per frame. Extra space handling can be controlled with the 'Stack Mode' option")
-    skinning_tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases. Extra space handling can be controlled with the 'Stack Mode' option")
+    skinning_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of vertices")
+    skinning_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of vertices")
+    skinning_tex_res_modes = [
+        ("ROWS", "Rows", "Each vertex is aligned sequentially in the texture, using one column per vertex and one row per type of skinning data—typically one row for bone indices and another for weights. This results in a texture that is usually very wide but only a few pixels tall (e.g., 4090×2 for a mesh with 4090 vertices).\n\nIf the vertex count exceeds the maximum allowed texture width, the data is wrapped across multiple rows. In such cases, the skinning data for each vertex is still kept vertically aligned—i.e., each vertex’s data is stored in texels directly below one another to maintain a consistent sampling pattern"),
+        ("SQRT", "Square Root", "The texture resolution is computed by taking the square root of the vertex count multiplied by the number of skinning data rows per vertex. For example, with a mesh containing 4090 vertices and two rows of skinning data per vertex (e.g., indices and weights), the total number of texels needed is: 8180. Rounding up the square root of the texel count gives 91, resulting in a texture that is 91x91 in resolution. Using a smaller texture width may allow mesh to use 16-bit UVs instead of the 32-bit UVs typically required for texel precision with 4K textures"),
+        ("POT", "Power of Two", "Similar to 'SQRT' but ensures texture is of power-of-two, e.g. 128x64 instead of 91x91"),
+        ("SQUARE_POT", "Power of Two (Square)", "Similar to 'POT' but ensures texture is of power-of-two AND square, e.g. 128x128 instead of 128x64"),
+    ]
+    skinning_tex_res_mode: EnumProperty(name="Mode", items=skinning_tex_res_modes, default="ROWS", description="Select how the texture resolution is derived from the vertex count")
 
-    animation_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of vertices or frames")
-    animation_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of vertices or frame")
+    animation_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of bones or frames")
+    animation_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of bones or frames")
     animation_tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported. May lead to overflow issues when vertices exceed the image width, resulting in multiple rows per frame. Extra space handling can be controlled with the 'Stack Mode' option")
     animation_tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases. Extra space handling can be controlled with the 'Stack Mode' option")
 
@@ -444,6 +451,7 @@ class BATBAKER_PG_Report(PropertyGroup):
     skinning_tex_width: IntProperty(name="Width", default=0, description="")
     skinning_tex_height: IntProperty(name="Height", default=0, description="")
     skinning_tex_rows: FloatProperty(name="Rows of Vertices", default=1, description="")
+    skinning_tex_res_mode: StringProperty(name="Mode", default="", description="")
     
     animation_tex_width: IntProperty(name="Width", default=0, description="")
     animation_tex_frame_width: FloatProperty(name="Frame Width", default=0, description="")

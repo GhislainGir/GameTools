@@ -369,11 +369,7 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
         row.prop(settings, "skinning_tex_max_height")
 
         row = layout.row()
-        col = row.split()
-        col.prop(settings, "skinning_tex_force_power_of_two")
-        col = row.split()
-        col.prop(settings, "skinning_tex_force_power_of_two_square")
-        col.enabled = settings.skinning_tex_force_power_of_two
+        row.prop(settings, "skinning_tex_res_mode")
 
         row = layout.row()
         row.template_list("BATBAKER_UL_SkinningTextureList", "", settings, "skinning_textures", settings, "skinning_textures_selected_index", rows=5)
@@ -440,6 +436,9 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
                                 if texture_row.channel_mode == "INDEX":
                                     row = panel_body.row()
                                     row.prop(texture_row, "index", text="Bone Index")
+
+                                    row = panel_body.row()
+                                    row.prop(texture_row, "remapping")
                                 else: # WEIGHT
                                     row = panel_body.row()
                                     row.prop(texture_row, "index", text="Bone Index")
@@ -559,6 +558,9 @@ class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
                             elif texture_channel.channel_mode == "SCALE":
                                 row = panel_body.row()
                                 row.prop(texture_channel, "component")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "quat_xyz_order")
                             elif texture_channel.channel_mode == "AXIS":
                                 row = panel_body.row()
                                 row.prop(texture_channel, "axis")
@@ -807,6 +809,10 @@ class BATBAKER_PT_ReportSkinningTexPanel(bpy.types.Panel):
         col.label(text="Height: " + str(report.skinning_tex_height))
 
         row = layout.row()
+        row.prop(report, "skinning_tex_res_mode")
+        row.enabled = False
+
+        row = layout.row()
         row.label(text="Rows: " + str(report.skinning_tex_rows))
         row.enabled = report.skinning_tex_rows > 1
 
@@ -907,6 +913,10 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
         col = row.split()
         col.label(text="Width: " + str(report.animation_tex_width))
         col.label(text="Height: " + str(report.animation_tex_height))
+
+        row = layout.row()
+        row.prop(report, "animation_tex_sampling_mode")
+        row.enabled = False
 
         row = layout.row()
         if report.animation_tex_sampling_mode == 'CONTINUOUS': # @TODO change panel

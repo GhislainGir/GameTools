@@ -119,9 +119,7 @@ def reset_bake_report():
     report.skinning_tex_width = 0
     report.skinning_tex_height = 0
     report.skinning_tex_rows = 0
-
-
-    report.animation_tex_sampling_mode = "STACK_SINGLE"
+    report.skinning_tex_res_mode = ""
 
     report.xml = False
     report.xml_path = ""
@@ -563,7 +561,8 @@ def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, l
                 else: # NONE
                     pass
 
-                max_index = max(max_index, channel.index)
+                if channel.channel_mode != "NONE":
+                    max_index = max(max_index, channel.index)
 
         # valid texture!
         if rows > 0:
@@ -595,6 +594,8 @@ def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, l
                 pass
 
     if len(bones_indices) > 0:
+        for i in bones_indices:
+            print(i)
         return (False, "Bone index(ices) missing", None, 0)
     if len(bones_weights) > 0:
         return (False, "Bone weight(s) missing", None, 0)
@@ -1392,7 +1393,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     bake_progress = 50
     bake_progress_step = (1.0 / (len(skinning_textures) * 4 * 3)) * 40
     for animation_texture in animation_textures:
-        buffer, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid = get_animation_texture_buffer(context, animation_texture, animation_data, animation_tex_width, animation_tex_height, bake_frame_height, num_bones)
+        buffer, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid = get_animation_texture_buffer(context, animation_texture, armature, animation_data, animation_tex_width, animation_tex_height, bake_frame_height, bake_frames_info, num_bones, bones)
         bake_progress += bake_progress_step
         wm.progress_update(bake_progress)
 
@@ -2012,30 +2013,34 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
                 for closest_face_barycentric_index, closest_vertex_index in enumerate(ref_eval_mesh.polygons[closest_face_index].vertices):
                     # get high-res skinning data
                     _, indices_weights = mesh_skinning_data[closest_vertex_index + vertex_index_offset]
-                    bone, bone_index, bone_weight = indices_weights
+                    
+                    for index_weight in indices_weights:
+                        bone, bone_index, bone_weight = index_weight
 
-                    # apply barycentric weight
-                    bone_weight *= closest_face_barycoords[closest_face_barycentric_index]
+                        # apply barycentric weight
+                        bone_weight *= closest_face_barycoords[closest_face_barycentric_index]
 
-                    # check if bone was already accounted for for another high-res vert, in which case, sum weights
-                    bone_shared = False
-                    for list_index, other_bone, other_bone_index, other_bone_weight in enumerate(source_indices_weights):
-                        if bone_index == other_bone_index:
-                            bone_shared = True
-                            bone_weight += other_bone_weight
-                            break
-                    if bone_shared:
-                        #bone_weight /= 2 # average?
-                        source_indices_weights.pop(list_index) # entry in array is a tuple so we can't update weight, we need to get rid of entry to readd updated one
+                        # check if bone was already accounted for for another high-res vert, in which case, sum weights
+                        bone_shared = False
+                        for list_index, truc in enumerate(source_indices_weights):
+                            other_bone, other_bone_index, other_bone_weight = truc
+                            if bone_index == other_bone_index:
+                                bone_shared = True
+                                bone_weight += other_bone_weight
+                                break
+                        
+                        if bone_shared:
+                            #bone_weight /= 2 # average?
+                            source_indices_weights.pop(list_index) # entry in array is a tuple so we can't update weight, we need to get rid of entry to re-add updated one
 
-                    # some bones *might* become irrelevant once mesh is remapped so it is important to recreate a bone buffer and reassign proper bone indices
-                    if bone.name not in remapped_bones:
-                        remapped_bones.append(bone.name)
-                        bone_index = len(bones) - 1
-                    else:
-                        bone_index = remapped_bones.index(bone.name)
+                        # some bones *might* become irrelevant once mesh is remapped so it is important to recreate a bone buffer and reassign proper bone indices
+                        if bone.name not in remapped_bones:
+                            remapped_bones.append(bone.name)
+                            bone_index = len(bones) - 1
+                        else:
+                            bone_index = remapped_bones.index(bone.name)
 
-                    source_indices_weights.append((bone, bone_index, bone_weight))
+                        source_indices_weights.append((bone, bone_index, bone_weight))
 
                 # sort vertex groups by weight, most contributing bone to least
                 sorted_source_indices_weights = sorted(source_indices_weights, key=lambda x: x[2], reverse=True)
@@ -2128,9 +2133,15 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
                                            max(max_bounds.z, max(bbox_corners_z))))
 
     min_bounds_offset = (min_bounds - ref_min_bounds)
+    min_bounds_offset.x = min(0, min_bounds_offset.x)
+    min_bounds_offset.y = min(0, min_bounds_offset.y)
+    min_bounds_offset.z = min(0, min_bounds_offset.z)
     add_bake_report("mesh_min_bounds_offset", min_bounds_offset)
     max_bounds_offset = (max_bounds - ref_max_bounds)
-    add_bake_report("mesh_max_bounds_offset", max_bounds_offset)
+    max_bounds_offset.x = max(0, max_bounds_offset.x)
+    max_bounds_offset.y = max(0, max_bounds_offset.y)
+    max_bounds_offset.z = max(0, max_bounds_offset.z)
+    add_bake_report("mesh_max_bounds_offset", max_bounds_offset) # @TODO apply changes to vertex anim as well
 
     # restore ref frame
     context.scene.frame_set(bake_ref_frame)
@@ -2201,6 +2212,9 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
                         else: # WEIGHT
                             if data_to_bake > 1.0 or data_to_bake < 0.0:
                                 return (False, "VCol weight overflow: " + str(data_to_bake), None)
+                    elif texture_channel.channel_mode == "INDEX" and texture_channel.remapping:
+                        data_to_bake /= 255 # normalize for 8-bit textures
+
                     try:
                         buffer[buffer_index + texture_channel_index] = data_to_bake
                     except:
@@ -2270,7 +2284,7 @@ def get_animation_texture_buffer_function(texture_channel: object) -> callable:
 
     return animation_texture_buffer_zeros
 
-def get_animation_texture_buffer(context: bpy.types.Context, texture: object, animation_data: tuple, tex_width: int, tex_height: int, bake_frame_height, num_bones) -> tuple[list, list, list, list]:
+def get_animation_texture_buffer(context: bpy.types.Context, texture: object, armature: bpy.types.Armature, animation_data: tuple, tex_width: int, tex_height: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> tuple[list, list, list, list]:
     """
     Intermediate buffer function to return the values to store in the texture RGBA channels
 
@@ -2282,6 +2296,7 @@ def get_animation_texture_buffer(context: bpy.types.Context, texture: object, an
     :return: pixel buffer
     :rtype: list
     """
+
     buffer = [0.0] * tex_width * tex_height * 4 # RGBA
 
     texture_channels = [
@@ -2300,7 +2315,7 @@ def get_animation_texture_buffer(context: bpy.types.Context, texture: object, an
             continue
 
         pre_bake_func = get_animation_texture_buffer_function(texture_channel)
-        channel_buffer = pre_bake_func(context, animation_data, texture_channel, (tex_width * tex_height), tex_width, bake_frame_height, num_bones)
+        channel_buffer = pre_bake_func(context, armature, animation_data, texture_channel, (tex_width * tex_height), tex_width, bake_frame_height, bake_frames_info, num_bones, bones)
         if channel_buffer:
             if get_animation_texture_channel_allow_remap(texture_channel):
                 buffer_min = min(channel_buffer)
@@ -2424,7 +2439,7 @@ def skinning_texture_buffer_zeros(context: bpy.types.Context, skinning_data: lis
     index_buffer = [0.0] * buffer_length
     return index_buffer
 
-def animation_texture_buffer_position(context: bpy.types.Context, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, num_bones: int) -> list:
+def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -2471,7 +2486,7 @@ def animation_texture_buffer_position(context: bpy.types.Context, animation_data
 
     return pos_buffer
 
-def animation_texture_buffer_rotation(context: bpy.types.Context, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, num_bones: int) -> list:
+def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -2584,7 +2599,22 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, animation_data
 
     return rot_buffer
 
-def animation_texture_buffer_scale(context: bpy.types.Context, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, num_bones: int) -> list:
+def reorder_matrix_axes(mat, order):
+    """
+    Reorders the axes (columns) of a 3x3 matrix according to the given order string.
+    
+    :param mat: mathutils.Matrix (3x3)
+    :param order: str, permutation of 'XYZ', e.g. 'ZXY'
+    :return: mathutils.Matrix (3x3) with reordered axes
+    """
+    order = order.upper()
+    assert len(order) == 3 and set(order) == {'X', 'Y', 'Z'}, "Order must be a permutation of 'XYZ'"
+
+    axis_index = {'X': 0, 'Y': 1, 'Z': 2}
+    cols = [mat.col[axis_index[axis]] for axis in order]
+    return mathutils.Matrix(cols)
+
+def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -2596,16 +2626,98 @@ def animation_texture_buffer_scale(context: bpy.types.Context, animation_data: l
     :rtype: list
     """
     settings = context.scene.BATBakerSettings
+    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
 
+    """
+    
+    """
     scale_buffer = [0.0] * buffer_length
     bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
         buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
         for bone_index, bone_matrix in enumerate(bone_frame_data):
             pose_mat = bone_matrix
-            ref_mat = bone_ref_matrices[bone_index]
 
-            vector_to_bake = pose_mat.to_scale() # scale is never relative to ref pose
+            pose_mat_3x3 = pose_mat.to_3x3()
+
+            #pose_mat_3x3_ordered = pose_mat_3x3.copy()
+            pose_mat_3x3.transpose()
+
+            # reorder axes if desired
+            if texture_channel.quat_xyz_order == "XYZ":
+                pose_mat_3x3_ordered = mathutils.Matrix((
+                    pose_mat_3x3.col[0],
+                    pose_mat_3x3.col[1],
+                    pose_mat_3x3.col[2]))
+            elif texture_channel.quat_xyz_order == "XZY":
+                pose_mat_3x3_ordered = mathutils.Matrix((
+                    pose_mat_3x3.col[0],
+                    pose_mat_3x3.col[2],
+                    pose_mat_3x3.col[1]))
+            elif texture_channel.quat_xyz_order == "YXZ":
+                pose_mat_3x3_ordered = mathutils.Matrix((
+                    pose_mat_3x3.col[1],
+                    pose_mat_3x3.col[0],
+                    pose_mat_3x3.col[2]))
+            elif texture_channel.quat_xyz_order == "ZXY":
+                pose_mat_3x3_ordered = mathutils.Matrix((
+                    pose_mat_3x3.col[2],
+                    pose_mat_3x3.col[0],
+                    pose_mat_3x3.col[1]))
+            elif texture_channel.quat_xyz_order == "YZX":
+                pose_mat_3x3_ordered = mathutils.Matrix((
+                    pose_mat_3x3.col[1],
+                    pose_mat_3x3.col[2],
+                    pose_mat_3x3.col[0]))
+            elif texture_channel.quat_xyz_order == "ZYX":
+                pose_mat_3x3_ordered = mathutils.Matrix((
+                    pose_mat_3x3.col[2],
+                    pose_mat_3x3.col[1],
+                    pose_mat_3x3.col[0]))
+            
+            print("---")
+            print(pose_mat_3x3)
+            #pose_mat_3x3_ordered = reorder_matrix_axes(pose_mat_3x3, texture_channel.quat_xyz_order)
+            pose_mat_3x3_ordered
+            print(pose_mat_3x3_ordered)
+
+            # if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
+            #     pose_mat_3x3_ordered.col[0] = pose_mat_3x3.col[0]
+            # elif texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "ZXY":
+            #     pose_mat_3x3_ordered.col[0] = pose_mat_3x3.col[1]
+            # elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "ZYX":
+            #     pose_mat_3x3_ordered.col[0] = pose_mat_3x3.col[2]
+
+            # if texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "YZX":
+            #     pose_mat_3x3_ordered.col[1] = pose_mat_3x3.col[0]
+            # elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "ZYX":
+            #     pose_mat_3x3_ordered.col[1] = pose_mat_3x3.col[1]
+            # elif texture_channel.quat_xyz_order == "ZXY" or texture_channel.quat_xyz_order == "XZY":
+            #     pose_mat_3x3_ordered.col[1] = pose_mat_3x3.col[2]
+
+            # if texture_channel.quat_xyz_order == "ZYX" or texture_channel.quat_xyz_order == "ZXY":
+            #     pose_mat_3x3_ordered.col[2] = pose_mat_3x3.col[0]
+            # elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "XZY":
+            #     pose_mat_3x3_ordered.col[2] = pose_mat_3x3.col[1]
+            # elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "YXZ":
+            #     pose_mat_3x3_ordered.col[2] = pose_mat_3x3.col[2]
+
+            scale_mat = pose_mat_3x3_ordered # scale is never relative to ref pose
+
+            if settings.unit_invert_x:
+                flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
+                scale_mat = flip_x @ scale_mat @ flip_x
+
+            if settings.unit_invert_y:
+                flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
+                scale_mat = flip_y @ scale_mat @ flip_y
+
+            if settings.unit_invert_z:
+                flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
+                scale_mat = flip_z @ scale_mat @ flip_z
+
+            vector_to_bake = scale_mat.to_scale()
+            print(vector_to_bake)
 
             if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
@@ -2623,7 +2735,7 @@ def animation_texture_buffer_scale(context: bpy.types.Context, animation_data: l
 
     return scale_buffer
 
-def animation_texture_buffer_axes(context: bpy.types.Context, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, num_bones: int) -> list:
+def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -2684,7 +2796,7 @@ def animation_texture_buffer_axes(context: bpy.types.Context, animation_data: li
 
     return rot_buffer
 
-def animation_texture_buffer_custom_prop(context: bpy.types.Context, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, num_bones: int) -> list:
+def animation_texture_buffer_custom_prop(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -2695,19 +2807,16 @@ def animation_texture_buffer_custom_prop(context: bpy.types.Context, animation_d
     :return: pixel buffer
     :rtype: list
     """
-
-    buffer = [0.0] * buffer_length
-    # @TODO
     settings = context.scene.BATBakerSettings
     frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
 
+    animation_data = [0.0] * len(frames_to_bake)
     """
     create buffer containing posed & ref bone matrices, per frame.
     Ref matrices are duplicated each frame but that's for convenience.
     They *may* be evaluated at a custom frame that isn't in the frames
     to bake.
     """
-    frame_bone_matrix_buffer = [None] * len(frames_to_bake)
     for frame_index, frame in enumerate(frames_to_bake):
         context.scene.frame_set(frame)
         dgraph = context.evaluated_depsgraph_get()
@@ -2720,16 +2829,35 @@ def animation_texture_buffer_custom_prop(context: bpy.types.Context, animation_d
             except:
                 continue
 
-            if texture_channel.name in bones:
-                custom_prop = bones[texture_channel.name]
+            if texture_channel.name in bone:
+                custom_prop = bone[texture_channel.name]
+            else:
+                custom_prop = 0
 
             frame_buffer[bone_index] = custom_prop
 
-        buffer[frame_index] = frame_buffer
+        animation_data[frame_index] = frame_buffer
+
+    """
+    
+    """
+    custom_prop_buffer = [0.0] * buffer_length
+    for bone_frame_index, bone_frame_data in enumerate(animation_data):
+        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
+        for bone_index, bone_custom_prop in enumerate(bone_frame_data):
+            data_to_bake = bone_custom_prop
+
+            try:
+                custom_prop_buffer[bone_index + buffer_frame_offset] = data_to_bake
+            except:
+                pass
+
+    return custom_prop_buffer
+
 
     return buffer
 
-def animation_texture_buffer_zeros(context: bpy.types.Context, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, num_bones: int) -> list:
+def animation_texture_buffer_zeros(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, frames_to_bake: list, num_bones: int) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
 
@@ -2770,8 +2898,8 @@ def display_bounds(context: bpy.types.Context, bake_name: str, bounds_info: tupl
 
     ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset = bounds_info
 
-    min_bounds *= signed_scale
-    max_bounds *= signed_scale
+    min_bounds = (ref_min_bounds + min_bounds_offset) * signed_scale
+    max_bounds = (ref_max_bounds + max_bounds_offset) * signed_scale
 
     bounds_verts = [
         mathutils.Vector((min_bounds.x, min_bounds.y, min_bounds.z)),
@@ -2939,8 +3067,17 @@ def get_best_skinning_texture_resolution(context: bpy.types.Context, num_vertice
     - Power of Two
     - Non Power of Two (width dominant)
     """
-    # SQUARE POT #
-    if settings.skinning_tex_force_power_of_two and settings.skinning_tex_force_power_of_two_square:
+    if settings.skinning_tex_res_mode == "ROWS":
+        tex_width = num_vertices
+        if (tex_width > settings.skinning_tex_max_width):
+            tex_width = settings.skinning_tex_max_width
+
+        vert_rows = math.ceil(num_vertices / float(tex_width))
+
+        tex_height = rows * vert_rows
+        if (tex_height > settings.skinning_tex_max_height):
+            return (False, "Invalid tex_height", tex_width, tex_height, False)
+    elif settings.skinning_tex_res_mode == "SQRT":
         num_texels = num_vertices * rows
         num_texels_sqrt = math.sqrt(num_texels)
         size = math.ceil(num_texels_sqrt)
@@ -2954,36 +3091,40 @@ def get_best_skinning_texture_resolution(context: bpy.types.Context, num_vertice
         tex_height = size
         if (tex_height > settings.skinning_tex_max_height):
             return (False, "Invalid tex_height", tex_width, tex_height, False)
-    # POT #
-    elif settings.skinning_tex_force_power_of_two:
+    elif settings.skinning_tex_res_mode == "POT":
+        num_texels = num_vertices * rows
+        num_texels_sqrt = math.sqrt(num_texels)
+        size = math.ceil(num_texels_sqrt)
+
         tex_width = 2
-        while (tex_width < num_vertices and tex_width < settings.skinning_tex_max_width):
+        while (tex_width < size and tex_width < settings.skinning_tex_max_width):
             tex_width *= 2
 
         vert_rows = math.ceil(num_vertices / float(tex_width))
 
         tex_height = 2
-        while (tex_height < (rows * vert_rows)):
+        while (tex_height < (num_texels / tex_width)):
             tex_height *= 2
 
         if (tex_height > settings.skinning_tex_max_height):
             return (False, "Invalid tex_height", tex_width, tex_height, False)
-    # NPOT #
-    else:
-        tex_width = num_vertices
-        if (tex_width > settings.skinning_tex_max_width):
-            tex_width = settings.skinning_tex_max_width
+    else: # SQUARE_POT
+        num_texels = num_vertices * rows
+        num_texels_sqrt = math.sqrt(num_texels)
+        size = math.ceil(num_texels_sqrt)
+
+        tex_width = 2
+        while (tex_width < size and tex_width < settings.skinning_tex_max_width):
+            tex_width *= 2
 
         vert_rows = math.ceil(num_vertices / float(tex_width))
-
-        tex_height = rows * vert_rows
-        if (tex_height > settings.skinning_tex_max_height):
-            return (False, "Invalid tex_height", tex_width, tex_height, False)
+        tex_height = tex_width
 
     """
     report necessary data
     """    
     add_bake_report("skinning_tex_rows", vert_rows)
+    add_bake_report("skinning_tex_res_mode", settings.skinning_tex_res_mode)
     add_bake_report("skinning_tex_height", tex_height)
     add_bake_report("skinning_tex_width", tex_width)
 
@@ -3165,6 +3306,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                                             width=str(report.skinning_tex_width),
                                             height=str(report.skinning_tex_height),
                                             rows=str(report.skinning_tex_rows),
+                                            mode=str(report.skinning_tex_res_mode),
                                             path=skinning_texture.path,
                                             )
 
@@ -3199,6 +3341,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                                             frame_width=str(report.animation_tex_frame_width),
                                             height=str(report.animation_tex_height),
                                             frame_height=str(report.animation_tex_frame_height),
+                                            mode=str(report.animation_tex_sampling_mode),
                                             path=animation_texture.path,
                                             )
 
