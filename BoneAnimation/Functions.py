@@ -1912,7 +1912,6 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
     context.scene.frame_set(bake_ref_frame)
     dgraph = context.evaluated_depsgraph_get()
 
-    remapped_bones = []
     bones = []
     skinning_data = []
     vertex_index_offset = 0
@@ -1925,155 +1924,171 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
         ref_eval_obj = obj_to_bake.evaluated_get(dgraph)
         ref_eval_mesh = ref_eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         # eval_mesh.transform(eval_obj.matrix_world) # unecessary, we're just fetching vertex groups
-        
-        """
-        This step constructs the skinning data buffer, which defines, for each vertex, a list of its most influential bones. For every vertex, the bones are sorted in descending order of influence
-        based on their weights. Each entry includes the bone itself, the bone’s index and its corresponding weight. The number of influencing bones can be fine-tuned using a user-defined parameter
-        (max_weights). After selecting the top influences, their weights are normalized to ensure they sum to 1. This normalized data allows the skeletal mesh to be reskinned dynamically.
-        """
         mesh_skinning_data = []
-        for vertex_index, vertex in enumerate(ref_eval_mesh.vertices):
-            # sort vertex groups by weight, most contributing bone to least
-            vertex_groups = sorted(vertex.groups, key=lambda x: x.weight, reverse=True)
-
-            # discard least participating vertex groups
-            vertex_groups = vertex_groups[0:max_bones]
-
-            # sum of remaining weights must equal 1.0
-            normalization_sum = sum([vertex_group.weight for vertex_group in vertex_groups])
-            if normalization_sum > 0.0:
-                normalization_factor = 1.0 / normalization_sum
-            else:
-                normalization_factor = 1.0
-
-            bone_indices_weights = []
-            for vertex_group in vertex_groups:
-                vertex_group_index = vertex_group.group
-                vertex_group_name = ref_eval_obj.vertex_groups[vertex_group_index].name
-
-                # ensure weight group is named after a deforming bone in armature
-                if vertex_group_name in armature.data.bones:
-                    bone = armature.data.bones[vertex_group_name]
-                    if not bone.use_deform:
-                        continue
-
-                    # get/assign bone index
-                    if bone.name not in bones:
-                        bones.append(bone.name)
-                        bone_index = len(bones) - 1
-                    else:
-                        bone_index = bones.index(bone.name)
-
-                    bone_weight = vertex_group.weight * normalization_factor # normalize weights
-
-                    # create vertex skinning data
-                    bone_indices_weights.append((bone, bone_index, bone_weight))
-
-            mesh_skinning_data.append((vertex.index + vertex_index_offset, bone_indices_weights))
-
-        """
-        The retargeting function transfers the skeletal animation from a high-resolution mesh to a low-resolution mesh. The process involves the following steps:
-
-        Building a BVH Tree:
-            A Bounding Volume Hierarchy (BVH) tree is constructed for the high-resolution mesh.
-            Each vertex of the low-resolution mesh uses this tree to locate the nearest point on the surface of the high-res mesh.
-
-        Barycentric Mapping:
-            Once the nearest point is identified, its corresponding face index on the high-res mesh is retrieved.
-            Barycentric coordinates are computed for the point, indicating how the vertex of the low-res mesh relates to the vertices of the high-res face (typically a quad or triangle).
-
-        Skinning Data Transfer:
-            The skinning data (bone indices and weights) from the contributing vertices of the high-res mesh are collected.
-            Each bone weight is scaled by the corresponding barycentric weight to reflect its influence on the low-res vertex.
-
-        Weight Merging and Optimization:
-            Duplicate bones (those influencing multiple contributing vertices) are merged, and their weights summed.
-            The combined bone weights are sorted in descending order.
-            To limit complexity, only the top N bones are kept, where N is defined by the max_weights parameter.
-            The remaining weights are normalized to ensure they sum to 1, forming the final skinning data for the low-res vertex.
-        """
         target_obj = obj_to_bake.get(custom_prop, None)
-        remapped_vertex_index_offset = 0
         if target_obj and target_obj.type == "MESH":
-            # account for modifiers that may change weightgroups & vertex count/order
+            """
+            The retargeting function transfers the skeletal animation from a high-resolution mesh to a low-resolution mesh. The process involves the following steps:
+
+            Building a BVH Tree:
+                A Bounding Volume Hierarchy (BVH) tree is constructed for the high-resolution mesh.
+                Each vertex of the low-resolution mesh uses this tree to locate the nearest point on the surface of the high-res mesh.
+
+            Barycentric Mapping:
+                Once the nearest point is identified, its corresponding face index on the high-res mesh is retrieved.
+                Barycentric coordinates are computed for the point, indicating how the vertex of the low-res mesh relates to the vertices of the high-res face (typically a quad or triangle).
+
+            Skinning Data Transfer:
+                The skinning data (bone indices and weights) from the contributing vertices of the high-res mesh are collected.
+                Each bone weight is scaled by the corresponding barycentric weight to reflect its influence on the low-res vertex.
+
+            Weight Merging and Optimization:
+                Duplicate bones (those influencing multiple contributing vertices) are merged, and their weights summed.
+                The combined bone weights are sorted in descending order.
+                To limit complexity, only the top N bones are kept, where N is defined by the max_weights parameter.
+                The remaining weights are normalized to ensure they sum to 1, forming the final skinning data for the low-res vertex.
+            """
+            # TARGET is the low poly mesh
+            # SOURCE is the high poly mesh
+
+            # evaluate TARGET to account for modifiers that may change weightgroups & vertex count/order
             target_eval_obj = target_obj.evaluated_get(dgraph)
+
+            # get mesh from evaluated TARGET object. Memory has to be cleared
             target_eval_mesh = target_eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
             # target_eval_mesh.transform(target_eval_obj.matrix_world) # unecessary, we're just fetching vertex groups
 
-            BVH = BVHTree.FromObject(ref_eval_obj, dgraph) # create BVH tree for SOURCE object
+            # create BVH tree for SOURCE object
+            BVH = BVHTree.FromObject(ref_eval_obj, dgraph)
 
-            remapped_mesh_skinning_data = []
-
+            # for each vertex in TARGET mesh
             for vertex_index, vertex in enumerate(target_eval_mesh.vertices):
-                closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vertex.co) # closest position on SOURCE mesh from TARGET vert
-                closest_face_vertices_pos = [obj_to_bake.data.vertices[v].co for v in ref_eval_mesh.polygons[closest_face_index].vertices]
-                closest_face_barycoords = mathutils.interpolate.poly_3d_calc(closest_face_vertices_pos, closest_face_pos) # compute barycoords of closest position on closest face
+                # closest position on SOURCE mesh from TARGET vert & compute barycentric weights
+                closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vertex.co)
+                closest_face_vertices_pos = [ref_eval_mesh.vertices[v].co for v in ref_eval_mesh.polygons[closest_face_index].vertices]
+                closest_face_barycoords = mathutils.interpolate.poly_3d_calc(closest_face_vertices_pos, closest_face_pos)
 
-                source_indices_weights = []
+                # we're going to build the skinning data for this TARGET vertex
+                target_vertex_skinning_data_all = []
+
+                vertex_groups = []
+                # for each SOURCE vertex the *closest face* has
                 for closest_face_barycentric_index, closest_vertex_index in enumerate(ref_eval_mesh.polygons[closest_face_index].vertices):
-                    # get high-res skinning data
-                    _, indices_weights = mesh_skinning_data[closest_vertex_index + vertex_index_offset]
-                    
-                    for index_weight in indices_weights:
-                        bone, bone_index, bone_weight = index_weight
+                    # append vertex groups
+                    vertex_groups.extend(ref_eval_mesh.vertices[closest_vertex_index].groups)
 
-                        # apply barycentric weight
-                        bone_weight *= closest_face_barycoords[closest_face_barycentric_index]
+                # for each vertex groups of all closest vertices on SOURCE mesh
+                unique_vertex_groups = []
+                vertex_groups_to_skip = []
+                for vertex_group in vertex_groups:
+                    # list of vertex groups might contain duplicates because vertices on the *closest* face are likely to have similar weights
+                    # the weights of these duplicates are accounted for, and thus the duplicated vertex group itself has to be skipped
+                    if vertex_group in vertex_groups_to_skip:
+                        continue
 
-                        # check if bone was already accounted for for another high-res vert, in which case, sum weights
-                        bone_shared = False
-                        for list_index, truc in enumerate(source_indices_weights):
-                            other_bone, other_bone_index, other_bone_weight = truc
-                            if bone_index == other_bone_index:
-                                bone_shared = True
-                                bone_weight += other_bone_weight
-                                break
-                        
-                        if bone_shared:
-                            #bone_weight /= 2 # average?
-                            source_indices_weights.pop(list_index) # entry in array is a tuple so we can't update weight, we need to get rid of entry to re-add updated one
+                    vertex_group_index = vertex_group.group
+                    vertex_group_name = ref_eval_obj.vertex_groups[vertex_group_index].name
 
-                        # some bones *might* become irrelevant once mesh is remapped so it is important to recreate a bone buffer and reassign proper bone indices
-                        if bone.name not in remapped_bones:
-                            remapped_bones.append(bone.name)
+                    # ensure weight group is named after a deforming bone in armature
+                    if vertex_group_name in armature.data.bones:
+                        bone = armature.data.bones[vertex_group_name]
+                        if not bone.use_deform:
+                            continue
+
+                        # get/assign bone index
+                        if bone.name not in bones:
+                            bones.append(bone.name)
                             bone_index = len(bones) - 1
                         else:
-                            bone_index = remapped_bones.index(bone.name)
+                            bone_index = bones.index(bone.name)
 
-                        source_indices_weights.append((bone, bone_index, bone_weight))
+                        # 'merge' vertex groups having the same target - this means averaging their weights
+                        bone_weight = 0
+                        bone_weight_sum = 0
+                        for v in vertex_groups:
+                            if ref_eval_obj.vertex_groups[v.group].name == vertex_group_name:
+                                vertex_groups_to_skip.append(v)
+                                bone_weight += vertex_group.weight
+                                bone_weight_sum += 1
+
+                        if bone_weight_sum > 1:
+                            bone_weight /= bone_weight_sum
+                        unique_vertex_groups.append((bone, bone_index, bone_weight))
 
                 # sort vertex groups by weight, most contributing bone to least
-                sorted_source_indices_weights = sorted(source_indices_weights, key=lambda x: x[2], reverse=True)
+                unique_vertex_groups = sorted(unique_vertex_groups, key=lambda x: x[2], reverse=True)
 
                 # discard least participating vertex groups
-                sorted_source_indices_weights = sorted_source_indices_weights[0:max_bones]
+                unique_vertex_groups = unique_vertex_groups[0:max_bones]
 
                 # sum of remaining weights must equal 1.0
-                normalization_sum = sum([sorted_merged_indices_weight[2] for sorted_merged_indices_weight in sorted_source_indices_weights])
+                normalization_sum = sum([unique_vertex_group[2] for unique_vertex_group in unique_vertex_groups])
                 if normalization_sum > 0.0:
                     normalization_factor = 1.0 / normalization_sum
                 else:
                     normalization_factor = 1.0
 
-                # normalize weights
                 bone_indices_weights = []
-                for source_index_weight in sorted_source_indices_weights:
-                    bone, bone_index, bone_weight = source_index_weight
-                    bone_weight = vertex_group.weight * normalization_factor
+                for unique_vertex_group in unique_vertex_groups:
+                    bone, bone_index, bone_weight = unique_vertex_group
+                    bone_weight *= normalization_factor
 
-                    # create vertex skinning data
                     bone_indices_weights.append((bone, bone_index, bone_weight))
 
-                remapped_mesh_skinning_data.append((vertex_index + remapped_vertex_index_offset, bone_indices_weights))
+                mesh_skinning_data.append((vertex.index + vertex_index_offset, bone_indices_weights))
 
+            
             skinning_data.extend(mesh_skinning_data)
-            remapped_vertex_index_offset += len(target_eval_mesh.vertices)
-
+            vertex_index_offset += len(target_eval_mesh.vertices)
             target_eval_obj.to_mesh_clear()
         else:
-            skinning_data.extend(mesh_skinning_data)
+            """
+            This step constructs the skinning data buffer, which defines, for each vertex, a list of its most influential bones. For every vertex, the bones are sorted in descending order of influence
+            based on their weights. Each entry includes the bone itself, the bone’s index and its corresponding weight. The number of influencing bones can be fine-tuned using a user-defined parameter
+            (max_weights). After selecting the top influences, their weights are normalized to ensure they sum to 1. This normalized data allows the skeletal mesh to be reskinned dynamically.
+            """
+            
+            for vertex_index, vertex in enumerate(ref_eval_mesh.vertices):
+                # sort vertex groups by weight, most contributing bone to least
+                vertex_groups = sorted(vertex.groups, key=lambda x: x.weight, reverse=True)
 
-        vertex_index_offset += len(ref_eval_mesh.vertices)
+                # discard least participating vertex groups
+                vertex_groups = vertex_groups[0:max_bones]
+
+                # sum of remaining weights must equal 1.0
+                normalization_sum = sum([vertex_group.weight for vertex_group in vertex_groups])
+                if normalization_sum > 0.0:
+                    normalization_factor = 1.0 / normalization_sum
+                else:
+                    normalization_factor = 1.0
+
+                bone_indices_weights = []
+                for vertex_group in vertex_groups:
+                    vertex_group_index = vertex_group.group
+                    vertex_group_name = ref_eval_obj.vertex_groups[vertex_group_index].name
+
+                    # ensure weight group is named after a deforming bone in armature
+                    if vertex_group_name in armature.data.bones:
+                        bone = armature.data.bones[vertex_group_name]
+                        if not bone.use_deform:
+                            continue
+
+                        # get/assign bone index
+                        if bone.name not in bones:
+                            bones.append(bone.name)
+                            bone_index = len(bones) - 1
+                        else:
+                            bone_index = bones.index(bone.name)
+
+                        bone_weight = vertex_group.weight * normalization_factor # normalize weights
+
+                        # create vertex skinning data
+                        bone_indices_weights.append((bone, bone_index, bone_weight))
+
+                mesh_skinning_data.append((vertex.index + vertex_index_offset, bone_indices_weights))
+
+            skinning_data.extend(mesh_skinning_data)
+            vertex_index_offset += len(ref_eval_mesh.vertices)
 
         ref_eval_obj.to_mesh_clear()
 
@@ -2093,9 +2108,6 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
         ref_max_bounds = mathutils.Vector((max(ref_max_bounds.x, max(bbox_corners_x)),
                                            max(ref_max_bounds.y, max(bbox_corners_y)),
                                            max(ref_max_bounds.z, max(bbox_corners_z))))
-
-    if remapped_bones:
-        bones = remapped_bones
 
     if len(bones) <= 0:
         return (False, "No bones", None, None, None)
