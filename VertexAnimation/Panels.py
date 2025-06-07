@@ -209,6 +209,9 @@ class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         row.prop(settings, "unit_invert_z", text="Z")
 
         row = layout.row()
+        row.prop(settings, "unit_axis_order")
+
+        row = layout.row()
         row.prop(settings, "mesh_name")
 
         row = layout.row()
@@ -217,6 +220,15 @@ class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         if settings.bake_mode == "ANIMATION":
             row = layout.row()
             row.prop(settings, "mesh_target_prop")
+
+        panel_header, panel_body = layout.panel("vat_mesh_previz")
+        if panel_header:
+            panel_header.label(text="Previz")
+        if panel_body:
+            row = panel_body.row()
+            row.prop(settings, "previz_result", text="Anim")
+            row.prop(settings, "previz_bounds", text="Bounds")
+
 
 class VATBAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_meshuvpanel"
@@ -950,3 +962,7 @@ class VATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
         row.enabled = report.unit_invert_z
+
+        row = layout.row()
+        row.label(report, "unit_axis_order")
+        row.enabled = False

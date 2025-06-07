@@ -88,6 +88,7 @@ def reset_bake_report():
     report.frame_step = 0
     report.frame_step_mode = "GLOBAL"
     report.frame_height = 0.0
+    report.frame_width = 0.0
     report.frame_rate = 0
     
     report.num_verts = 0
@@ -311,14 +312,20 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
     if context.view_layer.objects.active == None:
         return (False, "No active object", None, None)
 
+    """
+    1. deselect non mesh objects & ensure mesh have vertices
+    """
     for selected_obj in context.selected_objects:
         if selected_obj.type != "MESH":
             selected_obj.select_set(False)
         elif len(selected_obj.data.vertices) <= 0: # mesh could have no vertices
             selected_obj.select_set(False)
 
+    """
+    2a. gather & deselect TARGET objects (remapping feature). They must not be part of the bake.
+    This is only relevant for non mesh-sequence bakes.
+    """
     if settings.bake_mode == 'ANIMATION':
-        # gather & deselect TARGET objects
         target_objs = []
         for selected_obj in context.selected_objects:
             target_obj = selected_obj.get(custom_prop, None)
@@ -328,20 +335,19 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
                 else:
                     return (False, "Remapping multiple source objects to the same target is unsupported: " + selected_obj.name + " retargeted to " + target_obj.name + " which is already targeted", None, None)
 
-        for selected_obj in context.selected_objects:
-            if selected_obj in target_objs:
-                selected_obj.select_set(False)
+        for target_obj in target_objs:
+            target_obj.select_set(False)
 
     if not context.selected_objects:
         return (False, "No object selected once filtered out", None, None)
     
     """
-    This used to be a requirement for mapping source to target vertices, but no more thanks to barycentric coords computation no longer limited to triangles.
-    This may still be relevant in case barycentric coords don't behave as expected on n-gons or weird geometries. This check ensures SOURCE & TARGET objects
-    have a triangulate modifier at the top of their modifier stacks. This is of course only relevant for objects being retargeted! We might also allow a
-    'weak check', meaning allow SOURCE & TARGET objects *not* having a triangulate modifier as long as they all contain triangles to begin with. I consider
-    this a 'weak check' because this doesn't account for modifiers and some modifiers might generate non-triangulate faces so checking the source mesh isn't
-    bullet proof.
+    2b. this used to be a requirement for mapping source to target vertices, but no more thanks to barycentric coords computation no longer limited to
+    triangles. This may still be relevant in case barycentric coords don't behave as expected on n-gons or weird geometries. This check ensures SOURCE
+    & TARGET objects have a triangulate modifier at the top of their modifier stacks. This is of course only relevant for objects being retargeted!
+    We might also allow a 'weak check', meaning allow SOURCE & TARGET objects *not* having a triangulate modifier as long as they all contain triangles
+    to begin with. I consider this a 'weak check' because this doesn't account for modifiers and some modifiers might generate non-triangulate faces so
+     checking the source mesh isn't bullet proof.
     """
     if settings.bake_mode == 'ANIMATION' and settings.require_triangulation:
         do_weak_check = True # may be disabled
@@ -391,6 +397,9 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
                     if not target_obj_meet_triangulated_cond:
                         return (False, "Object " + selected_obj.name + " has a target mesh " + target_obj.name + " that has no triangulate modifier. Please add one at the top of its modifier stack to ensure correct retargeting", None, None)
 
+    """
+    2c. cache selection
+    """
     objs_to_bake = [] # cache selection
     if settings.bake_mode == 'ANIMATION':
         objs_to_bake = context.selected_objects
@@ -402,9 +411,9 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
             objs_to_bake.append(context.scene.objects[name])
 
     """
-    We'll need to create a UVMap to assign a texel per vertex so we need to ensure objects can be safely merged without creating UVMap conflicts. This involves
-    gathering uvmaps of all selected objects to build a list of maps as if objects were joined and checking if the amount of uvmaps exceed the maximum amount
-    in case we need to create one.
+    3a. we'll need to create a UVMap to assign a texel per vertex so we need to ensure objects can be safely merged without creating UVMap conflicts.
+    This involves gathering uvmaps of all selected objects to build a list of maps as if objects were joined and checking if the amount of uvmaps
+    exceed the maximum amount in case we need to create one.
     """
     mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.VAT"
     if settings.bake_mode == 'ANIMATION':
@@ -431,8 +440,8 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
                 return (False, objs_to_bake[0].name + " has the maximum amount of uvmaps already", None, None)
 
     """
-    If we're working with a mesh sequence, we need to ensure each mesh is actually the 'same' mesh, meaning at least check if vertex count is consistent once
-    modifiers are applied. Vertex order will have to be assumed, I think.
+    3b. if we're working with a mesh sequence, we need to ensure each mesh is actually the 'same' mesh, meaning at least check if vertex count is
+    consistent once modifiers are applied. Vertex order will have to be assumed, I think.
     """
     if settings.bake_mode == 'MESHSEQUENCE':
         dgraph = context.evaluated_depsgraph_get()
@@ -451,6 +460,9 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
 
             eval_obj.to_mesh_clear()
 
+    """
+    4. deselect everything
+    """
     for obj_to_bake in objs_to_bake: # deselect objects for now
         obj_to_bake.select_set(False)
 
@@ -504,7 +516,9 @@ def get_nla_strips_raw_frame_buffer(context: bpy.types.Context, nla_strips: list
 
 def get_nla_strip_start_end_indices(nla_strip: object, frames_to_bake: list) -> tuple[int, int]:
     """
-    Find where the NLA strip starts & ends in the given frame buffer
+    Find where the NLA strip starts & ends in the given frame buffer. This iterates the whole frame buffer and
+    isn't efficient, but it's the best I could come up with considering the many constraints I'm working with:
+    stepping, deduplicating, ordering, padding, etc.
 
     :param nla_strip: NLA strip to search start & end frames for
     :param frames_to_bake: frame buffer
@@ -528,16 +542,28 @@ def get_nla_strip_start_end_indices(nla_strip: object, frames_to_bake: list) -> 
             continue
 
         # start frame?
-        if frame == start:
-            start_index = frame_index
-        elif frame > start and start_index == None: # went too far
-            start_index = frame_index - 1
-        
+        if start_index is None:
+            if frame == start:
+                start_index = frame_index
+            elif frame > start: # went too far
+                start_index = min(len(frames_to_bake) - 1, max(0, frame_index - 1))
+                while len(frames_to_bake[start_index][1]) <= 0: # rewind to find first non-padded frame
+                    start_index -= 1
+                    if start_index < 0:
+                        start_index = 0
+                        break
+
         # end frame?
-        if frame == end:
-            end_index = frame_index
-        elif frame > end and end_index == None: # went too far
-            end_index = frame_index - 1
+        if end_index is None:
+            if frame == end:
+                end_index = frame_index
+            elif frame > end: # went too far
+                end_index = min(len(frames_to_bake) - 1, max(start_index, frame_index - 1))
+                while len(frames_to_bake[end_index][1]) <= 0: # rewind to find first non-padded frame
+                    end_index -= 1
+                    if end_index < 0:
+                        end_index = 0
+                        break
 
     # fallback to first index
     if start_index is None:
@@ -704,8 +730,8 @@ def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) ->
                 # 0-based indices are converted to the actual 1-based frame count
                 start_frame = start_index + 1
                 end_frame = end_index + 1
-                start_time = (start_frame - 1) / num_frames # @TODO check?
-                end_time = end_frame / num_frames # @TODO check?
+                start_time = (start_frame - 1) / num_frames
+                end_time = end_frame / num_frames
                 add_bake_report_anim(objs, strip.name, start_frame, end_frame, start_time, end_time)
 
             """
@@ -719,8 +745,6 @@ def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) ->
 
             end_frame = max(frames_to_bake)
             add_bake_report("end_frame", end_frame)
-
-            print(frames_to_bake)
 
             return (True, "", (frames_to_bake, start_frame, end_frame))
         else:
@@ -928,9 +952,6 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
-    
-    return (True, 'INFO', "Baked operation completed in %0.1fs" % (time.time() - bake_start_time))
-
 
     wm.progress_update(3)
 
@@ -950,7 +971,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     bake_name = get_bake_name(context, active_object)
     add_bake_report("name", bake_name)
 
-    get_bake_nla_strips(objs_to_bake)
+    # get_bake_nla_strips(objs_to_bake) # @TODO I commented this line cause I don't think it's relevant anymore?
 
     wm.progress_update(10)
 
@@ -1031,7 +1052,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ########
     # MESH #
 
-    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_start_frame)
+    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_start_frame) # @TODO should be ref frame?!
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1050,7 +1071,9 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     if settings.previz_result and (img_offset or image_nor):
         success, msg = generate_mesh_geonodes(context, obj_to_export, num_verts, tex_width, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, image_nor)
-        #success, msg = display_bounds(bake_name + ".bounds", (RefMinBounds, RefMaxBounds, MinBounds, MaxBounds))
+
+    if settings.previz_bounds:
+        success, msg = display_bounds(bake_name + ".bounds", vertices_bounds)
 
     wm.progress_update(96)
 
@@ -1080,7 +1103,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 ##############
 ### MESHES ###
-def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref) -> tuple[bool, str, bpy.types.Object, int]:
+def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref: int) -> tuple[bool, str, bpy.types.Object, int]:
     """
     Generate the mesh object to export
 
@@ -1105,14 +1128,14 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     dgraph = context.evaluated_depsgraph_get()
 
     eval_meshes = []
-    
+
     """
     build unique list of materials as if objects were merged
     """
     if settings.mesh_materials:
         materials = []
         if settings.bake_mode == "ANIMATION":
-            for obj_index, obj_to_bake in enumerate(objs_to_bake):
+            for obj_to_bake in objs_to_bake:
                 for material in obj_to_bake.data.materials:
                     if material not in materials:
                         materials.append(material)
@@ -1120,7 +1143,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
             for material in objs_to_bake[0].data.materials:
                 if material not in materials:
                     materials.append(material)
-    
+
     """
     In case of baking an 'animation', we need to duplicate all selected objects in their base pos
     and account for their modifier(s) as well. We can't join them yet because we need to process
@@ -1131,7 +1154,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
         eval_meshes = [None] * len(objs_to_bake)
         eval_meshes_vertices = 0
         eval_mesh_uvmap_index = 0
-        
+
         for obj_index, obj_to_bake in enumerate(objs_to_bake):
             obj_target = obj_to_bake.get(custom_prop, None)
             obj = obj_target if obj_target and obj_target.type == "MESH" else obj_to_bake
@@ -1222,10 +1245,11 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     context.scene.collection.objects.link(obj)
 
     context.view_layer.objects.active = obj
+    obj.select_set(True) # for export
 
     return (True, "", obj, eval_mesh_uvmap_index)
 
-def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset) -> tuple[bool, str, int]:
+def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset: int) -> tuple[bool, str, int]:
     """
     Configure the mesh UVs so that one vertex is located on one unique texel in the VAT texture(s)
 
@@ -1290,7 +1314,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
     if success:
         bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
     else:
-        return (False, msg, None, -1)
+        return (False, msg, None)
 
     return (True, "", export_path)
 
@@ -3607,11 +3631,11 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
     max_bounds = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
     ref_min_bounds = mathutils.Vector((float('inf'), float('inf'), float('inf')))
     ref_max_bounds = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
-
+    
     dgraph = context.evaluated_depsgraph_get()
 
     buffer_object_offset = 0
-    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info
+    frames_to_bake, bake_start_frame, bake_end_frame = bake_frames_info # @TODO pack ref frame in frames_info?!
     
     bake_ref_frame = bake_start_frame
     if settings.frame_ref_mode == "END":
@@ -3637,16 +3661,23 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
         # and it cannot be cleared any later
         ref_eval_mesh_vertices_pos = [v.co.copy() for v in ref_eval_mesh.vertices]
 
-        ref_eval_mesh_vertices_pos_x = [v.x for v in ref_eval_mesh_vertices_pos]
-        ref_eval_mesh_vertices_pos_y = [v.y for v in ref_eval_mesh_vertices_pos]
-        ref_eval_mesh_vertices_pos_z = [v.z for v in ref_eval_mesh_vertices_pos]
-        ref_min_bounds = mathutils.Vector((min(ref_min_bounds.x, min(ref_eval_mesh_vertices_pos_x)),
-                                           min(ref_min_bounds.y, min(ref_eval_mesh_vertices_pos_y)),
-                                           min(ref_min_bounds.z, min(ref_eval_mesh_vertices_pos_z))))
-        ref_max_bounds = mathutils.Vector((max(ref_max_bounds.x, max(ref_eval_mesh_vertices_pos_x)),
-                                           max(ref_max_bounds.y, max(ref_eval_mesh_vertices_pos_y)),
-                                           max(ref_max_bounds.z, max(ref_eval_mesh_vertices_pos_z))))
+        """
+        This step calculates the minimum and maximum bounds of the mesh in its reference pose. These bounds serve as a baseline for determining the overall min/max bounds during animation.
+        By comparing the animated bounds to the reference pose bounds, an offset can be computed. This offset is later applied to the mesh in its reference pose to ensure that the bounding
+        box fully encloses the animated mesh over time. This is crucial for accurate occlusion culling and avoiding visual artifacts during rendering.
+        """
+        bbox_corners = [(ref_eval_obj.matrix_world @ mathutils.Vector(corner)) * signed_scale for corner in ref_eval_obj.bound_box]
+        bbox_corners_x = [corner.x for corner in bbox_corners]
+        bbox_corners_y = [corner.y for corner in bbox_corners]
+        bbox_corners_z = [corner.z for corner in bbox_corners]
 
+        ref_min_bounds = mathutils.Vector((min(ref_min_bounds.x, min(bbox_corners_x)),
+                                           min(ref_min_bounds.y, min(bbox_corners_y)),
+                                           min(ref_min_bounds.z, min(bbox_corners_z))))
+        ref_max_bounds = mathutils.Vector((max(ref_max_bounds.x, max(bbox_corners_x)),
+                                           max(ref_max_bounds.y, max(bbox_corners_y)),
+                                           max(ref_max_bounds.z, max(bbox_corners_z))))
+        
         ###########
         # MAPPING #
 
@@ -3714,6 +3745,23 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
             #context.view_layer.update()
 
             eval_posed_obj = obj_to_bake.evaluated_get(dgraph)
+
+            """
+            This step calculates the minimum and maximum bounds of the mesh in its animated pose. These bounds can be then compared to the bounds of the mesh in reference pose to compute
+            an offset to apply to the exported mesh's bounding box. This is important for accurate occlusion culling.
+            """
+            bbox_corners = [(eval_posed_obj.matrix_world @ mathutils.Vector(corner)) * signed_scale for corner in eval_posed_obj.bound_box] # @TODO crashtest new bounds method inherited from bone anim!
+            bbox_corners_x = [corner.x for corner in bbox_corners]
+            bbox_corners_y = [corner.y for corner in bbox_corners]
+            bbox_corners_z = [corner.z for corner in bbox_corners]
+
+            min_bounds = mathutils.Vector((min(min_bounds.x, min(bbox_corners_x)),
+                                           min(min_bounds.y, min(bbox_corners_y)),
+                                           min(min_bounds.z, min(bbox_corners_z))))
+            max_bounds = mathutils.Vector((max(max_bounds.x, max(bbox_corners_x)),
+                                           max(max_bounds.y, max(bbox_corners_y)),
+                                           max(max_bounds.z, max(bbox_corners_z))))
+
             eval_posed_mesh = eval_posed_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
             eval_posed_mesh.transform(eval_posed_obj.matrix_world)
             eval_mesh_vertex_count = len(eval_posed_mesh.vertices)
@@ -3749,13 +3797,6 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
                     vertices_offsets[buffer_vertex_index + 2] = z
                     #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
-                    min_bounds = mathutils.Vector((min(min_bounds.x, posed_tri_pos.x),
-                                                min(min_bounds.y, posed_tri_pos.y),
-                                                min(min_bounds.z, posed_tri_pos.z)))
-                    max_bounds = mathutils.Vector((max(max_bounds.x, posed_tri_pos.x),
-                                                max(max_bounds.y, posed_tri_pos.y),
-                                                max(max_bounds.z, posed_tri_pos.z)))
-
                     # normal
                     nor = (posed_tri_nor * signed_axis).normalized()
                     x, y, z = nor
@@ -3780,13 +3821,6 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
                     vertices_offsets[buffer_vertex_index + 2] = z
                     #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
-                    min_bounds = mathutils.Vector((min(min_bounds.x, Vertex.co.x),
-                                                min(min_bounds.y, Vertex.co.y),
-                                                min(min_bounds.z, Vertex.co.z)))
-                    max_bounds = mathutils.Vector((max(max_bounds.x, Vertex.co.x),
-                                                max(max_bounds.y, Vertex.co.y),
-                                                max(max_bounds.z, Vertex.co.z)))
-
                     # normal
                     nor = (Vertex.normal * signed_axis).normalized()
                     x, y, z = nor
@@ -3799,9 +3833,15 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
 
         buffer_object_offset += target_mesh_vertex_count * 4
 
-    min_bounds_offset = (min_bounds - ref_min_bounds) * signed_scale
+    min_bounds_offset = (min_bounds - ref_min_bounds)
+    min_bounds_offset.x = min(0, min_bounds_offset.x)
+    min_bounds_offset.y = min(0, min_bounds_offset.y)
+    min_bounds_offset.z = min(0, min_bounds_offset.z)
     add_bake_report("mesh_min_bounds_offset", min_bounds_offset)
-    max_bounds_offset = (max_bounds - ref_max_bounds) * signed_scale
+    max_bounds_offset = (max_bounds - ref_max_bounds)
+    max_bounds_offset.x = max(0, max_bounds_offset.x)
+    max_bounds_offset.y = max(0, max_bounds_offset.y)
+    max_bounds_offset.z = max(0, max_bounds_offset.z)
     add_bake_report("mesh_max_bounds_offset", max_bounds_offset)
 
     return (True, "", vertices_offsets, vertices_normals, (ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset))
@@ -3836,11 +3876,22 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
     ref_eval_mesh_vertex_count = len(ref_eval_mesh.vertices)
     ref_eval_mesh_vertices_pos = [Vertex.co.copy() for Vertex in ref_eval_mesh.vertices] # cache SOURCE vertices pos
     
-    ref_eval_mesh_vertices_pos_x = [Vertex.x for Vertex in ref_eval_mesh_vertices_pos]
-    ref_eval_mesh_vertices_pos_y = [Vertex.y for Vertex in ref_eval_mesh_vertices_pos]
-    ref_eval_mesh_vertices_pos_z = [Vertex.z for Vertex in ref_eval_mesh_vertices_pos]
-    ref_min_bounds = mathutils.Vector((min(ref_eval_mesh_vertices_pos_x), min(ref_eval_mesh_vertices_pos_y), min(ref_eval_mesh_vertices_pos_z)))
-    ref_max_bounds = mathutils.Vector((max(ref_eval_mesh_vertices_pos_x), max(ref_eval_mesh_vertices_pos_y), max(ref_eval_mesh_vertices_pos_z)))
+    """
+    This step calculates the minimum and maximum bounds of the mesh in its reference pose. These bounds serve as a baseline for determining the overall min/max bounds during animation.
+    By comparing the animated bounds to the reference pose bounds, an offset can be computed. This offset is later applied to the mesh in its reference pose to ensure that the bounding
+    box fully encloses the animated mesh over time. This is crucial for accurate occlusion culling and avoiding visual artifacts during rendering.
+    """
+    bbox_corners = [(ref_eval_obj.matrix_world @ mathutils.Vector(corner)) * signed_scale for corner in ref_eval_obj.bound_box]
+    bbox_corners_x = [corner.x for corner in bbox_corners]
+    bbox_corners_y = [corner.y for corner in bbox_corners]
+    bbox_corners_z = [corner.z for corner in bbox_corners]
+
+    ref_min_bounds = mathutils.Vector((min(ref_min_bounds.x, min(bbox_corners_x)),
+                                        min(ref_min_bounds.y, min(bbox_corners_y)),
+                                        min(ref_min_bounds.z, min(bbox_corners_z))))
+    ref_max_bounds = mathutils.Vector((max(ref_max_bounds.x, max(bbox_corners_x)),
+                                        max(ref_max_bounds.y, max(bbox_corners_y)),
+                                        max(ref_max_bounds.z, max(bbox_corners_z))))
 
     ref_eval_obj.to_mesh_clear()
 
@@ -3864,6 +3915,25 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
 
         # no need to advance to frame, our list of objects act as a 'frame sequence'
         eval_obj = objs_to_bake[frame_index].evaluated_get(dgraph)
+
+        
+        """
+        This step calculates the minimum and maximum bounds of the mesh in its reference pose. These bounds serve as a baseline for determining the overall min/max bounds during animation.
+        By comparing the animated bounds to the reference pose bounds, an offset can be computed. This offset is later applied to the mesh in its reference pose to ensure that the bounding
+        box fully encloses the animated mesh over time. This is crucial for accurate occlusion culling and avoiding visual artifacts during rendering.
+        """
+        bbox_corners = [(ref_eval_obj.matrix_world @ mathutils.Vector(corner)) * signed_scale for corner in ref_eval_obj.bound_box]
+        bbox_corners_x = [corner.x for corner in bbox_corners]
+        bbox_corners_y = [corner.y for corner in bbox_corners]
+        bbox_corners_z = [corner.z for corner in bbox_corners]
+
+        ref_min_bounds = mathutils.Vector((min(ref_min_bounds.x, min(bbox_corners_x)),
+                                           min(ref_min_bounds.y, min(bbox_corners_y)),
+                                           min(ref_min_bounds.z, min(bbox_corners_z))))
+        ref_max_bounds = mathutils.Vector((max(ref_max_bounds.x, max(bbox_corners_x)),
+                                           max(ref_max_bounds.y, max(bbox_corners_y)),
+                                           max(ref_max_bounds.z, max(bbox_corners_z))))
+        
         eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
         eval_mesh.transform(eval_obj.matrix_world)
         eval_mesh_vertex_count = len(eval_mesh.vertices)
@@ -3887,14 +3957,6 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
             vertices_offsets[buffer_vertex_index + 2] = z
             #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
-            # bounds
-            min_bounds = mathutils.Vector((min(min_bounds.x, vertex.co.x),
-                                          min(min_bounds.y, vertex.co.y),
-                                          min(min_bounds.z, vertex.co.z)))
-            max_bounds = mathutils.Vector((max(max_bounds.x, vertex.co.x),
-                                          max(max_bounds.y, vertex.co.y),
-                                          max(max_bounds.z, vertex.co.z)))
-
             # normal
             nor = (vertex.normal * signed_axis).normalized()
             x, y, z = nor
@@ -3905,9 +3967,15 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
 
         eval_obj.to_mesh_clear()
 
-    min_bounds_offset = (min_bounds - ref_min_bounds) * signed_scale
+    min_bounds_offset = (min_bounds - ref_min_bounds)
+    min_bounds_offset.x = min(0, min_bounds_offset.x)
+    min_bounds_offset.y = min(0, min_bounds_offset.y)
+    min_bounds_offset.z = min(0, min_bounds_offset.z)
     add_bake_report("mesh_min_bounds_offset", min_bounds_offset)
-    max_bounds_offset = (max_bounds - ref_max_bounds) * signed_scale
+    max_bounds_offset = (max_bounds - ref_max_bounds)
+    max_bounds_offset.x = max(0, max_bounds_offset.x)
+    max_bounds_offset.y = max(0, max_bounds_offset.y)
+    max_bounds_offset.z = max(0, max_bounds_offset.z)
     add_bake_report("mesh_max_bounds_offset", max_bounds_offset)
 
     return (True, "", vertices_offsets, vertices_normals, (ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset))
@@ -3979,7 +4047,7 @@ def get_remapped_vertices_normal_buffer(vertices_normals: list) -> list:
 
 ##############
 ### BOUNDS ###
-def display_bounds(bake_name: str, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]) -> tuple[bool, str]:
+def display_bounds(bake_name: str, bounds_info: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector]) -> tuple[bool, str]:
     """
     Generate a world aligned bounding box mesh matching the animation's overall 'volume'
 
@@ -3993,7 +4061,7 @@ def display_bounds(bake_name: str, vertices_bounds: tuple[mathutils.Vector, math
     if bake_name is None:
         return (False, "Invalid name")
 
-    ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset = vertices_bounds
+    ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset = bounds_info
 
     bounds_verts = [
         mathutils.Vector((min_bounds.x, min_bounds.y, min_bounds.z)),
@@ -4045,7 +4113,7 @@ def display_bounds(bake_name: str, vertices_bounds: tuple[mathutils.Vector, math
 ### TEXTURES ###
 def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int, tex_height: int) -> tuple[bool, str, bpy.types.Image]:
     """
-    Generate the offset or normal image
+    Generate and return a texture containing the provided pixel buffer
 
     :param bake_name: the bake operation's 'name'
     :param filename: the image's name
@@ -4060,14 +4128,17 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     if ((len(buffer)) != buffer_size):
         return (False, "Vertex buffer has unexpected length: " + str(len(buffer)) + " vs " + str(buffer_size), None)
 
-    image_name = filename if filename != "" else "T_Bake_VertOffsets"
+    image_name = filename
     tags = { "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
+    if image_name == "":
+        return (True, "Invalid image name", None)
+    
     image_name += ".exr"
 
     image = bpy.data.images.get(image_name, None)
     if image is not None:
-        if image.packed_file:
+        if image.packed_file and bpy.data.is_saved:
             image.unpack()
         bpy.data.images.remove(image) # remove image if it exists
 
@@ -4077,7 +4148,8 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     image.use_half_precision = False
     image.pixels = buffer
     image.use_fake_user = True
-    image.pack()
+    if bpy.data.is_saved:
+        image.pack()
 
     return (True, "", image)
 
@@ -4089,7 +4161,7 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str
     :param image: the VAT image to export
     :param path: export path
     :param name: file name
-    :param bake_name: the bake operation's 'name'
+    :param obj_name:
     :param override_file: if an existing .exr file should be overriden
     :return: the function's success, potential error message, export path
     :rtype: tuple
@@ -4128,7 +4200,7 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
     :param context: Blender current execution context
     :param num_frames: Number of frames to bake
     :param num_vertices: Number of vertices to bake per frame
-    :return: the function's success, potential error message, texture width, texture height
+    :return: the function's success, potential error message, texture width, texture height, frame 'height' and 'width'
     :rtype: tuple
     """
     settings = context.scene.VATBakerSettings
@@ -4148,14 +4220,13 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
     # how many lines of pixels per frame?
     bake_frame_height_float = num_vertices / float(tex_width)
     bake_frame_height = math.ceil(bake_frame_height_float) if settings.tex_packing_mode == 'STACK' else bake_frame_height_float # else 'CONTINUOUS'
-    add_bake_report("frame_height", bake_frame_height)
 
     # fallback to using maximum allowed width if data can no longer fit into the texture based on that width
     if ((num_frames * bake_frame_height) > settings.export_tex_max_height):
         tex_width = settings.export_tex_max_width
     
     if (tex_width > settings.export_tex_max_width):
-        return (False, "Invalid tex_width", tex_width, tex_height, bake_frame_height, (False, False))
+        return (False, "Invalid tex_width", tex_width, tex_height, bake_frame_height, 0.0)
 
     ##########
     # HEIGHT #
@@ -4168,13 +4239,16 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
         tex_height = num_frames * bake_frame_height if settings.tex_packing_mode == 'STACK' else math.ceil(num_frames * bake_frame_height) # else 'CONTINUOUS'
 
     if (tex_height > settings.export_tex_max_height):
-        return (False, "Invalid tex_height", tex_width, tex_height, bake_frame_height, (False, False))
+        return (False, "Invalid tex_height", tex_width, tex_height, bake_frame_height, 0.0)
 
     ##########
 
     if (settings.tex_force_power_of_two and settings.tex_force_power_of_two_square):
         if tex_width < tex_height:
             tex_width = tex_height
+
+            bake_frame_height_float = num_vertices / float(tex_width)
+            bake_frame_height = math.ceil(bake_frame_height_float) if settings.tex_packing_mode == 'STACK' else bake_frame_height_float # else 'CONTINUOUS'
         elif tex_height < tex_width:
             tex_height = tex_width
 
@@ -4188,6 +4262,7 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
 
     bake_frame_width = num_vertices / float(tex_width)
     add_bake_report("frame_width", bake_frame_width)
+    add_bake_report("frame_height", bake_frame_height)
 
     sampling = "STACK_SINGLE"
     if (underflow or overflow):
@@ -4228,7 +4303,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
                             unit_invert_z=str(report.unit_invert_z),
-                            unit_invert_v=str(report.unit_invert_v))
+                            unit_invert_v=str(report.unit_invert_v),
+                            unit_axis_order=report.unit_axis_order)
 
     # frame
     frame_el = ET.SubElement(root, "Frames",
@@ -4367,24 +4443,5 @@ def check_path(disk_path: str, override_file: str) -> tuple[bool, str]:
 
     if os.path.isfile(disk_path) and not override_file:
         return (False, f"File already exists: {disk_path}")
-
-    return (True, "")
-    """
-    Check for tags and replace them with their associated value
-
-    :param path: export path
-    :param override_file: if any existing file at the given path should be overriden
-    :return: the path's validity and potential error message
-    :rtype: tuple
-    """
-    dir = os.path.dirname(path)
-    if not os.path.isdir(dir):
-        return (False, f"Directory does not exist: {dir}")
-    
-    if not os.access(dir, os.W_OK):
-        return (False, f"Directory is not writable: {dir}")
-
-    if os.path.isfile(path) and not override_file:
-        return (False, f"File already exists: {path}")
 
     return (True, "")

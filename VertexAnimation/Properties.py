@@ -19,11 +19,13 @@ from bpy.types import PropertyGroup
 #############################################################################################
 ###################################### PROPERTY GROUPS ######################################
 #############################################################################################
-class VATBAKER_PG_SettingsNLAProperty(PropertyGroup):
+################
+### SETTINGS ###
+class VATBAKER_PG_SettingsNLAClip(PropertyGroup):
     """ """
     name: StringProperty(name="Name", default="")
 
-class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
+class VATBAKER_PG_Settings(PropertyGroup):
     """ """
 
     bake_modes = [
@@ -37,13 +39,20 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-
-    # uv
-    mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData.VAT", description="Name of the UVMap to be created or used for baking mesh UVs")
     unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap and flip the VAT texture(s) upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.VAT", description="Name of the baked object")
+    mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData.VAT", description="Name of the UVMap to be created or used for baking mesh UVs")
     mesh_target_prop: StringProperty(name="Property", default="BakeTarget", description="Custom property name for the retargeting feature (to bake a high-res animated mesh to a low-res mesh)")
     mesh_materials: BoolProperty(name="Materials", default=True, description="Enable to copy materials")
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
@@ -52,6 +61,7 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
     require_triangulation: BoolProperty(name="Require Triangulation", default=False, description="Enable to enforce triangulation, potentially improving remapping stability")
     previz_result: BoolProperty(name="Previz", default=True, description="Enable to add a geometry node modifier to the baked mesh for previewing baked offsets and normals after bake completion")
+    previz_bounds: BoolProperty(name="Bounds", default=True, description="Enable to display the animation bounds after bake completion")
 
     # xml
     export_xml: BoolProperty(name="Export", default=True, description="Enable to export an XML file containing information about the bake process (recommended). Only available if the Blender file is saved")
@@ -71,7 +81,7 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
             ("CUSTOM", "Custom", "Use a custom frame range (start and end frames are inclusive)"),
         ]
     frame_range_mode: EnumProperty(name="Mode", items=frame_range_modes, default=0, description="Select how the frame range is derived")
-    frame_range_nla_exclusion: CollectionProperty(type=VATBAKER_PG_SettingsNLAProperty)
+    frame_range_nla_exclusion: CollectionProperty(type=VATBAKER_PG_SettingsNLAClip)
     frame_range_nla_exclusion_selected_index: IntProperty(name="Selected", min=0, default=0, description="")
     frame_range_nla_exclusion_selected: StringProperty(name="Name", default="Clip", description="")
     frame_range_custom_start: IntProperty(name="Start", min=1, default=1, description="Start frame (inclusive)")
@@ -97,13 +107,12 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     frame_ref_mode: EnumProperty(name="Mode", items=frame_ref_modes, default="START", description="Select how the reference frame is computed")
     frame_ref_custom: IntProperty(name="Reference", default=1, description="Frame to use as the reference 'pose,' from which mappings and offsets are computed. Specifying a frame outside the animation range is allowed to specify a T-pose frame that should otherwise be excluded from the bake")
 
+    # textures    
     offset_tex_modes = [
         ('OFFSET', 'Offset', 'Store the vertices offset from the base pose in the VAT texture (recommended)'),
         ('POSITION', 'Position', 'Store the vertices\' local position in the VAT texture'),
     ]
     offset_tex_mode: EnumProperty(name="Tex Mode", items=offset_tex_modes, default=0, description="Select the positional data to store in the texture: offset (recommended) or local position")
-
-    # textures
     offset_tex: BoolProperty(name="Offset", default=True, description="Enable to bake the vertex offset texture")
     offset_tex_remap: BoolProperty(name="Remap", default=False, description="Enable to remap the offsets within a [0:1] range. This requires a multiplier and bias to remap the offsets in your shader or game engine. It is NOT recommended unless you intend to experiment with storing positions/offsets in 8-bit RGBA textures, as this will likely result in significant precision loss and visible deformation. Proceed at your own risk")
     offset_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_Offset", description="Name for the vertex offset texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
@@ -146,14 +155,16 @@ class VATBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     # f1 00 00 00
     # f1 f1 f1 f1
 
-class VATBAKER_PG_ReportAnimObjPropertyGroup(PropertyGroup):
+##############
+### REPORT ###
+class VATBAKER_PG_ReportAnimObj(PropertyGroup):
     """ """
     obj: PointerProperty(type=bpy.types.Object)
     target_obj: PointerProperty(type=bpy.types.Object)
 
-class VATBAKER_PG_ReportAnimPropertyGroup(PropertyGroup):
+class VATBAKER_PG_ReportAnim(PropertyGroup):
     """ """
-    objs: CollectionProperty(type=VATBAKER_PG_ReportAnimObjPropertyGroup)
+    objs: CollectionProperty(type=VATBAKER_PG_ReportAnimObj)
     selected_obj: IntProperty(name="Selected Obj", default=0, description="")
     name: StringProperty(name="Name", default="", description="")
     start_frame: IntProperty(name="Start", default=0, description="")
@@ -161,7 +172,7 @@ class VATBAKER_PG_ReportAnimPropertyGroup(PropertyGroup):
     end_frame: IntProperty(name="End", default=0, description="")
     end_time: FloatProperty(name="End", default=0.0)
 
-class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
+class VATBAKER_PG_Report(PropertyGroup):
     """ """
     baked: BoolProperty(name="Baked", default=False, description="")
     success: BoolProperty(name="Success", default=False, description="")
@@ -176,6 +187,16 @@ class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="")
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
+    unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     padded: BoolProperty(name="Padded", default=False, description="")
     padding: IntProperty(name="Padding", default=0, description="")
@@ -187,7 +208,7 @@ class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
     padding_mode: EnumProperty(name="Sampling", items=padding_modes, default=0, description="")
     ref_mode: StringProperty(name="Frame Ref Mode", default="", description="")
     ref: IntProperty(name="Frame Ref", default=1, description="")
-    anims: CollectionProperty(type=VATBAKER_PG_ReportAnimPropertyGroup)
+    anims: CollectionProperty(type=VATBAKER_PG_ReportAnim)
     selected_anim: IntProperty(name="Selected Anim", default=0, description="")
 
     start_frame: IntProperty(name="Start", default=0, description="")
@@ -206,10 +227,8 @@ class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
     mesh_export: BoolProperty(name="Export", default=False, description="")
     mesh_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
     mesh_uvmap_index: IntProperty(name="UV Index", default=0, description="")
-    unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
     mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset")
     mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset")
-
     tex_width: IntProperty(name="Width", default=0, description="")
     tex_height: IntProperty(name="Height", default=0, description="")
     tex_underflow: BoolProperty(name="Underflow", default=False, description="")
@@ -230,8 +249,8 @@ class VATBAKER_PG_ReportPropertyGroup(PropertyGroup):
     xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
 
 def register():
-    bpy.types.Scene.VATBakerSettings = PointerProperty(type=VATBAKER_PG_SettingsPropertyGroup)
-    bpy.types.Scene.VATBakerReport = PointerProperty(type=VATBAKER_PG_ReportPropertyGroup)
+    bpy.types.Scene.VATBakerSettings = PointerProperty(type=VATBAKER_PG_Settings)
+    bpy.types.Scene.VATBakerReport = PointerProperty(type=VATBAKER_PG_Report)
 
 def unregister():
     del bpy.types.Scene.VATBakerSettings

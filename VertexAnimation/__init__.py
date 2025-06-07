@@ -1,9 +1,5 @@
-# @TODO anims report start/end doesn't support frame stepping
+# if image.packed_file and bpy.data.is_saved: !!!
+# "Vertex buffer has unexpected length: " msg should just say Buffer has unexpected length: in all tools
 
-# generate list of frames, not accounting for stepping
-# in list of frames
-# for nla clip
-# find start/end frames
-    # isolate sublist of frames
-    # insert padding
-    # apply stepping IF NLA mode
+# @TODO get_remapped_vertices_offset_buffer should use offset/range like the other tools?
+# @TODO implement axis order

@@ -70,8 +70,9 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.unit_invert_x',
         'settings.unit_invert_y',
         'settings.unit_invert_z',
-        'settings.mesh_uvmap_name',
         'settings.unit_invert_v',
+        'settings.unit_axis_order',
+        'settings.mesh_uvmap_name',
         'settings.mesh_name',
         'settings.mesh_target_prop',
         'settings.mesh_materials',
@@ -81,6 +82,7 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.export_mesh_file_override',
         'settings.require_triangulation',
         'settings.previz_result',
+        'settings.previz_bounds',
         'settings.export_xml',
         'settings.export_xml_mode',
         'settings.export_xml_file_name',
@@ -125,14 +127,16 @@ class VATBAKER_OT_NLAExclusion_NewItem(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return context.scene.VATBakerSettings.frame_range_nla_exclusion_selected != "" and context.scene.VATBakerSettings.frame_range_nla_exclusion_selected not in [nla.name for nla in context.scene.VATBakerSettings.frame_range_nla_exclusion]
+        settings = context.scene.VATBakerSettings
+        return settings.frame_range_nla_exclusion_selected != "" and settings.frame_range_nla_exclusion_selected not in [nla.name for nla in settings.frame_range_nla_exclusion]
     
     def execute(self, context):
-        context.scene.VATBakerSettings.frame_range_nla_exclusion.add()
-        last_index = len(context.scene.VATBakerSettings.frame_range_nla_exclusion) - 1
+        settings = context.scene.VATBakerSettings
+        settings.frame_range_nla_exclusion.add()
+        last_index = len(settings.frame_range_nla_exclusion) - 1
         if last_index >= 0:
-            context.scene.VATBakerSettings.frame_range_nla_exclusion_selected_index = last_index
-            context.scene.VATBakerSettings.frame_range_nla_exclusion[last_index].name = context.scene.VATBakerSettings.frame_range_nla_exclusion_selected
+            settings.frame_range_nla_exclusion_selected_index = last_index
+            settings.frame_range_nla_exclusion[last_index].name = settings.frame_range_nla_exclusion_selected
 
         return{'FINISHED'}
 
