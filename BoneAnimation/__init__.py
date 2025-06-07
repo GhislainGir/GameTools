@@ -2,6 +2,8 @@
 
 # @TODO test scale baking!
 
-# @TODO demo quat slerp?
+# @TODO test retargeting with mutliple objects
 
-# @TODO mesh retargeting feature!
+# @TODO write few default presets!
+# @TODO test presets!
+# @TODO implement axis order

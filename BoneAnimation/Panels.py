@@ -202,6 +202,9 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         row.prop(settings, "unit_invert_z", text="Z")
 
         row = layout.row()
+        row.prop(settings, "unit_axis_order")
+
+        row = layout.row()
         row.prop(settings, "mesh_name")
 
         row = layout.row()
@@ -919,7 +922,7 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
         row.enabled = False
 
         row = layout.row()
-        if report.animation_tex_sampling_mode == 'CONTINUOUS': # @TODO change panel
+        if report.animation_tex_sampling_mode == 'CONTINUOUS':
             row.label(text="Width: " + str(report.animation_tex_frame_width))
             row.enabled = report.animation_tex_underflow or report.animation_tex_overflow
         else:
@@ -1272,3 +1275,7 @@ class BATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
         row.enabled = report.unit_invert_z
+
+        row = layout.row()
+        row.label(report, "unit_axis_order")
+        row.enabled = False

@@ -93,7 +93,7 @@ class BATBAKER_PG_SettingsAnimationTexChannel(PropertyGroup):
          ("ZXY", "ZXY", "ZXY"),
          ("ZYX", "ZYX", "ZYX")
     ]
-    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion") # @TODO
+    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
 
     quat_angle_unit_modes = [
         ("UNIT", "Unit", "Angle is normalized in [0:1] range, 1.0 for 360 degrees"),
@@ -151,12 +151,21 @@ class BATBAKER_PG_Settings(PropertyGroup):
     animation_textures: CollectionProperty(type=BATBAKER_PG_SettingsAnimationTexLayer)
     animation_textures_selected_index: IntProperty(name="Selected", default=0)
 
-    # scene 
+    # scene
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit")
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap and flip the BAT texture(s) upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.BAT", description="Name of the baked object")
@@ -333,7 +342,7 @@ class BATBAKER_PG_ReportAnimationTexChannel(PropertyGroup):
          ("ZXY", "ZXY", "ZXY"),
          ("ZYX", "ZYX", "ZYX")
     ]
-    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion") # @TODO
+    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
 
     quat_angle_unit_modes = [
         ("UNIT", "Unit", "Angle is normalized in [0:1] range, 1.0 for 360 degrees"),
@@ -420,6 +429,15 @@ class BATBAKER_PG_Report(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     padded: BoolProperty(name="Padded", default=False, description="")
     padding: IntProperty(name="Padding", default=0, description="")

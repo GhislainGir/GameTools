@@ -140,10 +140,7 @@ def add_bake_skinning_texture_report(texture: object, img: bpy.types.Image) -> o
     Create a new texture in the bake report
 
     :param texture: texture to generate report for
-    :param img: image generated for baking the provided texture
-    :param buffer_ranges_offsets: min value. One value per RGBA channel
-    :param buffer_ranges: range is describe as (max value - min value). One value per RGBA channel
-    :param buffer_ranges_valid: true if range is valid, aka (max - min) is not null. One value per RGBA channel
+    :param img: image generated for baking
     :return: the report texture object created
     :rtype: object
     """
@@ -154,7 +151,7 @@ def add_bake_skinning_texture_report(texture: object, img: bpy.types.Image) -> o
     report_skinning_texture.exported = False
     report_skinning_texture.path = ""
     report_skinning_texture.img = img
-    #report_skinning_texture.storage_mode = texture.storage_mode
+    report_skinning_texture.storage_mode = texture.storage_mode
 
     # copy all texture attributes
     if hasattr(texture, "__annotations__"):
@@ -252,7 +249,7 @@ def add_bake_animation_texture_report(texture: object, img: bpy.types.Image, buf
     Create a new texture in the bake report
 
     :param texture: texture to generate report for
-    :param img: image generated for baking the provided texture
+    :param img: image generated for baking
     :param buffer_ranges_offsets: min value. One value per RGBA channel
     :param buffer_ranges: range is describe as (max value - min value). One value per RGBA channel
     :param buffer_ranges_valid: true if range is valid, aka (max - min) is not null. One value per RGBA channel
@@ -363,8 +360,6 @@ def add_bake_report_anim(name: str, frame_start: int, frame_end: int):
     :param name: animation's name
     :param frame_start: animation's start frame
     :param frame_end: animation's end frame
-    :param frame_start_time: animation's start normalized time
-    :param frame_end_time: animation's end normalized time
     :return: None
     :rtype: None
     """
@@ -385,18 +380,6 @@ def export_bake_report(context: bpy.types.Context) -> tuple[bool, str, str]:
     :rtype: tuple
     """
     return(export_xml(context))
-
-###########
-### NLA ###
-def get_armature_nla_tracks(armature: bpy.types.Armature) -> bpy.types.NlaTrack:
-    """
-    Return the list of NLA tracks the given object has, if any
-
-    :armature: armature to search NLA tracks for
-    :return: list of NLA tracks the armature has, if any, None otherwise
-    :rtype: NlaTrack
-    """
-    return armature and armature.animation_data and armature.animation_data.nla_tracks
 
 ###############
 ### PACKING ###
@@ -488,7 +471,7 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
 
 ############
 ### BAKE ###
-def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, list]:
+def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, list, int]:
     """
     Scan the skinning textures the user wants to generate, ensuring each has a unique name and contains data in at least one of the RGBA channels.
 
@@ -571,7 +554,9 @@ def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, l
     if len(textures) <= 0:
         return (False, "No data to bake in texture(s)", None, 0)
 
-    # list all indices that must be accounted for, based on maximum index
+    """
+    list all indices that must be accounted for, based on maximum index
+    """
     bones_indices = list(range(1, max_index))
     bones_weights = list(range(1, max_index))
 
@@ -824,6 +809,8 @@ def get_nla_strips_raw_frame_buffer(context: bpy.types.Context, nla_strips: list
 
     :param context: Blender current execution context
     :param nla_strips: list of NLA strips contributing to the overall animation 'range'
+    :return: list of frames to bake
+    :rtype: list
     """
     settings = context.scene.BATBakerSettings
 
@@ -882,7 +869,7 @@ def get_nla_strip_start_end_indices(nla_strip: object, frames_to_bake: list) -> 
             continue
 
         # start frame?
-        if start_index is None: # @TODO propagate change in vertex anim tool?!
+        if start_index is None:
             if frame == start:
                 start_index = frame_index
             elif frame > start: # went too far
@@ -978,7 +965,7 @@ def get_nla_strip_prefix_padding_info(frames_to_bake: list, start_index: int, en
     padding_value = frames_to_bake[end_index][0]
     return (start_index, padding_value) # return index as-is for array insertion *before* start frame
 
-def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bpy.types.Armature) -> tuple[bool, str, tuple[list, int, int]]:
+def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bpy.types.Armature) -> tuple[bool, str, tuple[list, int, int, int]]:
     """
     Return the list of frames to bake and the start/end frames.
 
@@ -1002,6 +989,7 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
 
     :param context: Blender current execution context
     :param objs_to_bake: list of objects to bake
+    :param armature: target armature
     :return: the function's success, potential error message, list of frames in order, bake start & end frames
     :rtype: tuple
     """
@@ -1010,13 +998,10 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
 
     add_bake_report("frame_rate", (context.scene.render.fps / context.scene.render.fps_base))
 
-    settings = context.scene.BATBakerSettings
-
     nla_strips_exclusion = [nla_strip_excluded.name for nla_strip_excluded in settings.frame_range_nla_exclusion]
     nla_strips = []
-    nla_tracks = get_armature_nla_tracks(armature)
-    if nla_tracks:
-        for nla_track in nla_tracks:
+    if armature and armature.animation_data and armature.animation_data.nla_tracks:
+        for nla_track in armature.animation_data.nla_tracks:
             for nla_strip in nla_track.strips:
                 if nla_strip not in nla_strips and nla_strip.name not in nla_strips_exclusion: # exclude duplicates & user-specified black-listed strips
                     nla_strips.append(nla_strip)
@@ -1040,7 +1025,7 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             """
             2. padding
             """
-            padding_apply = (settings.frame_range_mode == "NLA") and (settings.frame_padding > 0) #and (settings.tex_packing_mode == "STACK")
+            padding_apply = (settings.frame_range_mode == "NLA") and (settings.frame_padding > 0) #and (settings.animation_tex_packing_mode == "STACK")
             padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
             padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
 
@@ -1521,7 +1506,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     """
     if settings.mesh_materials:
         materials = []
-        for obj_index, obj_to_bake in enumerate(objs_to_bake):
+        for obj_to_bake in objs_to_bake:
             for material in obj_to_bake.data.materials:
                 if material not in materials:
                     materials.append(material)
@@ -1666,6 +1651,7 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
 
 def generate_mesh_vcol(context: bpy.types.Context, texture: object, obj_to_bake: bpy.types.Object, vcol_buffer: list):
     """
+    Configure the mesh Vertex Colors to store the provided color buffer
 
     :param context: Blender current execution context
     :param texture: the 'texture' property group responsible for writing to the vertex color
@@ -1744,7 +1730,7 @@ def generate_mesh_geonodes(context: bpy.types.Context, obj_to_export: bpy.types.
 
     settings = context.scene.BATBakerSettings
 
-    use_row = (num_vertices == tex_width) or (settings.tex_packing_mode == 'STACK')
+    use_row = (num_vertices == tex_width) or (settings.animation_tex_packing_mode == 'STACK')
     if use_row:
         generate_mesh_geonodes_row(context, obj_to_export, bake_frames_info, bake_frame_height, vertices_bounds, img_offset, img_nor)
     else:
@@ -1790,22 +1776,6 @@ def generate_mesh_geonodes_row(context: bpy.types.Context, obj_to_export: bpy.ty
 
     geonode_mod.node_group = geonode_tree
 
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetTex"].identifier] = img_offset
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetScale"].identifier] = settings.unit_scale
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemap"].identifier] = max_offset if settings.offset_tex_remap else mathutils.Vector((1.0, 1.0, 1.0))
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemapped"].identifier] = settings.offset_tex_remap
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalTex"].identifier] = img_nor
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalScale"].identifier] = 1
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalRemapped"].identifier] = settings.normal_tex_remap
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if img_nor else False
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameHeight"].identifier] = bake_frame_height
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameOffset"].identifier] = bake_start_frame
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.BAT"
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.unit_invert_v
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertX"].identifier] = settings.unit_invert_x
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.unit_invert_y
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.unit_invert_z
-
 def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export: bpy.types.Object, bake_frames_info: tuple[list, int, int, int], frame_step: float, vertices_bounds: tuple[mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector, mathutils.Vector], img_offset: bpy.types.Image, img_nor: bpy.types.Image):
     """
     Apply a geometry node modifier to the given object. The required geometry node group either already exist from a previous call and is thus assigned to the modifier or is generated to previsualize the baked BAT texture(s) using a complex U & V offset to playback the animation
@@ -1843,23 +1813,6 @@ def generate_mesh_geonodes_partialrow(context: bpy.types.Context, obj_to_export:
         geonode_mod = obj_to_export.modifiers.new(name="GeometryNodes", type='NODES')
 
     geonode_mod.node_group = geonode_tree
-
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetTex"].identifier] = img_offset
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetScale"].identifier] = settings.unit_scale
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemap"].identifier] = max_offset if settings.offset_tex_remap else mathutils.Vector((1.0, 1.0, 1.0))
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["OffsetRemapped"].identifier] = settings.offset_tex_remap
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalTex"].identifier] = img_nor
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalScale"].identifier] = 1
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["NormalRemapped"].identifier] = settings.normal_tex_remap
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Normal"].identifier] = True if img_nor else False
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["Frames"].identifier] = len(frames_to_bake)
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameStep"].identifier] = frame_step
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["FrameOffset"].identifier] = bake_start_frame
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["UVMap"].identifier] = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.BAT"
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertV"].identifier] = settings.unit_invert_v
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertX"].identifier] = settings.unit_invert_x
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertY"].identifier] = settings.unit_invert_y
-    geonode_mod[geonode_tree.nodes["Group Input"].outputs["InvertZ"].identifier] = settings.unit_invert_z
 
 def build_mesh_geonodes_row_group():
     """
@@ -1967,9 +1920,6 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
                 closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vertex.co)
                 closest_face_vertices_pos = [ref_eval_mesh.vertices[v].co for v in ref_eval_mesh.polygons[closest_face_index].vertices]
                 closest_face_barycoords = mathutils.interpolate.poly_3d_calc(closest_face_vertices_pos, closest_face_pos)
-
-                # we're going to build the skinning data for this TARGET vertex
-                target_vertex_skinning_data_all = []
 
                 vertex_groups = []
                 # for each SOURCE vertex the *closest face* has
@@ -2131,7 +2081,10 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
             # evaluate modifiers etc. to calculate bounds
             eval_obj = obj_to_bake.evaluated_get(dgraph)
 
-            # bounds
+            """
+            This step calculates the minimum and maximum bounds of the mesh in its animated pose. These bounds can be then compared to the bounds of the mesh in reference pose to compute
+            an offset to apply to the exported mesh's bounding box. This is important for accurate occlusion culling.
+            """
             bbox_corners = [(eval_obj.matrix_world @ mathutils.Vector(corner)) * signed_scale for corner in eval_obj.bound_box]
             bbox_corners_x = [corner.x for corner in bbox_corners]
             bbox_corners_y = [corner.y for corner in bbox_corners]
@@ -2153,7 +2106,7 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
     max_bounds_offset.x = max(0, max_bounds_offset.x)
     max_bounds_offset.y = max(0, max_bounds_offset.y)
     max_bounds_offset.z = max(0, max_bounds_offset.z)
-    add_bake_report("mesh_max_bounds_offset", max_bounds_offset) # @TODO apply changes to vertex anim as well
+    add_bake_report("mesh_max_bounds_offset", max_bounds_offset)
 
     # restore ref frame
     context.scene.frame_set(bake_ref_frame)
@@ -2482,11 +2435,24 @@ def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.
             else:
                 vector_to_bake = (pose_mat.to_translation() - ref_mat.to_translation()) * signed_scale
 
-            if texture_channel.component == "X":
+            if settings.unit_axis_order == "XYZ" or settings.unit_axis_order == "XZY":
+                x_axis_name = "X"
+                y_axis_name = "Y" if settings.unit_axis_order == "XYZ" else "Z"
+                z_axis_name = "Z" if settings.unit_axis_order == "XYZ" else "Y"
+            elif settings.unit_axis_order == "YXZ" or settings.unit_axis_order == "YZX":
+                x_axis_name = "Y"
+                y_axis_name = "X" if settings.unit_axis_order == "YXZ" else "Z"
+                z_axis_name = "Z" if settings.unit_axis_order == "YXZ" else "X"
+            else: # ZXY or ZYX
+                x_axis_name = "Z"
+                y_axis_name = "X" if settings.unit_axis_order == "ZXY" else "Y"
+                z_axis_name = "Y" if settings.unit_axis_order == "ZXY" else "X"
+                
+            if texture_channel.component == x_axis_name:
                 data_to_bake = vector_to_bake.x
-            elif texture_channel.component == "Y":
+            elif texture_channel.component == y_axis_name:
                 data_to_bake = vector_to_bake.y
-            elif texture_channel.component == "Z":
+            elif texture_channel.component == z_axis_name:
                 data_to_bake = vector_to_bake.z
             else:
                 data_to_bake = 0.0
@@ -2525,7 +2491,7 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
             ref_mat_3x3 = ref_mat.to_3x3()
             ref_mat_3x3_ordered = ref_mat_3x3
 
-            # reorder axes if desired
+            # reorder axes if desired @TODO this is wrong
             if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
                 pose_mat_3x3_ordered[0] = pose_mat_3x3[0]
                 ref_mat_3x3_ordered[0] = ref_mat_3x3[0]
@@ -2611,21 +2577,6 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
 
     return rot_buffer
 
-def reorder_matrix_axes(mat, order):
-    """
-    Reorders the axes (columns) of a 3x3 matrix according to the given order string.
-    
-    :param mat: mathutils.Matrix (3x3)
-    :param order: str, permutation of 'XYZ', e.g. 'ZXY'
-    :return: mathutils.Matrix (3x3) with reordered axes
-    """
-    order = order.upper()
-    assert len(order) == 3 and set(order) == {'X', 'Y', 'Z'}, "Order must be a permutation of 'XYZ'"
-
-    axis_index = {'X': 0, 'Y': 1, 'Z': 2}
-    cols = [mat.col[axis_index[axis]] for axis in order]
-    return mathutils.Matrix(cols)
-
 def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, bake_frames_info: list, num_bones: int, bones: list) -> list:
     """
     Intermediate buffer function to return the values to store in the texture channel
@@ -2653,7 +2604,7 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
             pose_mat_3x3 = pose_mat.to_3x3()
 
             #pose_mat_3x3_ordered = pose_mat_3x3.copy()
-            pose_mat_3x3.transpose()
+            pose_mat_3x3.transpose() # @TODO fix this shit
 
             # reorder axes if desired
             if texture_channel.quat_xyz_order == "XYZ":
@@ -2689,7 +2640,6 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
             
             print("---")
             print(pose_mat_3x3)
-            #pose_mat_3x3_ordered = reorder_matrix_axes(pose_mat_3x3, texture_channel.quat_xyz_order)
             pose_mat_3x3_ordered
             print(pose_mat_3x3_ordered)
 
@@ -2792,15 +2742,28 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
             else: # Z
                 vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, 1.0))
 
-            if texture_channel.component == "X":
+            if settings.unit_axis_order == "XYZ" or settings.unit_axis_order == "XZY":
+                x_axis_name = "X"
+                y_axis_name = "Y" if settings.unit_axis_order == "XYZ" else "Z"
+                z_axis_name = "Z" if settings.unit_axis_order == "XYZ" else "Y"
+            elif settings.unit_axis_order == "YXZ" or settings.unit_axis_order == "YZX":
+                x_axis_name = "Y"
+                y_axis_name = "X" if settings.unit_axis_order == "YXZ" else "Z"
+                z_axis_name = "Z" if settings.unit_axis_order == "YXZ" else "X"
+            else: # ZXY or ZYX
+                x_axis_name = "Z"
+                y_axis_name = "X" if settings.unit_axis_order == "ZXY" else "Y"
+                z_axis_name = "Y" if settings.unit_axis_order == "ZXY" else "X"
+
+            if texture_channel.component == x_axis_name:
                 data_to_bake = vector_to_bake.x
-            elif texture_channel.component == "Y":
+            elif texture_channel.component == y_axis_name:
                 data_to_bake = vector_to_bake.y
-            elif texture_channel.component == "Z":
+            elif texture_channel.component == z_axis_name:
                 data_to_bake = vector_to_bake.z
             else:
                 data_to_bake == 0.0
-        
+
             try:
                 rot_buffer[bone_index + buffer_frame_offset] = data_to_bake
             except:
@@ -3195,8 +3158,11 @@ def get_best_animation_texture_resolution(context: bpy.types.Context, num_frames
     if (settings.animation_tex_force_power_of_two and settings.animation_tex_force_power_of_two_square):
         if tex_width < tex_height:
             tex_width = tex_height
+            
+            bake_frame_height_float = num_bones / float(tex_width)
+            bake_frame_height = math.ceil(bake_frame_height_float) if settings.animation_tex_packing_mode == 'STACK' else bake_frame_height_float # else 'CONTINUOUS'
         elif tex_height < tex_width:
-            tex_height = tex_width # @TODO this modifies the bake_frame_height & bake_frame_width?
+            tex_height = tex_width
 
     underflow = num_bones < tex_width
     add_bake_report("animation_tex_underflow", underflow)
@@ -3248,7 +3214,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
                             unit_invert_z=str(report.unit_invert_z),
-                            unit_invert_v=str(report.unit_invert_v))
+                            unit_invert_v=str(report.unit_invert_v),
+                            unit_axis_order=report.unit_axis_order)
 
     # frame
     frame_el = ET.SubElement(root, "Frames",
