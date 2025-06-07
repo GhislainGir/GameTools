@@ -37,6 +37,7 @@ class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Op
         'settings.depth_limit',
         'settings.use_pivot_painter_packing',
         'settings.mesh_name',
+        'settings.mesh_materials',
         'settings.mesh_uvmap_name',
         'settings.mesh_count_limit',
         'settings.mesh_merge',
@@ -47,6 +48,7 @@ class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Op
         'settings.unit_invert_y',
         'settings.unit_invert_z',
         'settings.unit_invert_v',
+        'settings.unit_axis_order',
         'settings.origin_obj',
         'settings.export_mesh',
         'settings.export_mesh_file_name',
@@ -126,7 +128,7 @@ class OBJECTATTRIBUTES_OT_SelectDepth(bpy.types.Operator):
             self.report({verbose}, msg)
             return {'CANCELLED'}
 
-###################
+################
 ### TEXTURES ###
 class OBJECTATTRIBUTES_OT_NewSettings_NewItem(bpy.types.Operator):
     """Add a new item to the list."""
@@ -138,18 +140,28 @@ class OBJECTATTRIBUTES_OT_NewSettings_NewItem(bpy.types.Operator):
         return True
 
     def execute(self, context):
+        settings = context.scene.ObjectAttributesSettings
         last_item = None
-        current_index = context.scene.ObjectAttributesSettings.textures_selected_index
-        if context.scene.ObjectAttributesSettings.textures and (current_index < len(context.scene.ObjectAttributesSettings.textures)):
-            last_item = context.scene.ObjectAttributesSettings.textures[current_index]
+        current_index = settings.textures_selected_index
+        if settings.textures and (current_index < len(settings.textures)):
+            last_item = settings.textures[current_index]
 
-        context.scene.ObjectAttributesSettings.textures.add()
-        last_index = len(context.scene.ObjectAttributesSettings.textures) - 1
+        settings.textures.add()
+        last_index = len(settings.textures) - 1
         if last_index >= 0:
-            context.scene.ObjectAttributesSettings.textures_selected_index = last_index
+            settings.textures_selected_index = last_index
 
-            item = context.scene.ObjectAttributesSettings.textures[last_index]
+            item = settings.textures[last_index]
             item.ID = uuid.uuid4().hex
+
+            name = "Attributes"
+            name_suffix = 0
+            names = [skinning_texture.name for skinning_texture in settings.textures]
+            while name in names:
+                name_suffix += 1
+                name_suffix_str = str(name_suffix).zfill(3)
+                name = "Attributes." + name_suffix_str
+            item.name = name
 
             if last_item:
                 pass

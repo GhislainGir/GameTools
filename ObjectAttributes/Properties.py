@@ -16,7 +16,12 @@ import bpy
 from bpy.props import PointerProperty, BoolProperty, FloatProperty, EnumProperty, StringProperty, IntProperty, CollectionProperty
 from bpy.types import PropertyGroup
 
-class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
+#############################################################################################
+###################################### PROPERTY GROUPS ######################################
+#############################################################################################
+################
+### SETTINGS ###
+class OBJECTATTRIBUTES_PG_SettingsTexChannel(PropertyGroup):
     """ """
     channel_modes = [
         ("NONE", "None", "Write 0 to the channel"),
@@ -85,19 +90,19 @@ class OBJECTATTRIBUTES_PG_TexChannelPropertyGroup(PropertyGroup):
 
     remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
-class OBJECTATTRIBUTES_PG_TexLayerPropertyGroup(PropertyGroup):
+class OBJECTATTRIBUTES_PG_SettingsTexLayer(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
 
-    R: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
-    G: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
-    B: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
-    A: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    R: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
+    G: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
+    B: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
+    A: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
 
-class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
+class OBJECTATTRIBUTES_PG_Settings(PropertyGroup):
     """ """
-    textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_TexLayerPropertyGroup)
+    textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_SettingsTexLayer)
     textures_selected_index: IntProperty(name="Selected", default=0)
 
     depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="Enable this option to prevent the hierarchy from becoming too deep. At the specified depth, children will be treated as part of their parent and will share the parent’s object data—such as position, axis, and more—as if they were part of the same mesh. Non-mesh objects within the hierarchy will be discarded and treated as if they do not exist by the algorithm, without affecting the transforms of their children")
@@ -116,6 +121,15 @@ class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)") # @TODO implement & expose in panel & add to report & write to xml
     origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
@@ -143,7 +157,9 @@ class OBJECTATTRIBUTES_PG_SettingsPropertyGroup(PropertyGroup):
     tex_force_power_of_two: BoolProperty(name="Power of Two", default=False, description="Force textures to be power-of-two sizes. Not recommended, as non-power-of-two textures ensure tight packing and are widely supported")
     tex_force_power_of_two_square: BoolProperty(name="Square", default=False, description="Force texture width and height to be equal if 'Power of Two' is enabled. Typically unnecessary, but provided as an option for specific use cases")
 
-class OBJECTATTRIBUTES_PG_TexLayerReportPropertyGroup(PropertyGroup):
+##############
+### REPORT ###
+class OBJECTATTRIBUTES_PG_ReportTexLayer(PropertyGroup):
     """ """
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
@@ -151,24 +167,24 @@ class OBJECTATTRIBUTES_PG_TexLayerReportPropertyGroup(PropertyGroup):
     path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH')
     img: PointerProperty(type=bpy.types.Image)
 
-    R: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    R: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
     R_range_offset: FloatProperty(name="Offset", default=0.0)
     R_range: FloatProperty(name="Range", default=1.0)
     R_range_valid: BoolProperty(name="Valid", default=False)
-    G: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    G: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
     G_range_offset: FloatProperty(name="Offset", default=0.0)
     G_range: FloatProperty(name="Range", default=1.0)
     G_range_valid: BoolProperty(name="Valid", default=False)
-    B: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    B: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
     B_range_offset: FloatProperty(name="Offset", default=0.0)
     B_range: FloatProperty(name="Range", default=1.0)
     B_range_valid: BoolProperty(name="Valid", default=False)
-    A: PointerProperty(type=OBJECTATTRIBUTES_PG_TexChannelPropertyGroup)
+    A: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
     A_range_offset: FloatProperty(name="Offset", default=0.0)
     A_range: FloatProperty(name="Range", default=1.0)
     A_range_valid: BoolProperty(name="Valid", default=False)
 
-class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
+class OBJECTATTRIBUTES_PG_Report(PropertyGroup):
     """"""
     baked: BoolProperty(name="Baked", default=False, description="")
     success: BoolProperty(name="Success", default=False, description="")
@@ -184,6 +200,15 @@ class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
     origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="")
 
     depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="")
@@ -198,15 +223,15 @@ class OBJECTATTRIBUTES_PG_ReportPropertyGroup(PropertyGroup):
 
     tex_width: IntProperty(name="Texture Width", default=0, description="")
     tex_height: IntProperty(name="Texture Height", default=0, description="")
-    textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_TexLayerReportPropertyGroup)
+    textures: CollectionProperty(type=OBJECTATTRIBUTES_PG_ReportTexLayer)
     textures_selected_index: IntProperty(name="Selected", default=0)
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
 
 def register():
-	bpy.types.Scene.ObjectAttributesSettings = PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsPropertyGroup)
-	bpy.types.Scene.ObjectAttributesReport = PointerProperty(type=OBJECTATTRIBUTES_PG_ReportPropertyGroup)
+	bpy.types.Scene.ObjectAttributesSettings = PointerProperty(type=OBJECTATTRIBUTES_PG_Settings)
+	bpy.types.Scene.ObjectAttributesReport = PointerProperty(type=OBJECTATTRIBUTES_PG_Report)
 
 def unregister():
     del bpy.types.Scene.ObjectAttributesSettings

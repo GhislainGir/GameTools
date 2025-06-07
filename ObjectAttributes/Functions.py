@@ -110,7 +110,7 @@ def add_bake_texture_report(texture: object, img: bpy.types.Image, buffer_ranges
     Create a new texture in the bake report
 
     :param texture: texture to generate report for
-    :param img: image generated for baking the provided texture
+    :param img: image generated for baking
     :param buffer_ranges_offsets: min value. One value per RGBA channel
     :param buffer_ranges: range is describe as (max value - min value). One value per RGBA channel
     :param buffer_ranges_valid: true if range is valid, aka (max - min) is not null. One value per RGBA channel
@@ -470,7 +470,8 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
     dgraph = bpy.context.evaluated_depsgraph_get()
 
     if not settings.mesh_duplicate:
-        eval_objs_to_bake = objs_to_bake # @NOTE name isn't great, objects aren't evaluated if not duplicated
+        # naming isn't the best... objs are not evaluated here.
+        eval_objs_to_bake = objs_to_bake
 
         if settings.mesh_single_user:
             for eval_obj_to_bake in eval_objs_to_bake:
@@ -511,8 +512,8 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
             eval_obj_to_bake["BakedSource"] = obj_to_bake
             eval_obj_to_bake.id_properties_ensure()
             property_manager = eval_obj_to_bake.id_properties_ui("BakedSource")
-            property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
-            
+            property_manager.update(id_type="OBJECT") # dirty hack to prevent weird UI bug
+
             source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
 
         """
@@ -611,7 +612,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     """
     process of merging involves copying data blocks in a single bmesh
     """
-    if settings.mesh_merge:        
+    if settings.mesh_merge:
         # get materials to copy (face material indices might have to be modified because of merging process)
         success, msg, materials = generate_mesh_material_indices(eval_objs_to_bake)
         if not success:
@@ -651,9 +652,10 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
             """
             merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
 
-        # copy materials
-        for material in materials:
-            obj.data.materials.append(material)
+        if settings.mesh_materials and materials:
+            # copy materials
+            for material in materials:
+                obj.data.materials.append(material)
 
         # report uv map used
         for uvlayer_index, uvlayer in enumerate(merged_mesh.uv_layers):
@@ -670,7 +672,7 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
         # clear original selection (we don't care if it was duplicated or not)
         clear_bake_selection(eval_objs_to_bake)
     elif settings.mesh_duplicate:
-        # carry materials
+        # meshes were already duplicated, simply carry materials
         for eval_obj_to_bake in eval_objs_to_bake:
             if "BakedSource" in eval_obj_to_bake:
                 source_obj = eval_obj_to_bake["BakedSource"]
@@ -681,7 +683,8 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
         for eval_obj_to_bake in eval_objs_to_bake:
             eval_obj_to_bake.select_set(True)
 
-        # pick object to make active and to report @NOTE selection is totally arbitrary, not great. Pick root object instead? But what if multiple roots?
+        # pick object to make active and to report. Selection is totally arbitrary, I don't like that
+        # pick root object instead? But what if multiple roots?
         obj_to_highlight = eval_objs_to_bake[0]
         context.view_layer.objects.active = obj_to_highlight
         add_bake_report("mesh", obj_to_highlight)
@@ -893,7 +896,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
     :param tex_width: OA's texture width
     :param tex_height: OA's texture height
-    :param attr_buffer_length: length of attribute buffer to create
+    :param attr_buffer_length: length of attribute buffer to create @TODO this shouldn't be necessary. width/height do the job?
     :return: buffer (one set of RGBA values per object)
     :rtype: list
     """
@@ -910,7 +913,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
     buffer_ranges = [1.0] * 4
     buffer_ranges_valid = [False] * 4
 
-    for texture_channel_index, texture_channel in enumerate(texture_channels):
+    for texture_channel_index, texture_channel in enumerate(texture_channels): # @NOTE performance
         if texture_channel is None:
             continue
 
@@ -940,7 +943,8 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
 
 def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> list:
     """ 
-    Re-order pixel buffer so that it is flipped in V (aka invert image). Append line of pixels after line in reverse order
+    Re-order pixel buffer so that it is flipped in V (aka invert image). Append line of pixels after line in reverse order.
+    Method can likely be pythonified and improved
 
     :param buffer: object attributes buffer
     :param tex_width: hierarchy texture's width
@@ -950,7 +954,7 @@ def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> list:
     """
 
     buffer_inv = []
-    for i in reversed(range(tex_height)): # @NOTE performance & pythonify
+    for i in reversed(range(tex_height)):
         row = tex_width * 4
         row_offset = i * row
         buffer_inv.extend(buffer[row_offset:row_offset + row])
@@ -1413,7 +1417,7 @@ def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Deps
         eval_obj_source_mat_3x3 = eval_obj_source_mat.to_3x3()
         eval_obj_source_mat_3x3_ordered = eval_obj_source_mat_3x3
         
-        # reorder axes if desired
+        # reorder axes if desired @TODO check?! is this needed?
         if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
             eval_obj_source_mat_3x3_ordered[0] = eval_obj_source_mat_3x3[0]
         elif texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "ZXY":
@@ -1438,7 +1442,7 @@ def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Deps
         # create a reflection matrix that flips the X/Y/Z axes (apply the flip on both sides to preserve handedness)
         if settings.unit_invert_x:
             flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-            eval_obj_source_mat_3x3_ordered = flip_y @ eval_obj_source_mat_3x3_ordered @ flip_x
+            eval_obj_source_mat_3x3_ordered = flip_x @ eval_obj_source_mat_3x3_ordered @ flip_x
 
         if settings.unit_invert_y:
             flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
@@ -1446,7 +1450,7 @@ def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Deps
 
         if settings.unit_invert_z:
             flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-            eval_obj_source_mat_3x3_ordered = flip_y @ eval_obj_source_mat_3x3_ordered @ flip_z
+            eval_obj_source_mat_3x3_ordered = flip_z @ eval_obj_source_mat_3x3_ordered @ flip_z
 
         eval_obj_source_quat = eval_obj_source_mat_3x3_ordered.to_quaternion()
 
@@ -1663,18 +1667,24 @@ def generate_mesh_uvs(eval_objs_to_bake: list, tex_width: int, tex_height: int, 
 
 def generate_mesh_material_indices(eval_objs_to_bake: list) -> tuple[bool, str, list]:
     """
-
+    Presume meshes are going to be merged to build a set of materials and update face material indices if required
     
     :param eval_objs_to_bake: 
     :return: the function's success, potential error message, list of materials once objects are merged
     :rtype: tuple
     """
-    # build list of materials as if objects were merged
+    
+    """
+    build unique list of materials as if objects were merged
+    """
     materials = []
     for eval_obj_to_bake in eval_objs_to_bake:
         for material in eval_obj_to_bake.data.materials:
             if material not in materials:
                 materials.append(material)
+
+    if len(materials) <= 0:
+        return (True, "", None)
 
     """
     evaluate each object vertices' face material index and see if it points to the same index
@@ -1703,7 +1713,7 @@ def generate_mesh_material_indices(eval_objs_to_bake: list) -> tuple[bool, str, 
 
 ################
 ### TEXTURES ###
-def generate_texture(texture_name:str, bake_name: str, filename: str, buffer: list, tex_width: int, tex_height: int) -> tuple[bool, str, bpy.types.Image]:
+def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: list, tex_width: int, tex_height: int) -> tuple[bool, str, bpy.types.Image]:
     """
     Generate the attributes image of given width and height to contain the provided buffer.
 
@@ -1721,14 +1731,17 @@ def generate_texture(texture_name:str, bake_name: str, filename: str, buffer: li
     if ((len(buffer)) != buffer_size):
         return (False, "Attribute Buffer has unexpected length: " + str(len(buffer)) + " vs " + str(buffer_size), None)
 
-    image_name = filename if filename != "" else "T_Bake_ObjectAttributes"
+    image_name = filename
     tags = { "TextureName": texture_name, "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
+    if image_name == "":
+        return (True, "Invalid image name", None)
+
     image_name += ".exr"
 
     image = bpy.data.images.get(image_name, None)
     if image is not None:
-        if image.packed_file:
+        if image.packed_file and bpy.data.is_saved:
             image.unpack()
         bpy.data.images.remove(image) # remove image if it exists
 
@@ -1738,7 +1751,8 @@ def generate_texture(texture_name:str, bake_name: str, filename: str, buffer: li
     image.use_half_precision = False
     image.pixels = buffer
     image.use_fake_user = True
-    image.pack()
+    if bpy.data.is_saved:
+        image.pack()
 
     return (True, "", image)
 
@@ -1792,8 +1806,8 @@ def get_best_texture_resolution(context: bpy.types.Context, num_indices: int) ->
     65k elements, which is more than the precision offered by Pivot Painter's algorithm and more than you'd
     ever likely need.
     
-    This implementation differs from the original's Pivot Painter 2 function so it has to be monitored
-    to ensure that it doesn't create issues @NOTE
+    This implementation differs from the original's Pivot Painter 2 function, as it was originally way too
+    complicated. This simpler method seem to work but it has to be battle-tested.
 
     :param context: Blender current execution context
     :param num_indices: number of indices to bake
@@ -1878,7 +1892,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
                             unit_invert_z=str(report.unit_invert_z),
-                            unit_invert_v=str(report.unit_invert_v))
+                            unit_invert_v=str(report.unit_invert_v),
+                            unit_axis_order=report.unit_axis_order)
 
     # textures
     tex_el = ET.SubElement(root, "Textures",
@@ -1889,6 +1904,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
             tex_subel = ET.SubElement(tex_el, "Texture",
                                       name=texture.name,
                                       path=texture.path)
+            
+            
             channels = [
                 (texture.R, "R", texture.R_range_offset, texture.R_range, texture.R_range_valid),
                 (texture.G, "G", texture.G_range_offset, texture.G_range, texture.G_range_valid),

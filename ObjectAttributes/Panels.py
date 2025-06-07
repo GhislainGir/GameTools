@@ -271,9 +271,15 @@ class OBJECTATTRIBUTES_PT_MeshMainPanel(bpy.types.Panel):
         row.prop(settings, "unit_invert_x", text="X")
         row.prop(settings, "unit_invert_y", text="Y")
         row.prop(settings, "unit_invert_z", text="Z")
+
+        row = layout.row()
+        row.prop(settings, "unit_axis_order")
         
         row = layout.row()
         row.prop(settings, "mesh_name")
+
+        row = layout.row()
+        row.prop(settings, "mesh_materials")
 
         row = layout.row()
         row.prop(settings, "mesh_merge")
@@ -820,3 +826,7 @@ class OBJECTATTRIBUTES_PT_ReportUnitPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
         row.enabled = report.unit_invert_z
+
+        row = layout.row()
+        row.label(report, "unit_axis_order")
+        row.enabled = False
