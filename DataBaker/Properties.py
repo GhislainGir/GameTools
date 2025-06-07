@@ -22,13 +22,13 @@ from .Functions import get_data_layer_name
 #############################################################################################
 ###################################### PROPERTY GROUPS ######################################
 #############################################################################################
-class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
-    """ """
 
-    display_name: StringProperty(name="Name", default="Layer", description="")
+################
+### SETTINGS ###
+class DATABAKER_PG_SettingsDataLayer(PropertyGroup):
+    """ """
     ID: StringProperty(name="ID", default="", description="")
-    ptr_ID: StringProperty(name="Ptr", default="", description="")
-    ptr: IntProperty(name="Ptr", default=-1, description="")
+    ptr: IntProperty(name="Ptr", default=0, description="")
 
     datas = [
         ("POSITION", "Position", "X/Y/Z component of the object's position"),
@@ -158,59 +158,33 @@ class DATABAKER_PG_DataLayerPropertyGroup(PropertyGroup):
     z: FloatProperty(name="Z Value", default=1.0, description="")
     index: IntProperty(name="Depth", default=1, min=1, description="")
 
-class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
+class DATABAKER_PG_Settings(PropertyGroup):
     """ """
 
-    # generate enum on demand to omit the selected layer, as it cannot be picked to prevent targeting self
-    def get_data_layers_ptr_items(self, context):
-        items = []
-        for data_layer in self.data_layers:
-            include_layer = True
-
-            if self.data_layers_selected_index < len(self.data_layers):
-                data_layer_selected = self.data_layers[self.data_layers_selected_index]
-                if (data_layer_selected == data_layer):
-                    include_layer = False
-
-            if include_layer and (data_layer.packing_mode == "XY" or data_layer.packing_mode == "XYZ" or data_layer.packing_mode == "FRACTION"):
-                include_layer = False
-
-            if include_layer:
-                items.append((data_layer.ID, data_layer.ID, ""))
-
-        return items
-
-    # getting the enum value is based on the selected layer's ptr_id matching any of the available enum items, else 0
-    def get_data_layers_ptr(self):
-        if self.data_layers and (self.data_layers_selected_index < len(self.data_layers)):
-            data_layer_selected = self.data_layers[self.data_layers_selected_index]
-
-            items = self.get_data_layers_ptr_items(bpy.context)
-            for item_index, item in enumerate(items):
-                if item[0] == data_layer_selected.ptr_ID: # ID match
-                    return item_index
-
-        return 0
-
-    # setting the enum value sets the selected layer's ptr_id
-    def set_data_layers_ptr(self, value):
-        if self.data_layers and self.data_layers_selected_index < len(self.data_layers):
-            data_layer_selected = self.data_layers[self.data_layers_selected_index]
-            data_layer_selected.ptr_ID = self.get_data_layers_ptr_items(bpy.context)[value][0]
-        return
-
-    # used to expose a picker for data_layers to target all other data_layers but themselves
-    data_layers_ptr: EnumProperty(items=get_data_layers_ptr_items, name="Target", get=get_data_layers_ptr, set=set_data_layers_ptr, description="Pick a target data layer for packing")
-
-    data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="List of data layers")
+    data_layers: CollectionProperty(type=DATABAKER_PG_SettingsDataLayer, description="List of data layers")
     data_layers_selected_index: IntProperty(name="", default=0, description="Selected data layer")
 
-    # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="Name of the resulting baked mesh")
+    mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData", description="UVMap to get or create for setting up the mesh UVs")
+    mesh_materials: BoolProperty(name="Materials", default=True, description="Enable to copy materials")
+    mesh_merge: BoolProperty(name="Merge", default=True, description="Enable merging of the duplicated selection once baking is complete. Otherwise, keep them separated to allow for additional bakes on the individual objects")
+    mesh_duplicate: BoolProperty(name="Duplicate", default=True, description="Enable this option to preserve the original selection and bake data on the duplicated mesh. Disable it at your own risk—doing so will modify the selection, which may lead to unwanted changes to the source data and unpredictable bake results if data blocks are shared")
+    mesh_single_user: BoolProperty(name="Single User", default=True, description="If the selection isn't duplicated, the bake may not work as expected when data blocks are shared. This ensures that meshes are made 'single user' to prevent conflicts during the baking process")
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale applied during baking (e.g. meters to centimeters)")
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
+    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)") # @TODO implement & expose in panel & add to report & write to xml
+    
     origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and unit_scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
     clear_attributes: BoolProperty(name="Clear Attributes", default=True, description="Enable this option to remove face corner attributes that store the raw vertex data for each layer. These attributes are named using each layer's unique ID, created and used internally during baking, and are unlikely to be useful after the bake is complete")
     packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="Primiraly used to remap values ranging from [0:1] to [0:<1] for packing when using the 'fraction' mode")
@@ -220,11 +194,6 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
 
-    # uv
-    mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData", description="UVMap to get or create for setting up the mesh UVs")
-    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
-
-    # xml
     export_xml: BoolProperty(name="Export", default=True, description="True to export an XML file containing informations relative to the bake (recommended). Only available if the Blender file is saved")
     export_xml_modes = [
         ("MESHPATH", "Mesh Path", "Use the same mesh fbx file name & path. Defaults to 'Custom' if mesh is *not* exported"),
@@ -235,12 +204,14 @@ class DATABAKER_PG_SettingsPropertyGroup(PropertyGroup):
     export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
-class DATABAKER_PG_DataLayerReportPropertyGroup(PropertyGroup):
+##############
+### REPORT ###
+class DATABAKER_PG_ReportDataLayer(PropertyGroup):
     """ """
     active_layer_ID: StringProperty(name="ID", default="", description="")
 
     packed_mode: StringProperty(name="Packing", default="", description="")
-    packed_layers: CollectionProperty(type=DATABAKER_PG_DataLayerPropertyGroup, description="")
+    packed_layers: CollectionProperty(type=DATABAKER_PG_SettingsDataLayer, description="")
     packed_layers_selected_index: IntProperty(name="", default=0, description="")
 
     range_offset: FloatVectorProperty(name="Offset")
@@ -249,10 +220,10 @@ class DATABAKER_PG_DataLayerReportPropertyGroup(PropertyGroup):
     range_unit_vector: BoolProperty(name="Unit")
     range_high_precision: BoolProperty(name="HighPrecision")
 
-class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
+class DATABAKER_PG_Report(PropertyGroup):
     """"""
 
-    data_layers: CollectionProperty(type=DATABAKER_PG_DataLayerReportPropertyGroup, description="")
+    data_layers: CollectionProperty(type=DATABAKER_PG_ReportDataLayer, description="")
     data_layers_selected_index: IntProperty(name="", default=0, description="")
 
     baked: BoolProperty(name="Baked", default=False, description="")
@@ -268,12 +239,22 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="")
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
+    unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)") # @TODO implement & expose in panel & add to report & write to xml
+
     packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="")
 
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
-    unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
@@ -291,8 +272,8 @@ class DATABAKER_PG_ReportPropertyGroup(PropertyGroup):
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="")
 
 def register():
-    bpy.types.Scene.DataBakerSettings = PointerProperty(type=DATABAKER_PG_SettingsPropertyGroup)
-    bpy.types.Scene.DataBakerReport = PointerProperty(type=DATABAKER_PG_ReportPropertyGroup)
+    bpy.types.Scene.DataBakerSettings = PointerProperty(type=DATABAKER_PG_Settings)
+    bpy.types.Scene.DataBakerReport = PointerProperty(type=DATABAKER_PG_Report)
 
 def unregister():
     del bpy.types.Scene.DataBakerSettings

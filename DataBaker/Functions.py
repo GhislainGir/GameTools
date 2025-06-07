@@ -570,58 +570,67 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
 
     dgraph = bpy.context.evaluated_depsgraph_get() # refresh shapekeys
 
-    """
-    duplicate depsgraph-evaluated filtered selection & forward initial transform
-    """
-    source_objs_to_eval = {}
-    eval_objs_to_bake = []
-    for obj_to_bake in objs_to_bake:
-        col = context.scene.collection
-        if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
-            col = obj_to_bake.users_collection[0]
+    if not settings.mesh_duplicate:
+        # naming isn't the best... objs are not evaluated here.
+        eval_objs_to_bake = objs_to_bake
 
-        eval_obj = obj_to_bake.evaluated_get(dgraph)
-        eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        #eval_mesh.transform(eval_obj.matrix_world) # not needed if matrix_world is forwarded
+        if settings.mesh_single_user:
+            for eval_obj_to_bake in eval_objs_to_bake:
+                mesh_copy = eval_obj_to_bake.data.copy()
+                eval_obj_to_bake.data = mesh_copy
+    else:
+        """
+        duplicate depsgraph-evaluated filtered selection & forward initial animation
+        """
+        source_objs_to_eval = {}
+        eval_objs_to_bake = []
+        for obj_to_bake in objs_to_bake:
+            col = context.scene.collection
+            if obj_to_bake.users_collection and len(obj_to_bake.users_collection) > 0:
+                col = obj_to_bake.users_collection[0]
 
-        eval_obj_to_bake = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
-        eval_obj_to_bake.matrix_world = eval_obj.matrix_world # forward initial transform
+            eval_obj = obj_to_bake.evaluated_get(dgraph)
+            eval_mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
+            #eval_mesh.transform(eval_obj.matrix_world) # not needed if matrix_world is forwarded
 
-        for key in obj_to_bake.keys():
-            if key != "_RNA_UI":
-                eval_obj_to_bake[key] = obj_to_bake[key]
+            eval_obj_to_bake = bpy.data.objects.new(obj_to_bake.name + ".baked", eval_mesh.copy())
+            eval_obj_to_bake.matrix_world = eval_obj.matrix_world # forward initial animation
 
-        eval_obj.to_mesh_clear()
+            for key in obj_to_bake.keys():
+                if key != "_RNA_UI":
+                    eval_obj_to_bake[key] = obj_to_bake[key]
 
-        col.objects.link(eval_obj_to_bake)
-        eval_objs_to_bake.append(eval_obj_to_bake)
+            eval_obj.to_mesh_clear()
+
+            col.objects.link(eval_obj_to_bake)
+            eval_objs_to_bake.append(eval_obj_to_bake)
+
+            """
+            create pairing with original obj. Ideally, we'd use the evaluated objects as-is, and get the original via their
+            built-in .original pointer, but I do prefer to work on actual meshes so I can tweak mesh attributes etc without
+            risking modifying the original in a destructive manner
+            """
+            eval_obj_to_bake["BakedSource"] = obj_to_bake
+            eval_obj_to_bake.id_properties_ensure()
+            property_manager = eval_obj_to_bake.id_properties_ui("BakedSource")
+            property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
+
+            source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
 
         """
-        create pairing with original obj. Ideally, we'd use the evaluated objects as-is, and get the original via their
-        built-in .original pointer, but I do prefer to work on actual meshes so I can tweak mesh attributes etc without
-        risking modifying the original in a destructive manner
+        iterate depsgraph-evaluated objects to find to which other depsgraph-evaluated objects they need to be parented to.
+        this involves getting the unevaluated source object and walking up the hierarchy until we find the first valid parent,
+        meaning one that is included in the filtered objs_to_bake list. 
         """
-        eval_obj_to_bake["BakedSource"] = obj_to_bake
-        eval_obj_to_bake.id_properties_ensure()
-        property_manager = eval_obj_to_bake.id_properties_ui("BakedSource")
-        property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
+        for eval_obj_to_bake in eval_objs_to_bake:
+            obj_parent = eval_obj_to_bake["BakedSource"].parent
+            while obj_parent and obj_parent not in objs_to_bake:
+                obj_parent = obj_parent.parent
 
-        source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
-
-    """
-    iterate depsgraph-evaluated objects to find to which other depsgraph-evaluated objects they need to be parented to.
-    this involves getting the unevaluated source object and walking up the hierarchy until we find the first valid parent,
-    meaning one that is included in the filtered objs_to_bake list. 
-    """
-    for eval_obj_to_bake in eval_objs_to_bake:
-        obj_parent = eval_obj_to_bake["BakedSource"].parent
-        while obj_parent and obj_parent not in objs_to_bake:
-            obj_parent = obj_parent.parent
-
-        if obj_parent:
-            eval_obj_parent = source_objs_to_eval[obj_parent]
-            eval_obj_to_bake.parent = eval_obj_parent
-            eval_obj_to_bake.matrix_parent_inverse = eval_obj_parent.matrix_world.inverted()
+            if obj_parent:
+                eval_obj_parent = source_objs_to_eval[obj_parent]
+                eval_obj_to_bake.parent = eval_obj_parent
+                eval_obj_to_bake.matrix_parent_inverse = eval_obj_parent.matrix_world.inverted()
 
     """
     restore modified shapekey values, if needed
@@ -647,45 +656,77 @@ def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: l
     dgraph = bpy.context.evaluated_depsgraph_get()
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.Data"
+    """
+    process of merging involves copying data blocks in a single bmesh
+    """
+    if settings.mesh_merge:
+        # get materials to copy (face material indices might have to be modified because of merging process)
+        success, msg, materials = generate_mesh_material_indices(eval_objs_to_bake)
+        if not success:
+            return (False, msg)
+        
+        # create a new mesh to 'merge' all duplicated meshes
+        merged_mesh = bpy.data.meshes.new(name)
 
-    # create a new mesh to 'merge' all duplicated meshes
-    merged_mesh = bpy.data.meshes.new(name)
+        if settings.mesh_materials and materials:
+            # copy materials
+            for material in materials:
+                merged_mesh.materials.append(material)
 
-    bm = bmesh.new()
-    for eval_obj_to_bake in eval_objs_to_bake:
-        obj_eval = eval_obj_to_bake.evaluated_get(dgraph) # @TODO they are already evaluated!?
-        mesh_eval = obj_eval.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
-        mesh_eval.transform(obj_eval.matrix_world)
+        bm = bmesh.new()
+        for eval_obj_to_bake in eval_objs_to_bake:
+            mesh = eval_obj_to_bake.data # they already are evaluated, just need to transformed
+            mesh.transform(eval_obj_to_bake.matrix_world)
 
-        bm.from_mesh(mesh_eval)
-        bm.verts.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
+            bm.from_mesh(eval_obj_to_bake.data)
+            bm.verts.ensure_lookup_table()
+            bm.faces.ensure_lookup_table()
 
-        obj_eval.to_mesh_clear()
+        bm.to_mesh(merged_mesh)
+        bm.free()
 
-    bm.to_mesh(merged_mesh)
-    bm.free()
+        if settings.clear_attributes and merged_mesh.attributes:
+            attr_names = [data_layer.ID for data_layer in settings.data_layers]
+            for attr_name in attr_names:
+                attr = merged_mesh.attributes.get(attr_name, None)
+                if attr:
+                    merged_mesh.attributes.remove(attr)
 
-    if settings.clear_attributes and merged_mesh.attributes:
-        attr_names = [data_layer.ID for data_layer in settings.data_layers]
-        for attr_name in attr_names:
-            attr = merged_mesh.attributes.get(attr_name, None)
-            if attr:
-                merged_mesh.attributes.remove(attr)
+        # create a new object from the new mesh
+        obj = bpy.data.objects.new(name, merged_mesh)
+        if settings.origin_obj:
+            obj.matrix_world = settings.origin_obj.matrix_world
+            merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
+        context.scene.collection.objects.link(obj)
 
-    # create a new object from the new mesh
-    obj = bpy.data.objects.new(name, merged_mesh)
-    if settings.origin_obj:
-        obj.matrix_world = settings.origin_obj.matrix_world
-        merged_mesh.transform(settings.origin_obj.matrix_world.inverted())
-    context.scene.collection.objects.link(obj)
+        add_bake_report("mesh", obj)
 
-    add_bake_report("mesh", obj)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
 
-    obj.select_set(True)
-    context.view_layer.objects.active = obj
+        clear_bake_selection(eval_objs_to_bake)
+    elif settings.mesh_duplicate:
+        # meshes were already duplicated, simply carry materials
+        for eval_obj_to_bake in eval_objs_to_bake:
+            if "BakedSource" in eval_obj_to_bake:
+                source_obj = eval_obj_to_bake["BakedSource"]
+                for material in source_obj.data.materials:
+                    eval_obj_to_bake.data.materials.append(material)
 
-    clear_bake_selection(eval_objs_to_bake)
+        # select duplicated objects (for export)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_obj_to_bake.select_set(True)
+
+        # pick object to make active and to report. Selection is totally arbitrary, I don't like that
+        # pick root object instead? But what if multiple roots?
+        obj_to_highlight = eval_objs_to_bake[0]
+        context.view_layer.objects.active = obj_to_highlight
+        add_bake_report("mesh", obj_to_highlight)
+    else:
+        # select objects (for export)
+        for eval_obj_to_bake in eval_objs_to_bake:
+            eval_obj_to_bake.select_set(True)
+            context.view_layer.objects.active = eval_obj_to_bake
 
     return (True, "")
 
@@ -710,7 +751,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? @TODO fails when no active selection
+    #bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? it fails when there's no active selection anyway
 
     settings = context.scene.DataBakerSettings
     new_bake_report(context)
@@ -757,7 +798,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     success, msg = bake_data_layers(context, layers_info, eval_objs_to_bake)
     if not success:
-        clear_bake_selection(eval_objs_to_bake)
+        if settings.mesh_duplicate:
+            clear_bake_selection(eval_objs_to_bake)
 
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -768,7 +810,8 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
     success, msg = post_process_bake_selection(context, eval_objs_to_bake)
     if not success:
-        clear_bake_selection(eval_objs_to_bake)
+        if settings.mesh_duplicate:
+            clear_bake_selection(eval_objs_to_bake)
 
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -842,8 +885,16 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
         if not success:
             return (False, err_base_msg + msg, None)
 
+        try:
+            for other_data_layer_index, other_data_layer in enumerate(data_layers):
+                if other_data_layer == data_layer_target:
+                    target_index = other_data_layer_index
+                    break
+        except:
+            return (False, err_base_msg + "error searching target layer's index", None)
+
         # gather sibling(s) (aka, all layers that have the same target than us, including us)
-        layers_sharing_target = [layer for layer in data_layers if layer.ptr_ID == data_layer_target.ID]
+        layers_sharing_target = [layer for layer in data_layers if layer.ptr == target_index and (layer.packing_mode == "XY" or layer.packing_mode == "XYZ" or layer.packing_mode == "FRACTION")]
         if layers_sharing_target:
             # check sibling(s) and build packing info
             success, msg, packing_mode, packing_info = get_data_layer_packing_info(data_layer_target, layers_sharing_target)
@@ -860,8 +911,16 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
         if not success:
             return (False, err_base_msg + msg, None)
 
+        try:
+            for other_data_layer_index, other_data_layer in enumerate(data_layers):
+                if other_data_layer == data_layer:
+                    self_index = other_data_layer_index
+                    break
+        except:
+            return (False, err_base_msg + "error searching layer's index", None)
+
         # gather child(s) (aka, all layers that *may* target us)
-        layers_targeting_self = [layer for layer in data_layers if layer.ptr_ID == data_layer.ID]
+        layers_targeting_self = [layer for layer in data_layers if layer.ptr == self_index and (layer.packing_mode == "XY" or layer.packing_mode == "XYZ" or layer.packing_mode == "FRACTION")]
         if layers_targeting_self:
             # check childs(s) and build packing info
             success, msg, packing_mode, packing_info = get_data_layer_packing_info(data_layer, layers_targeting_self)
@@ -881,25 +940,33 @@ def get_data_layer_targeting_info(data_layer: object, data_layers: list) -> tupl
     :return: True if the data layer is targeting another data layer in a non-conflicting way, potential error message, targeted daya layer
     :rtype: tuple
     """
+    try:
+        for other_data_layer_index, other_data_layer in enumerate(data_layers):
+            if other_data_layer == data_layer:
+                self_index = other_data_layer_index
+                break
+    except:
+        return (False, "error searching for self in layers list", None)
+
     # check that we're not asking to be packed into another layer while other layers are asking us to pack them
-    layers_targeting_self = [layer for layer in data_layers if layer.ptr_ID == data_layer.ID]
+    layers_targeting_self = [layer for layer in data_layers if layer.ptr == self_index]
     if len(layers_targeting_self) > 0:
         return (False, "layer is itself targeted by other layers", None)
 
     # check ptr ID isn't empty
-    if data_layer.ptr_ID == "":
+    if data_layer.ptr < 0:
         return (False, "no target specified", None)
     # make sure ptr ID isn't self ID
-    if data_layer.ptr_ID == data_layer.ID:
-        return (False, "targeting itself (ID)", None)
+    if data_layer.ptr == self_index:
+        return (False, "targeting itself", None)
 
     # gather target(s)
-    data_layer_targets = [target_data_layer for target_data_layer in data_layers if target_data_layer.ID == data_layer.ptr_ID]
-    if data_layer_targets:
-        # finding multiple targets is wrong!
-        if len(data_layer_targets) > 1:
-            return (False, "multiple targets found", None)
-        data_layer_target = data_layer_targets[0]
+    try:
+        data_layer_target = data_layers[data_layer.ptr]
+    except:
+        return (False, "couldn't find data layer target in layers list", None)
+
+    if data_layer_target:
         # make sure we haven't found self
         if data_layer == data_layer_target:
             return (False, "targeting itself (Layer)", None)
@@ -1109,8 +1176,8 @@ def get_data_layer_icon(data_layer: object, details: bool = False) -> str:
             return (True, "NORMALS_FACE")
         else:
             if details:
-                if data_layer.ptr_ID == "":
-                    return (False, "QUESTION")
+                # if data_layer.ptr < 0:
+                #     return (False, "QUESTION")
 
                 if data_layer.packing_mode == "XY":
                     return (False, "OVERLAY")
@@ -1240,6 +1307,9 @@ def bake_data_layers(context, layers_info, eval_objs_to_bake) -> tuple[bool, str
 
     # pre bake
     for data_layer, layer_info in layers_info:
+        if not layer_info:
+            continue
+
         to_bake, packing_mode, packing = layer_info
         if not to_bake:
             continue
@@ -1351,7 +1421,7 @@ def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
                     data_to_bake = data_to_pack.x
 
                 if one_minus:
-                    data_to_bake = 1.0 - data_to_bake # @TODO do one minus even for bitpacked data?!
+                    data_to_bake = 1.0 - data_to_bake # @NOTE do one minus even for bitpacked data?!
 
                 eval_mesh.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv[uv_index] = data_to_bake
 
@@ -1650,7 +1720,6 @@ def pre_bake_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_range_values.append(data_to_bake)
-        print(data_to_bake)
 
     return (True, "", get_data_layer_range(bake_range_values))
 
@@ -2728,7 +2797,7 @@ def pre_bake_zeros(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data
     """
     settings = context.scene.DataBakerSettings
 
-    # mesh was evaluated & stored in a new object that has no transform. That object however has an object custom
+    # mesh was evaluated & stored in a new object that has no animation. That object however has an object custom
     # property that points to the initial source mesh to still access the object's position etc.
 
     # to apply to unit vectors
@@ -2812,11 +2881,60 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str) -> tuple[b
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
         # export selection and assume selection was properly handled outside of this function
-        bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
+        bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_animation=True, bake_space_animation=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
     else:
         return (False, msg, None)
 
     return (True, "", export_path)
+
+def generate_mesh_material_indices(eval_objs_to_bake: list) -> tuple[bool, str, list]:
+    """
+    Presume meshes are going to be merged to build a set of materials and update face material indices if required
+    
+    :param eval_objs_to_bake: 
+    :return: the function's success, potential error message, list of materials once objects are merged
+    :rtype: tuple
+    """
+    
+    """
+    build unique list of materials as if objects were merged
+    """
+    materials = []
+    for eval_obj_to_bake in eval_objs_to_bake:
+        for material in eval_obj_to_bake.data.materials:
+            if material not in materials:
+                materials.append(material)
+
+    if len(materials) <= 0:
+        return (True, "", None)
+
+    """
+    evaluate each object vertices' face material index and see if it points to the same index
+    in list of materials built pre-processed above. If not, it needs to be updated. Reason may
+    be simple:
+
+    Mesh_A has one material named Mat_A, face material index is 0
+    Mesh_B has one material named Mat_B, face material index is 1
+
+    Once merged, Mesh_C, containing Mesh_A and Mesh_B, have two materials, yet all face material
+    indices are 0, so some must be updated
+    """
+    for eval_obj_to_bake in eval_objs_to_bake:
+        for poly in eval_obj_to_bake.data.polygons:
+            try:
+                material_source = eval_obj_to_bake.data.materials[poly.material_index]
+            except:
+                poly.material_index = 0
+            
+            try:
+                material_index_source = poly.material_index
+                material_index_merged = materials.index(material_source)
+                if material_index_source != material_index_merged:
+                    poly.material_index = material_index_merged
+            except:
+                poly.material_index = 0
+
+    return (True, "", materials)
 
 ###########
 ### XML ###
@@ -2845,7 +2963,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
                             unit_invert_z=str(report.unit_invert_z),
-                            unit_invert_v=str(report.unit_invert_v))
+                            unit_invert_v=str(report.unit_invert_v),
+                            unit_axis_order=report.unit_axis_order)
 
     # data layers info
     if report.data_layers:

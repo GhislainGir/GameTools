@@ -28,7 +28,23 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             if item:
+                settings = context.scene.DataBakerSettings
+                emphasis = False
+                try:
+                    selected_data_layer = settings.data_layers[settings.data_layers_selected_index]
+                    if selected_data_layer.packing_mode == "XY" or selected_data_layer.packing_mode == "XYZ" or selected_data_layer.packing_mode == "FRACTION":
+                        for data_layer_index, data_layer in enumerate(settings.data_layers):
+                            if data_layer == item:
+                                if selected_data_layer.ptr == data_layer_index:
+                                    emphasis = True
+                                    break
+                except:
+                    pass
+
                 icon_base, icon_name = get_data_layer_icon(item, False)
+                if emphasis:
+                    icon_name = "TRIA_RIGHT_BAR"
+
                 if icon_base:
                     row = layout.row()
                     row.label(text=get_data_layer_name(item), translate=False, icon=icon_name)
@@ -36,9 +52,9 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
                     row.alignment = "RIGHT"
                 else:
                     row = layout.row()
-                    col = row.split(align=True)
-                    col.alignment = "LEFT"
-                    col.label(text="")
+                    #col = row.split(align=True)
+                    #col.alignment = "LEFT"
+                    #col.label(text="")
                     col = row.split(align=True)
                     col.label(text=get_data_layer_name(item), translate=False, icon=icon_name)
                     row = layout.row(align=True)
@@ -57,6 +73,8 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
                 if not icon_base:
                     row.label(text="", translate=False, icon=icon_name)
                 success, msg, _ = get_data_layer_info(item, data.data_layers)
+                if not success:
+                    print(msg)
                 row.label(text="", translate=False, icon="CHECKMARK" if success else "ERROR")
             else:
                 layout.label(text="", translate=False, icon="X")
@@ -103,7 +121,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
         row.enabled = len(settings.data_layers) > 0
 
         row = layout.row()
-        row.template_list("DATABAKER_UL_DataList", "", settings, "data_layers", settings, "data_layers_selected_index", rows=5)
+        row.template_list("DATABAKER_UL_DataList", "", settings, "data_layers", settings, "data_layers_selected_index", rows=8)
 
         col = row.column(align=True)
         col.operator("databaker_item.new_item", text="", icon="ADD")
@@ -114,6 +132,18 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
         col.operator("databaker_item.move_item", text="", icon="TRIA_UP").direction = "UP"
         col.operator("databaker_item.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
 
+        try:
+            selected_data_layer = settings.data_layers[settings.data_layers_selected_index]
+            if selected_data_layer.packing_mode == "XY" or selected_data_layer.packing_mode == "XYZ" or selected_data_layer.packing_mode == "FRACTION":
+                col.separator()
+
+                ope = col.operator("databaker_target.change_ptr", icon="AREA_JOIN_UP", text="")
+                ope.direction = "UP"
+                ope = col.operator("databaker_target.change_ptr", icon="AREA_JOIN_DOWN", text="")
+                ope.direction = "DOWN"
+        except:
+            pass
+
 class DATABAKER_PT_LayerPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_layerpanel"
     bl_parent_id = "DATABAKER_PT_databakerpanel"
@@ -122,8 +152,13 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 0
-    
+
     #bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.DataBakerSettings
+        return settings.data_layers
 
     def draw(self, context):
         layout = self.layout
@@ -134,10 +169,6 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
             data = settings.data_layers[settings.data_layers_selected_index]
 
             if data:
-                row = layout.row()
-                row.prop(data, "display_name")
-                row.operator("databaker_layer.generate_name", text="", icon="AUTO")
-
                 panel_header, panel_body = layout.panel("position")
                 if panel_header:
                     panel_header.prop(data, "data")
@@ -293,23 +324,20 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
                             row.prop(settings, "packing_precision")
                         else:
                             pass
-                        
-                        row = panel_body.row()
-                        row.prop(settings, "data_layers_ptr", text="Layer")
 
 ###############
 ### PRESETS ###
-class DATABAKER_MT_DataBaker_Presets(bpy.types.Menu):
+class DATABAKER_MT_MainPanel_Presets(bpy.types.Menu):
     bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/databaker_data'
+    preset_subdir = 'operator/gametools_databaker'
     preset_operator = 'script.execute_preset'
     draw = bpy.types.Menu.draw_preset
 
 class DATABAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
     bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/databaker_data'
+    preset_subdir = 'operator/gametools_databaker'
     preset_operator = 'script.execute_preset'
-    preset_add_operator = 'databaker_databakerpanel.addpreset'
+    preset_add_operator = 'gametools.databaker_addpreset'
 
 ##############
 ### MESHES ###
@@ -334,18 +362,35 @@ class DATABAKER_PT_MeshMainPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "unit_scale")
-        
+
         row = layout.row()
         row.label(text="Invert")
         row.prop(settings, "unit_invert_x", text="X")
         row.prop(settings, "unit_invert_y", text="Y")
         row.prop(settings, "unit_invert_z", text="Z")
-        
+
+        row = layout.row()
+        row.prop(settings, "unit_axis_order")
+
         row = layout.row()
         row.prop(settings, "mesh_name")
 
         row = layout.row()
-        row.prop(settings, "clear_attributes")
+        row.prop(settings, "mesh_materials")
+
+        row = layout.row()
+        col = row.split()
+        col.prop(settings, "mesh_merge")
+        col = row.split()
+        col.prop(settings, "clear_attributes")
+
+        row = layout.row()
+        col = row.split()
+        col.prop(settings, "mesh_duplicate")
+        col = row.split()
+        col.prop(settings, "mesh_single_user")
+        if settings.mesh_duplicate:
+            col.enabled = False
 
 class DATABAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_meshuvpanel"
@@ -772,3 +817,7 @@ class DATABAKER_PT_ReportUnitPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
         row.enabled = report.unit_invert_z
+
+        row = layout.row()
+        row.label(report, "unit_axis_order")
+        row.enabled = False

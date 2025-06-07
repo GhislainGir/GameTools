@@ -27,34 +27,41 @@ import uuid
 ##############
 ### PRESET ###
 class DATABAKER_OT_DataBaker_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'databaker_databakerpanel.addpreset'
+    bl_idname = 'gametools.databaker_addpreset'
     bl_label = 'Add preset'
-    preset_menu = 'DATABAKER_MT_DataBaker_Presets'
+    preset_menu = 'DATABAKER_MT_MainPanel_Presets'
 
     preset_defines = [ 'settings = bpy.context.scene.DataBakerSettings' ]
     preset_values = [
     'settings.data_layers',
     'settings.data_layers_selected_index',
     'settings.mesh_name',
+    'settings.mesh_uvmap_name',
+    'settings.mesh_materials',
+    'settings.mesh_merge',
+    'settings.mesh_duplicate',
+    'settings.mesh_single_user',
     'settings.unit_scale',
     'settings.unit_invert_x',
     'settings.unit_invert_y',
     'settings.unit_invert_z',
     'settings.unit_invert_v',
+    'settings.unit_axis_order',
     'settings.origin_obj',
+    'settings.clear_attributes',
+    'settings.packing_precision',
     'settings.export_mesh',
     'settings.export_mesh_file_name',
     'settings.export_mesh_file_path',
     'settings.export_mesh_file_override',
-    'settings.mesh_uvmap_name',
     'settings.export_xml',
     'settings.export_xml_mode',
     'settings.export_xml_file_name',
     'settings.export_xml_file_path',
     'settings.export_xml_override'
-    ] # @TODO
+    ]
 
-    preset_subdir = 'operator/databaker_data'
+    preset_subdir = 'operator/gametools_databaker'
 
 ############
 ### MAIN ###
@@ -97,19 +104,20 @@ class DATABAKER_OT_NewSettings_NewItem(bpy.types.Operator):
         return True
 
     def execute(self, context):
+        settings = context.scene.DataBakerSettings
         last_item = None
-        current_index = context.scene.DataBakerSettings.data_layers_selected_index
-        if context.scene.DataBakerSettings.data_layers and (current_index < len(context.scene.DataBakerSettings.data_layers)):
-            last_item = context.scene.DataBakerSettings.data_layers[current_index]
+        current_index = settings.data_layers_selected_index
+        if settings.data_layers and (current_index < len(settings.data_layers)):
+            last_item = settings.data_layers[current_index]
 
-        context.scene.DataBakerSettings.data_layers.add()
-        last_index = len(context.scene.DataBakerSettings.data_layers) - 1
+        settings.data_layers.add()
+        last_index = len(settings.data_layers) - 1
         if last_index >= 0:
-            context.scene.DataBakerSettings.data_layers_selected_index = last_index
+            settings.data_layers_selected_index = last_index
 
-            item = context.scene.DataBakerSettings.data_layers[last_index]
+            item = settings.data_layers[last_index]
             item.ID = uuid.uuid4().hex
-            item.ptr_ID = ""
+            item.ptr = 0
 
             if last_item:
                 to_data_layer = item
@@ -132,6 +140,8 @@ class DATABAKER_OT_NewSettings_NewItem(bpy.types.Operator):
                 else:
                     pass
 
+                #to_data_layer.ptr = from_data_layer.ptr
+
                 to_data_layer.pack_x_y = from_data_layer.pack_x_y
                 to_data_layer.pack_x_y_z = from_data_layer.pack_x_y_z
 
@@ -144,7 +154,7 @@ class DATABAKER_OT_NewSettings_NewItem(bpy.types.Operator):
                 to_data_layer.obj = from_data_layer.obj
 
                 to_data_layer.vertex_mode = from_data_layer.vertex_mode
-                
+
                 to_data_layer.mask_mode = from_data_layer.mask_mode
 
                 to_data_layer.normalize = from_data_layer.normalize
@@ -175,13 +185,49 @@ class DATABAKER_OT_NewSettings_DeleteItem(bpy.types.Operator):
         return context.scene.DataBakerSettings.data_layers
 
     def execute(self, context):
-        if context.scene.DataBakerSettings.data_layers and (context.scene.DataBakerSettings.data_layers_selected_index < len(context.scene.DataBakerSettings.data_layers)):
-            for data in context.scene.DataBakerSettings.data_layers:
-                if data.ptr_ID == context.scene.DataBakerSettings.data_layers[context.scene.DataBakerSettings.data_layers_selected_index].ID:
-                    data.ptr_ID = "" # invalidate all ptrs pointing to the data to be removed
+        settings = context.scene.DataBakerSettings
+        if settings.data_layers and (settings.data_layers_selected_index < len(settings.data_layers)):
+            """
+            1. cache (layer, target_layer_ID) pairs
+            """
+            layer_mappings = []
+            for data_layer in settings.data_layers:
+                try:
+                    target_data_layer = settings.data_layers[data_layer.ptr]
+                except:
+                    target_data_layer = None
 
-            context.scene.DataBakerSettings.data_layers.remove(context.scene.DataBakerSettings.data_layers_selected_index)
-            context.scene.DataBakerSettings.data_layers_selected_index = min(max(0, context.scene.DataBakerSettings.data_layers_selected_index), len(context.scene.DataBakerSettings.data_layers) - 1)        
+                if target_data_layer:
+                    target_ID = target_data_layer.ID
+                else:
+                    target_ID = ""
+
+                layer_mappings.append((data_layer, target_ID))
+
+            """
+            2. remove entry from list
+            """
+            settings.data_layers.remove(settings.data_layers_selected_index)
+            settings.data_layers_selected_index = min(max(0, settings.data_layers_selected_index), len(settings.data_layers) - 1)
+
+            """
+            3. update ptrs
+            """
+            # for each (layer, target_layer_ID) pair
+            for layer_mapping in layer_mappings:
+                mapped_data_layer, mapped_target_ID = layer_mapping
+                # for each layer
+                for data_layer in settings.data_layers:
+                    # find pair in layers list
+                    if data_layer.ID == mapped_data_layer.ID:
+                        # for each layer
+                        for other_data_layer_index, other_data_layer in enumerate(settings.data_layers):
+                            # find layer originally targeted
+                            if other_data_layer.ID == mapped_target_ID:
+                                # update int ptr with new index
+                                data_layer.ptr = other_data_layer_index
+                                break
+                        break
 
         return{'FINISHED'}
 
@@ -197,28 +243,96 @@ class DATABAKER_OT_NewSettings_MoveItem(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.DataBakerSettings.data_layers
+        return context.scene.DataBakerSettings.data_layers and len(context.scene.DataBakerSettings.data_layers) > 1
 
     def execute(self, context):
         settings = context.scene.DataBakerSettings
         index_offset = -1 if self.direction == 'UP' else 1
-        settings.data_layers.move(settings.data_layers_selected_index + index_offset, settings.data_layers_selected_index)
-        settings.data_layers_selected_index = max(0, min(settings.data_layers_selected_index + index_offset, len(settings.data_layers) - 1))
+
+        if (settings.data_layers_selected_index + index_offset) >= 0 and (settings.data_layers_selected_index + index_offset) < len(settings.data_layers):
+            """
+            1. cache (layer, target_layer_ID) pairs
+            """
+            layer_mappings = []
+            for data_layer in settings.data_layers:
+                try:
+                    target_data_layer = settings.data_layers[data_layer.ptr]
+                except:
+                    target_data_layer = None
+
+                if target_data_layer:
+                    target_ID = target_data_layer.ID
+                else:
+                    target_ID = ""
+
+                layer_mappings.append((data_layer, target_ID))
+
+            """
+            2. reorder list
+            """
+            settings.data_layers.move(settings.data_layers_selected_index + index_offset, settings.data_layers_selected_index)
+            settings.data_layers_selected_index = max(0, min(settings.data_layers_selected_index + index_offset, len(settings.data_layers) - 1))
+
+            """
+            3. update ptrs
+            """
+            # for each (layer, target_layer_ID) pair
+            for layer_mapping in layer_mappings:
+                mapped_data_layer, mapped_target_ID = layer_mapping
+                # for each layer
+                for data_layer in settings.data_layers:
+                    # find pair in layers list
+                    if data_layer.ID == mapped_data_layer.ID:
+                        # for each layer
+                        for other_data_layer_index, other_data_layer in enumerate(settings.data_layers):
+                            # find layer originally targeted
+                            if other_data_layer.ID == mapped_target_ID:
+                                # update int ptr with new index
+                                data_layer.ptr = other_data_layer_index
+                                break
+                        break
 
         return{'FINISHED'}
 
-class DATABAKER_OT_Layer_GenerateName(bpy.types.Operator):
-    """Automatically compute a layer's name."""
-    bl_idname = "databaker_layer.generate_name"
-    bl_label = "Automatically compute a layer's name"
+class DATABAKER_OT_DataLayerTarget_ChangePtr(bpy.types.Operator):
+    """Add a new item to the list."""
+    bl_idname = "databaker_target.change_ptr"
+    bl_label = "Select another layer to target for packing"
+
+    direction: bpy.props.EnumProperty(items=(
+        ('UP', 'Up', ""),
+        ('DOWN', 'Down', ""),
+        ))
+
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.DataBakerSettings
+
+        try:
+            data_layer = settings.data_layers[settings.data_layers_selected_index]
+        except:
+            return False
+
+        return True
 
     def execute(self, context):
-        settings = bpy.context.scene.DataBakerSettings
-        if settings.data_layers:
+        settings = context.scene.DataBakerSettings
+        index_offset = -1 if self.direction == 'UP' else 1
+        try:
             data_layer = settings.data_layers[settings.data_layers_selected_index]
-            data_layer.display_name = get_data_layer_name(data_layer)
 
-        return{'FINISHED'}
+            data_layer.ptr += index_offset
+            if data_layer.ptr == settings.data_layers_selected_index:
+                if self.direction == 'UP':
+                    data_layer.ptr += 1
+                else:
+                    data_layer.ptr -= 1
+
+            data_layer.ptr = max(0, min(len(settings.data_layers) - 1, data_layer.ptr))
+
+            return{'FINISHED'}
+        except:
+            return {'CANCELLED'}
 
 ##############
 ### REPORT ###
