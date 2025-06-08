@@ -85,15 +85,15 @@ class BATBAKER_PG_SettingsAnimationTexChannel(PropertyGroup):
     ]
     quat: EnumProperty(name="Component", items=quat_x_y_z_w, default="XYZW", description="Component to bake")
 
-    quat_xyz_orders = [
-         ("XYZ", "XYZ", "XYZ"),
-         ("XZY", "XZY", "XZY"),
-         ("YXZ", "YXZ", "YXZ"),
-         ("YZX", "YZX", "YZX"),
-         ("ZXY", "ZXY", "ZXY"),
-         ("ZYX", "ZYX", "ZYX")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
     ]
-    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied before global X/Y/Z axis inversion)")
 
     quat_angle_unit_modes = [
         ("UNIT", "Unit", "Angle is normalized in [0:1] range, 1.0 for 360 degrees"),
@@ -157,15 +157,6 @@ class BATBAKER_PG_Settings(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert the V axis of the UVMap and flip the BAT texture(s) upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps")
-    unit_axis_orders = [
-        ("XYZ", "XYZ", "XYZ"),
-        ("XZY", "XZY", "XZY"),
-        ("YXZ", "YXZ", "YXZ"),
-        ("YZX", "YZX", "YZX"),
-        ("ZXY", "ZXY", "ZXY"),
-        ("ZYX", "ZYX", "ZYX"),
-    ]
-    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.BAT", description="Name of the baked object")
@@ -248,7 +239,7 @@ class BATBAKER_PG_Settings(PropertyGroup):
         ('CONTINUOUS', 'Continuous (Experimental)', "Store subsequent frame data directly after the previous frame in the texture, ensuring tight packing but requiring a more complex playback algorithm (frame data may start at arbitrary locations and span multiple lines)"),
         ('STACK', 'Stack', 'Skip remaining pixels and place the next frame on the next line (stack), simplifying playback but reducing packing efficiency and limiting texture space for vertex data')
     ]
-    animation_tex_packing_mode: EnumProperty(name="Mode", items=animation_tex_packing_modes, default=1, description="Control how frames are arranged in the texture when there’s extra space (underflow) or not enough space (overflow). \n\nUnderflow occurs when the number of vertices per frame is less than the image width, causing gaps at the end of the line ('Power of Two' might cause this). \n\nOverflow happens when there are too many vertices for a single line, and the data is spread across multiple lines, possibly leaving gaps. \n\nThis setting determines how to handle these empty spaces")
+    animation_tex_packing_mode: EnumProperty(name="Mode", items=animation_tex_packing_modes, default=1, description="Control how frames are arranged in the texture when there's extra space (underflow) or not enough space (overflow). \n\nUnderflow occurs when the number of bones per frame is less than the image width, causing gaps at the end of the line ('Power of Two' might cause this). \n\nOverflow happens when there are too many bones for a single line, and the data is spread across multiple lines, possibly leaving gaps. \n\nThis setting determines how to handle these empty spaces")
 
     # Underflow - CONTINUOUS
     # f5 f5 f5 00
@@ -334,15 +325,15 @@ class BATBAKER_PG_ReportAnimationTexChannel(PropertyGroup):
     ]
     quat: EnumProperty(name="Component", items=quat_x_y_z_w, default="XYZW", description="Component to bake")
 
-    quat_xyz_orders = [
-         ("XYZ", "XYZ", "XYZ"),
-         ("XZY", "XZY", "XZY"),
-         ("YXZ", "YXZ", "YXZ"),
-         ("YZX", "YZX", "YZX"),
-         ("ZXY", "ZXY", "ZXY"),
-         ("ZYX", "ZYX", "ZYX")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
     ]
-    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied before global X/Y/Z axis inversion)")
 
     quat_angle_unit_modes = [
         ("UNIT", "Unit", "Angle is normalized in [0:1] range, 1.0 for 360 degrees"),
@@ -429,15 +420,6 @@ class BATBAKER_PG_Report(PropertyGroup):
     unit_invert_y: BoolProperty(name="Invert Y", default=False, description="")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
-    unit_axis_orders = [
-        ("XYZ", "XYZ", "XYZ"),
-        ("XZY", "XZY", "XZY"),
-        ("YXZ", "YXZ", "YXZ"),
-        ("YZX", "YZX", "YZX"),
-        ("ZXY", "ZXY", "ZXY"),
-        ("ZYX", "ZYX", "ZYX"),
-    ]
-    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     padded: BoolProperty(name="Padded", default=False, description="")
     padding: IntProperty(name="Padding", default=0, description="")

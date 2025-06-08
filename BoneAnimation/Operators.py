@@ -43,7 +43,6 @@ class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.unit_invert_y',
         'settings.unit_invert_z',
         'settings.unit_invert_v',
-        'settings.unit_axis_order',
         'settings.mesh_name',
         'settings.mesh_uvmap_name',
         'settings.mesh_target_prop',

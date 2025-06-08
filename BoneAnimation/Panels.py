@@ -202,9 +202,6 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         row.prop(settings, "unit_invert_z", text="Z")
 
         row = layout.row()
-        row.prop(settings, "unit_axis_order")
-
-        row = layout.row()
         row.prop(settings, "mesh_name")
 
         row = layout.row()
@@ -219,6 +216,7 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         if panel_body:
             row = panel_body.row()
             row.prop(settings, "previz_result", text="Anim")
+            row.enabled = False
             row.prop(settings, "previz_bounds", text="Bounds")
 
 class BATBAKER_PT_MeshUVPanel(bpy.types.Panel):
@@ -357,7 +355,7 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 0
-    
+
     #bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -367,7 +365,7 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "skinning_tex_max_width")
-        
+
         row = layout.row()
         row.prop(settings, "skinning_tex_max_height")
 
@@ -395,7 +393,7 @@ class BATBAKER_PT_SkinningTexturesPanel(bpy.types.Panel):
             if texture:
                 row = layout.row()
                 row.prop(texture, "name", text="Name")
-                
+
                 row = layout.row()
                 row.prop(texture, "storage_mode")
 
@@ -535,19 +533,22 @@ class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
                         if panel_header:
                             panel_header.prop(texture_channel, "channel_mode", text=texture_channel_name)
                         if panel_body:
-                            if texture_channel.channel_mode == "POSITION":                                            
+                            if texture_channel.channel_mode == "POSITION":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "unit_axis_order")
+
                                 row = panel_body.row()
                                 row.prop(texture_channel, "component")
                             elif texture_channel.channel_mode == "ROTATION":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "unit_axis_order")
+
                                 row = panel_body.row()
                                 row.prop(texture_channel, "rot_mode")
 
                                 if texture_channel.rot_mode == "QUAT":
                                     row = panel_body.row()
-                                    row.prop(texture_channel, "quat")
-
-                                    row = panel_body.row()
-                                    row.prop(texture_channel, "quat_xyz_order")
+                                    row.prop(texture_channel, "quat")    
                                 else: #AXIS_ANGLE
                                     row = panel_body.row()
                                     row.prop(texture_channel, "axis_angle_mode")
@@ -555,15 +556,12 @@ class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
                                     if texture_channel.axis_angle_mode == "ANGLE":
                                         row = panel_body.row()
                                         row.prop(texture_channel, "quat_angle_unit_mode")
-
-                                    row = panel_body.row()
-                                    row.prop(texture_channel, "quat_xyz_order")
                             elif texture_channel.channel_mode == "SCALE":
                                 row = panel_body.row()
-                                row.prop(texture_channel, "component")
+                                row.prop(texture_channel, "unit_axis_order")
 
                                 row = panel_body.row()
-                                row.prop(texture_channel, "quat_xyz_order")
+                                row.prop(texture_channel, "component")
                             elif texture_channel.channel_mode == "AXIS":
                                 row = panel_body.row()
                                 row.prop(texture_channel, "axis")
@@ -966,17 +964,20 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
                         panel_body.enabled = False
                         if texture_channel.channel_mode == "POSITION":
                             row = panel_body.row()
+                            row.prop(texture_channel, "unit_axis_order")
+
+                            row = panel_body.row()
                             row.prop(texture_channel, "component")
                         elif texture_channel.channel_mode == "ROTATION":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "unit_axis_order")
+
                             row = panel_body.row()
                             row.prop(texture_channel, "rot_mode")
 
                             if texture_channel.rot_mode == "QUAT":
                                 row = panel_body.row()
                                 row.prop(texture_channel, "quat")
-
-                                row = panel_body.row()
-                                row.prop(texture_channel, "quat_xyz_order")
                             else: #AXIS_ANGLE
                                 row = panel_body.row()
                                 row.prop(texture_channel, "axis_angle_mode")
@@ -984,10 +985,10 @@ class BATBAKER_PT_ReportAnimationTexPanel(bpy.types.Panel):
                                 if texture_channel.axis_angle_mode == "ANGLE":
                                     row = panel_body.row()
                                     row.prop(texture_channel, "quat_angle_unit_mode")
-
-                                row = panel_body.row()
-                                row.prop(texture_channel, "quat_xyz_order")
                         elif texture_channel.channel_mode == "SCALE":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "unit_axis_order")
+
                             row = panel_body.row()
                             row.prop(texture_channel, "component")
                         elif texture_channel.channel_mode == "AXIS":
@@ -1275,7 +1276,3 @@ class BATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
         row.enabled = report.unit_invert_z
-
-        row = layout.row()
-        row.label(report, "unit_axis_order")
-        row.enabled = False

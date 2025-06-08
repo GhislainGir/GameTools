@@ -469,6 +469,67 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     fp = cast(cp, POINTER(c_float))
     return fp.contents.value
 
+def get_axis_inverted_matrix(settings: object, matrix: mathutils.Matrix) -> mathutils.Matrix:
+    """ """
+    if settings.unit_invert_x:
+        flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
+        matrix = flip_x @ matrix @ flip_x
+
+    if settings.unit_invert_y:
+        flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
+        matrix = flip_y @ matrix @ flip_y
+
+    if settings.unit_invert_z:
+        flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
+        matrix = flip_z @ matrix @ flip_z
+    return matrix
+
+def get_swizzled_matrix(unit_axis_order: str, matrix: mathutils.Matrix) -> mathutils.Matrix:
+    """ """
+
+    if unit_axis_order == "XYZ":
+        basis_matrix = mathutils.Matrix([[1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]])
+    elif unit_axis_order == "XZY":
+        basis_matrix = mathutils.Matrix([[1,0,0,0], [0,0,1,0], [0,1,0,0], [0,0,0,1]])
+    elif unit_axis_order == "YXZ":
+        basis_matrix = mathutils.Matrix([[0,1,0,0], [1,0,0,0], [0,0,1,0], [0,0,0,1]])
+    elif unit_axis_order == "YZX":
+        basis_matrix = mathutils.Matrix([[0,1,0,0], [0,0,1,0], [1,0,0,0], [0,0,0,1]])
+    elif unit_axis_order == "ZXY":
+        basis_matrix = mathutils.Matrix([[0,0,1,0], [1,0,0,0], [0,1,0,0], [0,0,0,1]])
+    else: # ZYX
+        basis_matrix = mathutils.Matrix([[0,0,1,0], [0,1,0,0], [1,0,0,0], [0,0,0,1]])
+    
+    return basis_matrix @ matrix @ basis_matrix.inverted()
+
+def get_swizzled_vector(settings: object, unit_axis_order: str, vector: mathutils.Vector) -> mathutils.Vector:
+    """ """
+
+    if settings.unit_invert_x:
+        flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
+        matrix = flip_x @ matrix @ flip_x
+
+    if settings.unit_invert_y:
+        flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
+        matrix = flip_y @ matrix @ flip_y
+
+    if settings.unit_invert_z:
+        flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
+        matrix = flip_z @ matrix @ flip_z
+
+    if unit_axis_order == "XYZ":
+        return mathutils.Vector((vector.x, vector.y, vector.z))
+    elif unit_axis_order == "XZY":
+        return mathutils.Vector((vector.x, vector.z, vector.y))
+    elif unit_axis_order == "YXZ":
+        return mathutils.Vector((vector.y, vector.x, vector.z))
+    elif unit_axis_order == "YZX":
+        return mathutils.Vector((vector.y, vector.z, vector.x))
+    elif unit_axis_order == "ZXY":
+        return mathutils.Vector((vector.z, vector.x, vector.y))
+    else: # ZYX
+        return mathutils.Vector((vector.z, vector.y, vector.x))
+
 ############
 ### BAKE ###
 def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, list, int]:
@@ -2416,7 +2477,6 @@ def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.
     :rtype: list
     """
     settings = context.scene.BATBakerSettings
-
     signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
                                     -1.0 if settings.unit_invert_y else 1.0,
                                     -1.0 if settings.unit_invert_z else 1.0))
@@ -2434,25 +2494,13 @@ def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.
                 vector_to_bake = ref_mat.to_translation() * signed_scale
             else:
                 vector_to_bake = (pose_mat.to_translation() - ref_mat.to_translation()) * signed_scale
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in texture_channel.unit_axis_order])
 
-            if settings.unit_axis_order == "XYZ" or settings.unit_axis_order == "XZY":
-                x_axis_name = "X"
-                y_axis_name = "Y" if settings.unit_axis_order == "XYZ" else "Z"
-                z_axis_name = "Z" if settings.unit_axis_order == "XYZ" else "Y"
-            elif settings.unit_axis_order == "YXZ" or settings.unit_axis_order == "YZX":
-                x_axis_name = "Y"
-                y_axis_name = "X" if settings.unit_axis_order == "YXZ" else "Z"
-                z_axis_name = "Z" if settings.unit_axis_order == "YXZ" else "X"
-            else: # ZXY or ZYX
-                x_axis_name = "Z"
-                y_axis_name = "X" if settings.unit_axis_order == "ZXY" else "Y"
-                z_axis_name = "Y" if settings.unit_axis_order == "ZXY" else "X"
-                
-            if texture_channel.component == x_axis_name:
+            if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
-            elif texture_channel.component == y_axis_name:
+            elif texture_channel.component == "Y":
                 data_to_bake = vector_to_bake.y
-            elif texture_channel.component == z_axis_name:
+            elif texture_channel.component == "Z":
                 data_to_bake = vector_to_bake.z
             else:
                 data_to_bake = 0.0
@@ -2485,62 +2533,19 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
             pose_mat = bone_matrix
             ref_mat = bone_ref_matrices[bone_index]
 
-            pose_mat_3x3 = pose_mat.to_3x3()
-            pose_mat_3x3_ordered = pose_mat_3x3
-
-            ref_mat_3x3 = ref_mat.to_3x3()
-            ref_mat_3x3_ordered = ref_mat_3x3
-
-            # reorder axes if desired @TODO this is wrong
-            if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
-                pose_mat_3x3_ordered[0] = pose_mat_3x3[0]
-                ref_mat_3x3_ordered[0] = ref_mat_3x3[0]
-            elif texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "ZXY":
-                pose_mat_3x3_ordered[0] = pose_mat_3x3[1]
-                ref_mat_3x3_ordered[0] = ref_mat_3x3[1]
-            elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "ZYX":
-                pose_mat_3x3_ordered[0] = pose_mat_3x3[2]
-                ref_mat_3x3_ordered[0] = ref_mat_3x3[2]
-
-            if texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "YZX":
-                pose_mat_3x3_ordered[1] = pose_mat_3x3[0]
-                ref_mat_3x3_ordered[1] = ref_mat_3x3[0]
-            elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "ZYX":
-                pose_mat_3x3_ordered[1] = pose_mat_3x3[1]
-                ref_mat_3x3_ordered[1] = ref_mat_3x3[1]
-            elif texture_channel.quat_xyz_order == "ZXY" or texture_channel.quat_xyz_order == "XZY":
-                pose_mat_3x3_ordered[1] = pose_mat_3x3[2]
-                ref_mat_3x3_ordered[1] = ref_mat_3x3[2]
-
-            if texture_channel.quat_xyz_order == "ZYX" or texture_channel.quat_xyz_order == "ZXY":
-                pose_mat_3x3_ordered[2] = pose_mat_3x3[0]
-                ref_mat_3x3_ordered[2] = ref_mat_3x3[0]
-            elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "XZY":
-                pose_mat_3x3_ordered[2] = pose_mat_3x3[1]
-                ref_mat_3x3_ordered[2] = ref_mat_3x3[1]
-            elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "YXZ":
-                pose_mat_3x3_ordered[2] = pose_mat_3x3[2]
-                ref_mat_3x3_ordered[2] = ref_mat_3x3[2]
-
             if bone_frame_index <= 0: # ref frame is the first animation data in list
-                rot_matrix = ref_mat_3x3_ordered
+                rot_matrix = ref_mat
             else:
-                rot_matrix = pose_mat_3x3_ordered @ ref_mat_3x3_ordered.inverted()
+                rot_matrix = pose_mat @ ref_mat.inverted()
 
-            if settings.unit_invert_x:
-                flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-                rot_matrix = flip_x @ rot_matrix @ flip_x
-
-            if settings.unit_invert_y:
-                flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
-                rot_matrix = flip_y @ rot_matrix @ flip_y
-
-            if settings.unit_invert_z:
-                flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-                rot_matrix = flip_z @ rot_matrix @ flip_z
+            sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                     (-1 if settings.unit_invert_y else 1),
+                                                     (-1 if settings.unit_invert_z else 1), 1))
+            rot_matrix = sign_matrix @ rot_matrix @ sign_matrix
+            euler = rot_matrix.to_euler(texture_channel.unit_axis_order)
 
             if texture_channel.rot_mode == "QUAT":
-                quat = rot_matrix.to_quaternion()
+                quat = euler.to_quaternion()
 
                 if texture_channel.quat == "X":
                     data_to_bake = quat.x
@@ -2553,7 +2558,7 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
                 else: # XYZW
                     data_to_bake = get_compressed_quat(quat)
             else: # AXIS_ANGLE
-                axis, angle = rot_matrix.to_quaternion().to_axis_angle()
+                axis, angle = euler.to_quaternion().to_axis_angle()
 
                 if texture_channel.axis_angle_mode == "AXIS_X":
                     data_to_bake = axis.x
@@ -2589,97 +2594,19 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
     :rtype: list
     """
     settings = context.scene.BATBakerSettings
-    frames_to_bake, bake_start_frame, bake_end_frame, bake_ref_frame = bake_frames_info
 
-    """
-    
-    """
     scale_buffer = [0.0] * buffer_length
-    bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
         buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
         for bone_index, bone_matrix in enumerate(bone_frame_data):
             pose_mat = bone_matrix
 
-            pose_mat_3x3 = pose_mat.to_3x3()
-
-            #pose_mat_3x3_ordered = pose_mat_3x3.copy()
-            pose_mat_3x3.transpose() # @TODO fix this shit
-
-            # reorder axes if desired
-            if texture_channel.quat_xyz_order == "XYZ":
-                pose_mat_3x3_ordered = mathutils.Matrix((
-                    pose_mat_3x3.col[0],
-                    pose_mat_3x3.col[1],
-                    pose_mat_3x3.col[2]))
-            elif texture_channel.quat_xyz_order == "XZY":
-                pose_mat_3x3_ordered = mathutils.Matrix((
-                    pose_mat_3x3.col[0],
-                    pose_mat_3x3.col[2],
-                    pose_mat_3x3.col[1]))
-            elif texture_channel.quat_xyz_order == "YXZ":
-                pose_mat_3x3_ordered = mathutils.Matrix((
-                    pose_mat_3x3.col[1],
-                    pose_mat_3x3.col[0],
-                    pose_mat_3x3.col[2]))
-            elif texture_channel.quat_xyz_order == "ZXY":
-                pose_mat_3x3_ordered = mathutils.Matrix((
-                    pose_mat_3x3.col[2],
-                    pose_mat_3x3.col[0],
-                    pose_mat_3x3.col[1]))
-            elif texture_channel.quat_xyz_order == "YZX":
-                pose_mat_3x3_ordered = mathutils.Matrix((
-                    pose_mat_3x3.col[1],
-                    pose_mat_3x3.col[2],
-                    pose_mat_3x3.col[0]))
-            elif texture_channel.quat_xyz_order == "ZYX":
-                pose_mat_3x3_ordered = mathutils.Matrix((
-                    pose_mat_3x3.col[2],
-                    pose_mat_3x3.col[1],
-                    pose_mat_3x3.col[0]))
-            
-            print("---")
-            print(pose_mat_3x3)
-            pose_mat_3x3_ordered
-            print(pose_mat_3x3_ordered)
-
-            # if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
-            #     pose_mat_3x3_ordered.col[0] = pose_mat_3x3.col[0]
-            # elif texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "ZXY":
-            #     pose_mat_3x3_ordered.col[0] = pose_mat_3x3.col[1]
-            # elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "ZYX":
-            #     pose_mat_3x3_ordered.col[0] = pose_mat_3x3.col[2]
-
-            # if texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "YZX":
-            #     pose_mat_3x3_ordered.col[1] = pose_mat_3x3.col[0]
-            # elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "ZYX":
-            #     pose_mat_3x3_ordered.col[1] = pose_mat_3x3.col[1]
-            # elif texture_channel.quat_xyz_order == "ZXY" or texture_channel.quat_xyz_order == "XZY":
-            #     pose_mat_3x3_ordered.col[1] = pose_mat_3x3.col[2]
-
-            # if texture_channel.quat_xyz_order == "ZYX" or texture_channel.quat_xyz_order == "ZXY":
-            #     pose_mat_3x3_ordered.col[2] = pose_mat_3x3.col[0]
-            # elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "XZY":
-            #     pose_mat_3x3_ordered.col[2] = pose_mat_3x3.col[1]
-            # elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "YXZ":
-            #     pose_mat_3x3_ordered.col[2] = pose_mat_3x3.col[2]
-
-            scale_mat = pose_mat_3x3_ordered # scale is never relative to ref pose
-
-            if settings.unit_invert_x:
-                flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-                scale_mat = flip_x @ scale_mat @ flip_x
-
-            if settings.unit_invert_y:
-                flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
-                scale_mat = flip_y @ scale_mat @ flip_y
-
-            if settings.unit_invert_z:
-                flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-                scale_mat = flip_z @ scale_mat @ flip_z
-
-            vector_to_bake = scale_mat.to_scale()
-            print(vector_to_bake)
+            sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                     (-1 if settings.unit_invert_y else 1),
+                                                     (-1 if settings.unit_invert_z else 1), 1))
+            pose_mat = sign_matrix @ pose_mat @ sign_matrix
+            vector_to_bake = pose_mat.to_3x3().to_scale()
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in texture_channel.unit_axis_order])
 
             if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
@@ -2688,7 +2615,7 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
             elif texture_channel.component == "Z":
                 data_to_bake = vector_to_bake.z
             else:
-                data_to_bake == 0.0
+                data_to_bake = 0.0
 
             try:
                 scale_buffer[bone_index + buffer_frame_offset] = data_to_bake
@@ -2723,46 +2650,24 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
             else:
                 basis_matrix = pose_mat.to_3x3() @ ref_mat.to_3x3().inverted()
 
-            if settings.unit_invert_x:
-                flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-                basis_matrix = flip_x @ basis_matrix @ flip_x
-
-            if settings.unit_invert_y:
-                flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
-                basis_matrix = flip_y @ basis_matrix @ flip_y
-
-            if settings.unit_invert_z:
-                flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-                basis_matrix = flip_z @ basis_matrix @ flip_z
-
             if texture_channel.axis == "X":
-                vector_to_bake = basis_matrix @ mathutils.Vector((1.0, 0.0, 0.0))
+                vector_to_bake = basis_matrix @ mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0, 0.0, 0.0))
             elif texture_channel.axis == "Y":
-                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 1.0, 0.0))
+                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, -1.0 if settings.unit_invert_y else 1.0, 0.0))
             else: # Z
-                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, 1.0))
+                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, -1.0 if settings.unit_invert_z else 1.0))
 
-            if settings.unit_axis_order == "XYZ" or settings.unit_axis_order == "XZY":
-                x_axis_name = "X"
-                y_axis_name = "Y" if settings.unit_axis_order == "XYZ" else "Z"
-                z_axis_name = "Z" if settings.unit_axis_order == "XYZ" else "Y"
-            elif settings.unit_axis_order == "YXZ" or settings.unit_axis_order == "YZX":
-                x_axis_name = "Y"
-                y_axis_name = "X" if settings.unit_axis_order == "YXZ" else "Z"
-                z_axis_name = "Z" if settings.unit_axis_order == "YXZ" else "X"
-            else: # ZXY or ZYX
-                x_axis_name = "Z"
-                y_axis_name = "X" if settings.unit_axis_order == "ZXY" else "Y"
-                z_axis_name = "Y" if settings.unit_axis_order == "ZXY" else "X"
+            if not texture_channel.axis_scaled:
+                vector_to_bake.normalize()
 
-            if texture_channel.component == x_axis_name:
+            if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
-            elif texture_channel.component == y_axis_name:
+            elif texture_channel.component == "Y":
                 data_to_bake = vector_to_bake.y
-            elif texture_channel.component == z_axis_name:
+            elif texture_channel.component == "Z":
                 data_to_bake = vector_to_bake.z
             else:
-                data_to_bake == 0.0
+                data_to_bake = 0.0
 
             try:
                 rot_buffer[bone_index + buffer_frame_offset] = data_to_bake
@@ -2828,9 +2733,6 @@ def animation_texture_buffer_custom_prop(context: bpy.types.Context, armature: b
                 pass
 
     return custom_prop_buffer
-
-
-    return buffer
 
 def animation_texture_buffer_zeros(context: bpy.types.Context, armature: bpy.types.Armature, animation_data: list, texture_channel: object, buffer_length: int, tex_width: int, bake_frame_height: int, frames_to_bake: list, num_bones: int) -> list:
     """
@@ -3214,8 +3116,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_invert_x=str(report.unit_invert_x),
                             unit_invert_y=str(report.unit_invert_y),
                             unit_invert_z=str(report.unit_invert_z),
-                            unit_invert_v=str(report.unit_invert_v),
-                            unit_axis_order=report.unit_axis_order)
+                            unit_invert_v=str(report.unit_invert_v))
 
     # frame
     frame_el = ET.SubElement(root, "Frames",
@@ -3336,6 +3237,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                     if channel.channel_mode == "POSITION":
                         channel_el = ET.SubElement(tex_subel, channel_name,
                                                 mode=channel.channel_mode,
+                                                axis_order=channel.unit_axis_order,
                                                 component=channel.component,
                                                 remapped=str(channel_remapped),
                                                 range_offset=str(channel_range_offset),
@@ -3345,9 +3247,9 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                         if channel.rot_mode == "QUAT":
                             channel_el = ET.SubElement(tex_subel, channel_name,
                                                     mode=channel.channel_mode,
+                                                    axis_order=channel.unit_axis_order,
                                                     rot_mode=channel.rot_mode,
                                                     quat=channel.quat,
-                                                    axis_order=channel.quat_xyz_order,
                                                     remapped=str(channel_remapped),
                                                     range_offset=str(channel_range_offset),
                                                     range=str(channel_range),
@@ -3355,10 +3257,10 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                         else: # AXIS_ANGLE
                             channel_el = ET.SubElement(tex_subel, channel_name,
                                                     mode=channel.channel_mode,
+                                                    axis_order=channel.unit_axis_order,
                                                     rot_mode=channel.rot_mode,
                                                     axis_angle=channel.axis_angle_mode,
                                                     angle_mode=channel.quat_angle_unit_mode,
-                                                    axis_order=channel.quat_xyz_order,
                                                     remapped=str(channel_remapped),
                                                     range_offset=str(channel_range_offset),
                                                     range=str(channel_range),
@@ -3366,6 +3268,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                     elif channel.channel_mode == "AXIS":
                         channel_el = ET.SubElement(tex_subel, channel_name,
                                                     mode=channel.channel_mode,
+                                                    axis_order=channel.unit_axis_order,
                                                     component=channel.component,
                                                     axis=channel.axis,
                                                     remapped=str(channel_remapped),
@@ -3375,6 +3278,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                     else: # SCALE
                         channel_el = ET.SubElement(tex_subel, channel_name,
                                                 mode=channel.channel_mode,
+                                                axis_order=channel.unit_axis_order,
                                                 component=channel.component,
                                                 remapped=str(channel_remapped),
                                                 range_offset=str(channel_range_offset),
