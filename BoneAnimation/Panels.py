@@ -100,7 +100,10 @@ class BATBAKER_PT_FramePanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "frame_padding_mode")
             row.enabled = settings.frame_padding > 0
- 
+
+            row = layout.row()
+            row.prop(settings, "frame_ref_padding", text="Ref Padding:")
+        
         elif (settings.frame_range_mode == "SCENE"):
             row = layout.row()
             row.label(text="Frame Range:")
@@ -111,6 +114,9 @@ class BATBAKER_PT_FramePanel(bpy.types.Panel):
 
             row = layout.row()
             row.prop(scene, "frame_step", text="Step:")
+
+            row = layout.row()
+            row.prop(settings, "frame_ref_padding", text="Ref Padding:")
         elif (settings.frame_range_mode == "CUSTOM"):
             row = layout.row()
             row.label(text="Frame Range:")
@@ -121,6 +127,9 @@ class BATBAKER_PT_FramePanel(bpy.types.Panel):
 
             row = layout.row()
             row.prop(settings, "frame_range_custom_step", text="Step:")
+
+            row = layout.row()
+            row.prop(settings, "frame_ref_padding", text="Ref Padding:")
 
         row = layout.row()
         row.prop(settings, "frame_ref_mode", text="Ref")

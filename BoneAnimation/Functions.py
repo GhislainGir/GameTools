@@ -1117,12 +1117,13 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             """
             3. report NLA strip start/end frames/time
             """
+            ref_pad_offset = 1 if settings.frame_ref_padding else 0
             for nla_strip in nla_strips:
                 start_index, end_index = get_nla_strip_start_end_indices(nla_strip, frames_to_bake)
 
-                # 0-based indices are converted to the actual 1-based frame count, with an extra offset for the ref frame
-                start_frame = start_index + 2
-                end_frame = end_index + 2
+                # 0-based indices are converted to the actual 1-based frame count
+                start_frame = start_index + 1 + ref_pad_offset
+                end_frame = end_index + 1 + ref_pad_offset
                 add_bake_report_anim(nla_strip.name, start_frame, end_frame)
 
             """
@@ -1149,7 +1150,11 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             add_bake_report("frame_ref_mode", settings.frame_ref_mode)
             add_bake_report("frame_ref", ref_frame)
 
+            if settings.frame_ref_padding:
+                frames_to_bake.insert(0, end_frame) # insert last frame before first frame
             frames_to_bake.insert(0, ref_frame) # insert ref frame
+            if settings.frame_ref_padding:
+                frames_to_bake.append(start_frame) # insert first frame after last frame
 
             return (True, "", (frames_to_bake, start_frame, end_frame, ref_frame))
         else:
@@ -2204,7 +2209,10 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
     :return: pixel buffer
     :rtype: list
     """
-    buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height # RGBA
+    if vcol:
+        buffer = [0.0, 0.0, 0.0, 0.0] * num_vertices # RGBA
+    else:
+        buffer = [0.0, 0.0, 0.0, 0.0] * tex_width * tex_height # RGBA
 
     for row_index, row in enumerate(texture.rows):
 
@@ -2225,10 +2233,6 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
                 for index in range(len(skinning_buffer)):
                     data_to_bake = skinning_buffer[index]
 
-                    u = index % tex_width
-                    v = math.floor(index / tex_width) * len(texture.rows) + row_index
-                    buffer_index = (u * 4) + (v * tex_width * 4)
-
                     if vcol:
                         if texture_channel.channel_mode == "INDEX":
                             if data_to_bake > 255 or data_to_bake < 0:
@@ -2241,10 +2245,17 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
                     elif texture_channel.channel_mode == "INDEX" and texture_channel.remapping:
                         data_to_bake /= 255 # normalize for 8-bit textures
 
+                    if vcol:
+                        buffer_index = (index * 4)
+                    else:    
+                        u = index % tex_width
+                        v = math.floor(index / tex_width) * len(texture.rows) + row_index
+                        buffer_index = (u * 4) + (v * tex_width * 4)
+
                     try:
                         buffer[buffer_index + texture_channel_index] = data_to_bake
                     except:
-                        return (False, "Invalid buffer index", buffer)
+                        return (False, "Invalid buffer index: " + str(buffer_index + texture_channel_index) + " vs " + str(len(buffer)), buffer)
 
     return (True, "", buffer)
 
@@ -2650,12 +2661,17 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
             else:
                 basis_matrix = pose_mat.to_3x3() @ ref_mat.to_3x3().inverted()
 
+            sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                     (-1 if settings.unit_invert_y else 1),
+                                                     (-1 if settings.unit_invert_z else 1)))
+            basis_matrix = sign_matrix @ basis_matrix @ sign_matrix
+
             if texture_channel.axis == "X":
-                vector_to_bake = basis_matrix @ mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0, 0.0, 0.0))
+                vector_to_bake = basis_matrix @ mathutils.Vector((1.0, 0.0, 0.0))
             elif texture_channel.axis == "Y":
-                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, -1.0 if settings.unit_invert_y else 1.0, 0.0))
+                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 1.0, 0.0))
             else: # Z
-                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, -1.0 if settings.unit_invert_z else 1.0))
+                vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, 1.0))
 
             if not texture_channel.axis_scaled:
                 vector_to_bake.normalize()

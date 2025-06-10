@@ -200,13 +200,15 @@ class BATBAKER_PG_Settings(PropertyGroup):
         ("NLACLIP", "NLA Clip", "Bake every nth frame, starting from each NLA clip's Start Frame. This ensures the first frame of each animation clip is included, which *may* cause issues when baking multiple objects with different NLA strips")
     ]
     frame_range_custom_step_mode: EnumProperty(name="Mode", items=frame_range_custom_step_modes, default="NLACLIP", description="Select how the frame step is applied")
+
     frame_padding_modes = [
-        ('PREFIX', 'Prefix', 'Add the last frame before the first frame'),
-        ('SUFFIX', 'Suffix', 'Add the first frame after the last frame'),
-        ('PREFIX_SUFFIX', 'Prefix & Suffix', 'Add both the last frame before the first frame and the first frame after the last frame (recommended if unsure)')
+        ('PREFIX', 'Prefix', 'Add the last frame before the first frame. This is applied per NLA clip'),
+        ('SUFFIX', 'Suffix', 'Add the first frame after the last frame. This is applied per NLA clip'),
+        ('PREFIX_SUFFIX', 'Prefix & Suffix', 'Add both the last frame before the first frame and the first frame after the last frame (recommended if unsure). This is applied per NLA clip')
     ]
-    frame_padding_mode: EnumProperty(name="Mode", items=frame_padding_modes, default=1, description="Select how padding is applied to frame data")
+    frame_padding_mode: EnumProperty(name="Mode", items=frame_padding_modes, default="PREFIX_SUFFIX", description="Select how padding is applied to frame data")
     frame_padding: IntProperty(name="Padding", min=0, default=0, description="Padding used to prevent blending between the end frame of one animation and the start frame of another. One frame of padding is typically enough. Note that this may cause issues if baking multiple objects with different NLA tracks")
+    frame_ref_padding: BoolProperty(name="Ref Padding", default=True, description="This setup isolates the baked animation from the reference pose by inserting the last frame before the first, and the first frame after the last. This prevents the reference pose—stored in the very first frame—from being mistakenly interpolated with the first frame of the animation. While this approach duplicates two frames, it enables the use of interpolation without visual artifacts. It's recommended in most cases, but can be disabled if you're using Nearest sampling or if individual padding is applied to each NLA clip")
     frame_ref_modes = [
         ("START", "Start", "Use the start frame as the reference frame"),
         ("END", "End", "Use the end frame as the reference frame"),
