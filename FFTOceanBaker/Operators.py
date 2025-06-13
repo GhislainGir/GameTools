@@ -49,12 +49,13 @@ class FFTOCEANBAKER_OT_FFTOceanBaker_AddPreset(AddPresetBase, bpy.types.Operator
     bl_label = 'Add preset'
     preset_menu = 'FFTOCEANBAKER_MT_FFTOceanBaker_Presets'
 
-    preset_defines = [ 'settings = bpy.context.scene.FFTOCEANBAKERSettings' ]
+    preset_defines = [ 'settings = bpy.context.scene.FFTOceanBakerSettings' ]
 
     preset_values = [
         'settings.unit_scale',
         'settings.unit_invert_u',
         'settings.unit_invert_v',
+        'settings.unit_axis_order',
         'settings.frame_sort_mode',
         'settings.subd',
         'settings.frames_per_row',
@@ -76,6 +77,7 @@ class FFTOCEANBAKER_OT_FFTOceanBaker_AddPreset(AddPresetBase, bpy.types.Operator
         'settings.ocean_clear',
         'settings.ocean_from_active',
         'settings.mesh_name',
+        'settings.mesh_materials',
         'settings.generate_mesh',
         'settings.export_mesh',
         'settings.export_mesh_file_name',
@@ -101,6 +103,9 @@ class FFTOCEANBAKER_OT_FFTOceanBaker_AddPreset(AddPresetBase, bpy.types.Operator
         'settings.normal_tex',
         'settings.normal_tex_remap',
         'settings.normal_tex_file_name',
+        'settings.crest_tex',
+        'settings.crest_tex_file_name',
+        'settings.crest_threshold',
         'settings.export_tex',
         'settings.export_tex_file_path',
         'settings.export_tex_override'

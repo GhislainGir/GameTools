@@ -19,13 +19,24 @@ from bpy.types import PropertyGroup
 #############################################################################################
 ###################################### PROPERTY GROUPS ######################################
 #############################################################################################
-class FFTOCEANBAKER_PG_SettingsPropertyGroup(PropertyGroup):
+################
+### SETTINGS ###
+class FFTOCEANBAKER_PG_Settings(PropertyGroup):
     """ """
 
     # scene 
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit")
     unit_invert_u: BoolProperty(name="Invert U", default=False, description="Flip each frame left to right")
     unit_invert_v: BoolProperty(name="Invert V", default=True, description="Flip each frame upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each frame individually and doesn't affect the way they are sorted if compacted into a flipbook")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis")
 
     subd: IntProperty(name="Subdivisions", default=16, description="Specify the subdivision level to use for the ocean modifier. Beware, this results in the (subd ^ 2) resolution and (subd ^ 4) faces")
 
@@ -114,11 +125,17 @@ class FFTOCEANBAKER_PG_SettingsPropertyGroup(PropertyGroup):
     normal_tex: BoolProperty(name="Normal", default=True, description="Enable to bake the vertex normal texture")
     normal_tex_remap: BoolProperty(name="Remap", default=True, description="Enable to remap the normals within a [0:1] range. This requires a constant bias to remap the normals in your shader or game engine. It is likely safe to do so, as normal VAT may be stored in an 8-bit RGBA texture without noticeable precision loss")
     normal_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_Normal", description="Name for the vertex normal texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
+    crest_tex: BoolProperty(name="Crest", default=True, description="Enable to bake the crest texture")
+    crest_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_Crest", description="Name for the crest texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
+    crest_threshold: FloatProperty(name="Threshold", default=-28, description="How much waves need to be compressed to register as a peak")
+
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion. Only available if the Blender file is saved")
     export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
 
-class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
+##############
+### REPORT ###
+class FFTOCEANBAKER_PG_Report(PropertyGroup):
     """ """
     baked: BoolProperty(name="Baked", default=False, description="")
     success: BoolProperty(name="Success", default=False, description="")
@@ -132,6 +149,15 @@ class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
     unit_scale: FloatProperty(name="Scale", default=0.0, description="")
     unit_invert_u: BoolProperty(name="Invert U", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
+    unit_axis_orders = [
+        ("XYZ", "XYZ", "XYZ"),
+        ("XZY", "XZY", "XZY"),
+        ("YXZ", "YXZ", "YXZ"),
+        ("YZX", "YZX", "YZX"),
+        ("ZXY", "ZXY", "ZXY"),
+        ("ZYX", "ZYX", "ZYX"),
+    ]
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     start_frame: IntProperty(name="Start", default=0, description="") #
     end_frame: IntProperty(name="End", default=0, description="")
@@ -181,14 +207,18 @@ class FFTOCEANBAKER_PG_ReportPropertyGroup(PropertyGroup):
     tex_normal_export: BoolProperty(name="Normal", default=False, description="")
     tex_normal_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
     tex_normal_remapped: BoolProperty(name="Remapped", default=False, description="")
+    tex_crest: PointerProperty(type=bpy.types.Image)
+    tex_crest_export: BoolProperty(name="Normal", default=False, description="")
+    tex_crest_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
+    tex_crest_threshold: FloatProperty(name="Threshold", default=0, description="")
 
     xml: BoolProperty(name="XML", default=False, description="")
     xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
 
 def register():
-    bpy.types.Scene.FFTOCEANBAKERSettings = PointerProperty(type=FFTOCEANBAKER_PG_SettingsPropertyGroup)
-    bpy.types.Scene.FFTOCEANBAKERReport = PointerProperty(type=FFTOCEANBAKER_PG_ReportPropertyGroup)
+    bpy.types.Scene.FFTOceanBakerSettings = PointerProperty(type=FFTOCEANBAKER_PG_Settings)
+    bpy.types.Scene.FFTOCEANBAKERReport = PointerProperty(type=FFTOCEANBAKER_PG_Report)
 
 def unregister():
-    del bpy.types.Scene.FFTOCEANBAKERSettings
+    del bpy.types.Scene.FFTOceanBakerSettings
     del bpy.types.Scene.FFTOCEANBAKERReport

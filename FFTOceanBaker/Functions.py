@@ -34,7 +34,7 @@ def new_bake_report(context: bpy.types.Context):
     :return: None
     :rtype: None
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     reset_bake_report()
 
@@ -116,6 +116,10 @@ def reset_bake_report():
     report.tex_normal_export = False
     report.tex_normal_path = ""
     report.tex_normal_remapped = False
+    report.tex_crest = None
+    report.tex_crest_export = False
+    report.tex_crest_path = ""
+    report.tex_crest_threshold = 0
 
     report.xml = False
     report.xml_path = ""
@@ -152,7 +156,7 @@ def get_bake_frames(context: bpy.types.Context) -> tuple[bool, str, list, int, i
     :rtype: tuple
     """
 
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     add_bake_report("frame_rate", (context.scene.render.fps / context.scene.render.fps_base))
 
@@ -185,7 +189,7 @@ def get_bake_frame_size(context: bpy.types.Context) -> int:
     :rtype: int
     """
     
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     if settings.frame_size_mode == "SUBDIVISIONS":
         subd = max(2, settings.subd)
         return subd * subd
@@ -201,7 +205,7 @@ def get_bake_frame_padding(context: bpy.types.Context, clamp=bool) -> int:
     :return: amount of padding to add to each frame, in pixels, on one side
     :rtype: int
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     if settings.frame_padding_mode == "MIPLEVEL":
         padding = pow(2, max(0, settings.frame_padding_mips - 1))
     elif settings.frame_padding_mode == "PIXELS":
@@ -225,7 +229,7 @@ def get_bake_name(context: bpy.types.Context) -> str:
     :rtype: string
     """
 
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.FFT"
     return name
@@ -244,7 +248,7 @@ def bake_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to_bak
     :return: the function's success, potential error message, offset image(s), normal image(s)
     """
 
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     
     subdivisions = max(2, settings.subd)
     add_bake_report("subd", subdivisions)
@@ -269,7 +273,7 @@ def bake_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to_bak
     half_texel_size = texel_size * 0.5
     pseudo_texel_size = 1.0 / (frame_size_inner + 1)
 
-    mappings = [None] * frame_size_inner * frame_size_inner
+    mappings = [None] * (frame_size_inner) * (frame_size_inner)
     for y in range(frame_size_inner):
         for x in range(frame_size_inner):
             vertex_index = x + (y * frame_size_inner)
@@ -312,7 +316,7 @@ def bake_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to_bak
             return (False, msg, None, None)
 
         # offset?
-        if buffer_offset:
+        if buffer_offset and settings.offset_tex:
             if padding > 0:
                 buffer_offset = apply_frame_padding(subdivisions, padding, buffer_offset)
 
@@ -340,15 +344,22 @@ def bake_frames(context: bpy.types.Context, obj: bpy.types.Object, frames_to_bak
 
             tex_offsets.append(tex_offset)
 
+            if settings.crest_tex:
+                success, msg, buffer_crest = get_crest_buffer_from_offset_buffer(buffer_offset, frame_size, extents, settings.crest_threshold, 1)
+                if not success:
+                    return (False, msg, None, None)
 
+                success, msg, tex_crest = generate_texture(bake_name, settings.crest_tex_file_name + "." + str(frame), buffer_crest, frame_size, frame_size)
+                if not success:
+                    return (False, msg, None, None)
 
-            # @TODO Crest    
-            success, msg, buffer_crest = get_foam_buffer_from_offset_buffer(buffer_offset, frame_size, extents, -100000, 1)
-            success, msg, tex_crest = generate_texture(bake_name, "crest" + "." + str(frame), buffer_crest, frame_size, frame_size)
-            tex_crests.append(tex_crest)
+                if settings.frame_size_mode == "CUSTOM":
+                    tex_crest.scale(settings.frame_size_custom, settings.frame_size_custom)
+
+                tex_crests.append(tex_crest)
 
         # normal?
-        if buffer_normal:
+        if buffer_normal and settings.normal_tex:
             if padding > 0:
                 buffer_normal = apply_frame_padding(subdivisions, padding, buffer_normal)
 
@@ -432,7 +443,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     new_bake_report(context)
 
     wm = bpy.context.window_manager
@@ -507,35 +518,6 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("tex_width", tex_width)
         add_bake_report("tex_height", tex_height)
 
-        # @TODO crest
-        """"""
-        success, msg, buffer_offset = get_flipbook_buffer(context, tex_crests, num_frames_x, num_frames_y, tex_width, tex_height)
-        if not success:
-            add_bake_report("success", False)
-            add_bake_report("msg", msg)
-            return (False, "ERROR", msg)
-
-        success, msg, tex_crest = generate_texture(bake_name, "crest", buffer_offset, tex_width, tex_height)
-        clear_textures(tex_crests)
-        if not success:
-            add_bake_report("success", False)
-            add_bake_report("msg", msg)
-            return (False, "ERROR", msg)
-
-        #add_bake_report("tex_offset", tex_offset)
-
-        if settings.export_tex:
-            success, msg, tex_crest_path = export_texture(context, tex_crest, settings.export_tex_file_path, "crest", bake_name, settings.export_tex_override)
-            if not success:
-                add_bake_report("success", False)
-                add_bake_report("msg", msg)
-                return (False, 'ERROR', msg)
-            # add_bake_report("tex_offset_export", True)
-            # add_bake_report("tex_offset_path", tex_offset_path)
-        """"""
-
-
-
         if settings.offset_tex:
             success, msg, buffer_offset = get_flipbook_buffer(context, tex_offsets, num_frames_x, num_frames_y, tex_width, tex_height)
             if not success:
@@ -560,6 +542,31 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
                     return (False, 'ERROR', msg)
                 add_bake_report("tex_offset_export", True)
                 add_bake_report("tex_offset_path", tex_offset_path)
+   
+            if settings.crest_tex:
+                success, msg, buffer_crest = get_flipbook_buffer(context, tex_crests, num_frames_x, num_frames_y, tex_width, tex_height)
+                if not success:
+                    add_bake_report("success", False)
+                    add_bake_report("msg", msg)
+                    return (False, "ERROR", msg)
+
+                success, msg, tex_crest = generate_texture(bake_name, settings.crest_tex_file_name, buffer_crest, tex_width, tex_height)
+                clear_textures(tex_crests)
+                if not success:
+                    add_bake_report("success", False)
+                    add_bake_report("msg", msg)
+                    return (False, "ERROR", msg)
+
+                add_bake_report("tex_crest", tex_crest)
+
+                if settings.export_tex:
+                    success, msg, tex_crest_path = export_texture(context, tex_crest, settings.export_tex_file_path, settings.crest_tex_file_name, bake_name, settings.export_tex_override)
+                    if not success:
+                        add_bake_report("success", False)
+                        add_bake_report("msg", msg)
+                        return (False, 'ERROR', msg)
+                    add_bake_report("tex_crest_export", True)
+                    add_bake_report("tex_crest_path", tex_crest_path)
 
         if settings.normal_tex:
             success, msg, buffer_normal = get_flipbook_buffer(context, tex_normals, num_frames_x, num_frames_y, tex_width, tex_height)
@@ -585,9 +592,14 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
                     return (False, 'ERROR', msg)
                 add_bake_report("tex_normal_export", True)
                 add_bake_report("tex_normal_path", tex_normal_path)
+
     else:
-        add_bake_report("tex_offset", tex_offsets[0])
-        add_bake_report("tex_normal", tex_normals[0])
+        if len(tex_offsets) > 0:
+            add_bake_report("tex_offset", tex_offsets[len(tex_offsets) - 1])
+        if len(tex_normals) > 0:
+            add_bake_report("tex_normal", tex_normals[len(tex_normals) - 1])
+        if len(tex_crests) > 0:
+            add_bake_report("tex_crest", tex_crests[len(tex_crests) - 1])
 
         tex_width = get_bake_frame_size(context)
         tex_height = tex_width
@@ -597,6 +609,37 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
         num_frames_x = 1
         num_frames_y = 1
+
+        if settings.export_tex:
+            for tex_offset in tex_offsets:
+                name = tex_offset.name[:-4] if len(tex_offset.name) > 4 else ''
+                success, msg, tex_offset_path = export_texture(context, tex_offset, settings.export_tex_file_path, name, bake_name, settings.export_tex_override)
+                if not success:
+                    add_bake_report("success", False)
+                    add_bake_report("msg", msg)
+                    return (False, 'ERROR', msg)
+                add_bake_report("tex_offset_export", True)
+                add_bake_report("tex_offset_path", tex_offset_path)
+
+            for tex_normal in tex_normals:
+                name = tex_normal.name[:-4] if len(tex_normal.name) > 4 else ''
+                success, msg, tex_normal_path = export_texture(context, tex_normal, settings.export_tex_file_path, name, bake_name, settings.export_tex_override)
+                if not success:
+                    add_bake_report("success", False)
+                    add_bake_report("msg", msg)
+                    return (False, 'ERROR', msg)
+                add_bake_report("tex_normal_export", True)
+                add_bake_report("tex_normal_path", tex_normal_path)
+
+            for tex_crest in tex_crests:
+                name = tex_crest.name[:-4] if len(tex_crest.name) > 4 else ''
+                success, msg, tex_crest_path = export_texture(context, tex_crest, settings.export_tex_file_path, name, bake_name, settings.export_tex_override)
+                if not success:
+                    add_bake_report("success", False)
+                    add_bake_report("msg", msg)
+                    return (False, 'ERROR', msg)
+                add_bake_report("tex_crest_export", True)
+                add_bake_report("tex_crest_path", tex_crest_path)
 
     ########
     # MESH #
@@ -687,7 +730,7 @@ def add_ocean_modifier(context: bpy.types.Context, obj: bpy.types.Object, first_
     :return: the function's success, potential error message, the ocean modifier added
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     ocean_modifier = obj.modifiers.new(name="Ocean", type='OCEAN')
     ocean_modifier.geometry_mode = "DISPLACE" if flip else "GENERATE"
@@ -739,7 +782,7 @@ def setup_ocean_modifiers(context: bpy.types.Context, obj: bpy.types.Object, act
     modifier_names = []
     modifiers_param_name = ["time", "wave_scale"]
     
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     
     """
     inherit settings from active object, assuming we're able to find an ocean modifier in object
@@ -827,7 +870,7 @@ def get_frame_buffers(context: bpy.types.Context, obj: bpy.types.Object, mapping
     :return: the function's success, potential error message, offset pixel buffer, normal pixel buffer
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     # set frame and get evaluated ocean object to account for its ocean modifiers (it's an empty mesh otherwise)
     context.scene.frame_set(frame)
@@ -874,7 +917,13 @@ def get_frame_buffers(context: bpy.types.Context, obj: bpy.types.Object, mapping
             nor.normalize()
 
             i = (x * 4) + (padding * 4) + (y * 4 * frame_size) + (frame_size * padding * 4)
+
+            if settings.unit_axis_order != "XYZ":
+                pos = mathutils.Vector([getattr(pos, axis.lower()) for axis in settings.unit_axis_order])
             buffer_offset[i:i + 3] = pos
+
+            if settings.unit_axis_order != "XYZ":
+                nor = mathutils.Vector([getattr(nor, axis.lower()) for axis in settings.unit_axis_order])
             buffer_normal[i:i + 3] = nor
 
     obj_eval.to_mesh_clear()
@@ -969,7 +1018,7 @@ def get_flipbook_frames(context: bpy.types.Context, num_frames: int) -> tuple[bo
     :return: the function's success, potential error message, number of frames in X, number of frames in Y, flipbook resolution in X, flipbook resolution in Y
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     frame_size = get_bake_frame_size(context)
 
@@ -1000,7 +1049,7 @@ def get_flipbook_buffer(context: bpy.types.Context, frames: list, num_frames_x: 
     :return: the function's success, potential error message, pixel buffer
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     frame_size = get_bake_frame_size(context)
 
@@ -1108,13 +1157,13 @@ def get_remapped_normal_buffer(buffer_normal: list) -> list:
 
     return buffer_normal
 
-def get_foam_buffer_from_offset_buffer(buffer_offset: list, frame_size: int, extents: float, threshold: float, multiplier: float):
+def get_crest_buffer_from_offset_buffer(buffer_offset: list, frame_size: int, extents: float, threshold: float, multiplier: float):
     """
     """
 
     num_offsets = len(buffer_offset) // 4
     buffer_crest = [0.0, 0.0, 0.0, 1.0] * num_offsets
-    scale = (extents* 0.01) / frame_size
+    scale = (extents)
 
     for y in range(frame_size):
         for x in range(frame_size):
@@ -1124,45 +1173,25 @@ def get_foam_buffer_from_offset_buffer(buffer_offset: list, frame_size: int, ext
             B_i = x + (((y - 1) % frame_size) * frame_size)
             B_i *= 4
 
-            T_i = x + (((y + 1) % frame_size) * frame_size)
-            T_i *= 4
-
             R_i = ((x + 1) % frame_size) + (y * frame_size)
             R_i *= 4
 
-            L_i = ((x - 1) % frame_size) + (y * frame_size)
-            L_i *= 4
-
             C = buffer_offset[C_i:C_i + 3]
             B = buffer_offset[B_i:B_i + 3]
-            T = buffer_offset[T_i:T_i + 3]
             R = buffer_offset[R_i:R_i + 3]
-            L = buffer_offset[L_i:L_i + 3]
 
             jxx = 1 + (R[0] - C[0]) / scale
             jyy = 1 + (B[1] - C[1]) / scale
-            jyx = (R[1] - C[1]) / scale
+            #jyx = (R[1] - C[1]) / scale
             jxy = (B[0] - C[0]) / scale
 
+            jacob_det = jxx*jyy - jxy*jxy
+            jacob_det = -jacob_det * threshold
 
-            dxx = R[0] - C[0] / scale
-            dyx = B[0] - C[0] / scale
+            eigen_val = ((jxx + jyy) * 0.5) - math.pow((jxx-jyy) * (jxx-jyy) + (4 * jxy * jxy), 0.5) * 0.5
 
-            dxy = R[1] - C[1] / scale
-            dyy = B[1] - C[1] / scale
-
-            det = (dxx * dyy) - (dxy * dyx)
-
-            #jacob_det = jxx*jyy - jyx*jxy
-            #jacob_det = -jacob_det * threshold
-
-            # jxxyy = jxx + jyy
-            # jxxnyy = jxx - jyy
-            # jxxnyy2 = jxxnyy * jxxnyy
-            # eigen_val = (jxxyy * 0.5) - math.pow(jxxnyy2 + (4 * jxy * jxy), 0.5) * 0.5
-
-            # foam = multiplier * max(0, min(1.0, (1 - eigen_val + threshold)))
-            buffer_crest[C_i] = 1.0 if det < threshold else 0.0
+            #foam = multiplier * max(0, min(1.0, (1 - eigen_val + threshold)))
+            buffer_crest[C_i] = 1 - eigen_val + threshold
     
     return (True, "", buffer_crest)
 
@@ -1179,7 +1208,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, num_frames_x: int,
     :return: the function's success, potential error message, generated object
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     
     subdivisions = max(2, settings.subd)
     padding = get_bake_frame_padding(context, clamp=True)
@@ -1296,7 +1325,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
     :rtype: tuple
     """
 
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
 
     tags = { "BakeName" : bake_name}
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
@@ -1311,7 +1340,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
 ### TEXTURES ###
 def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int, tex_height: int) -> tuple[bool, str, bpy.types.Image]:
     """
-    Generate the offset or normal image
+    Generate and return a texture containing the provided pixel buffer
 
     :param bake_name: the bake operation's 'name'
     :param filename: the image's name
@@ -1411,7 +1440,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: the function's success, potential error message, export path
     :rtype: tuple
     """
-    settings = context.scene.FFTOCEANBAKERSettings
+    settings = context.scene.FFTOceanBakerSettings
     report = context.scene.FFTOCEANBAKERReport
 
     root = ET.Element("BakedData",
@@ -1426,7 +1455,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             length=str(report.unit_length),
                             unit_scale=str(report.unit_scale),
                             unit_invert_u=str(report.unit_invert_u),
-                            unit_invert_v=str(report.unit_invert_v))
+                            unit_invert_v=str(report.unit_invert_v),
+                            unit_axis_order=report.unit_axis_order)
 
     # write xml
     tree = ET.ElementTree(root)
