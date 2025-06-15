@@ -73,8 +73,6 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
                 if not icon_base:
                     row.label(text="", translate=False, icon=icon_name)
                 success, msg, _ = get_data_layer_info(item, data.data_layers)
-                if not success:
-                    print(msg)
                 row.label(text="", translate=False, icon="CHECKMARK" if success else "ERROR")
             else:
                 layout.label(text="", translate=False, icon="X")
@@ -635,7 +633,7 @@ class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         report = scene.DataBakerReport
-        
+
         if report.data_layers and (report.data_layers_selected_index < len(report.data_layers)):
             data_layer = report.data_layers[report.data_layers_selected_index]
 
@@ -654,7 +652,7 @@ class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
                     row = layout.row()
                     row.label(text="Packing: None")
                     row.enabled = False
-                
+
                 layout.template_list("DATABAKER_UL_ReportDataSubList", "", data_layer, "packed_layers", data_layer, "packed_layers_selected_index", rows=3)
 
                 if data_layer.packed_layers_selected_index < len(data_layer.packed_layers):
@@ -665,6 +663,10 @@ class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
                         layer_remapped = False
 
                         if packed_data_layer.packing_mode == "FRACTION" or packed_data_layer.packing_mode == "XY" or packed_data_layer.packing_mode == "XYZ":
+                            layer_remapped = True
+                        elif packed_data_layer.packing_mode == "NORMAL" or packed_data_layer.packing_mode == "VCOL": # @NOTE unsure about this. Should it be data_layer.packed_mode?!
+                            layer_remapped = not data_layer.range_unit_vector
+                        elif data_layer.packed_mode == "FRACTION" or data_layer.packed_mode == "XY" or data_layer.packed_mode == "XYZ":
                             layer_remapped = True
 
                         row = layout.row()
@@ -682,7 +684,7 @@ class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
                             row.enabled = False
 
                         row = layout.row()
-                        row.label(text="Offset: %.5f" % data_layer.range_offset[data_layer.packed_layers_selected_index], icon="DOT")
+                        row.label(text="Offset: %.5f" % data_layer.range_offset[data_layer.packed_layers_selected_index], icon="DOT") # @TODO this has to be data_layer.packed_layers_selected_index but also report.data_layers_selected_index at times?!
                         row.enabled = layer_remapped
                         row = layout.row()
                         row.label(text="Range: %.5f" % data_layer.range[data_layer.packed_layers_selected_index], icon=icon)
@@ -690,7 +692,7 @@ class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
 
                         if packed_data_layer.packing_mode == "NORMAL":
                             row = layout.row()
-                            row.label(text=str(data_layer.range_unit_vector))
+                            row.label(text="Is Unit: " + str(data_layer.range_unit_vector))
 
 class DATABAKER_PT_ReportMeshPanel(bpy.types.Panel):
     bl_idname = "DATABAKER_PT_reportmeshpanel"
@@ -819,5 +821,5 @@ class DATABAKER_PT_ReportUnitPanel(bpy.types.Panel):
         row.enabled = report.unit_invert_z
 
         row = layout.row()
-        row.label(report, "unit_axis_order")
+        row.prop(report, "unit_axis_order")
         row.enabled = False

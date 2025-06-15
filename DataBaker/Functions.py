@@ -164,10 +164,13 @@ def clear_bake_layer_report(data_layer) -> bool:
     return False
 
 def edit_bake_layer_report_range_offset(data_layer, prop_value: mathutils.Vector = mathutils.Vector((0.0, 0.0, 0.0))) -> bool:
-    return edit_bake_layer_report_range_prop(data_layer, prop_value, "min")
+    return edit_bake_layer_report_range_prop(data_layer, prop_value, "range_offset")
 
 def edit_bake_layer_report_range(data_layer, prop_value: mathutils.Vector = mathutils.Vector((0.0, 0.0, 0.0))) -> bool:
-    return edit_bake_layer_report_range_prop(data_layer, prop_value, "max")
+    return edit_bake_layer_report_range_prop(data_layer, prop_value, "range")
+
+def edit_bake_layer_report_range_valid(data_layer, prop_value: bool) -> bool:
+    return edit_bake_layer_report_range_prop(data_layer, prop_value, "range_valid")
 
 def edit_bake_layer_report_range_prop(data_layer, value, prop_name: str = "range_offset") -> bool:
     """ """
@@ -613,7 +616,7 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
             eval_obj_to_bake["BakedSource"] = obj_to_bake
             eval_obj_to_bake.id_properties_ensure()
             property_manager = eval_obj_to_bake.id_properties_ui("BakedSource")
-            property_manager.update(id_type="OBJECT") # @NOTE dirty hack to prevent weird UI bug
+            property_manager.update(id_type="OBJECT") # dirty hack to prevent weird UI bug
 
             source_objs_to_eval[obj_to_bake] = eval_obj_to_bake
 
@@ -1270,7 +1273,7 @@ def get_data_layer_obj_source_obj(data_layer: object, obj: bpy.types.Object) -> 
             if parent.parent:
                 parent = parent.parent
             else:
-                return obj.get("BakedSource", obj) # @NOTE fall back to self?
+                return obj.get("BakedSource", obj) # fall back to self?
 
         return parent
     # source object
@@ -1466,7 +1469,10 @@ def bake_data_layer_vcol(context, eval_objs_to_bake, data_layers_vcols):
 
             """ 3. get min/max """
             data_to_bake_min = get_bake_layer_report_range_offset(data_layer_vcol)
-            data_to_bake_max = get_bake_layer_report_range(data_layer_vcol)
+            data_to_bake_max = get_bake_layer_report_range(data_layer_vcol) + data_to_bake_min
+
+            is_unit = True if data_to_bake_min == 0 and data_to_bake_max == 1 else False
+            edit_bake_layer_report_range_prop(data_layer_vcol, is_unit, "range_unit_vector")
 
             """ 4. bake """
             for loop_id in eval_mesh.loops:
@@ -1511,7 +1517,7 @@ def bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals):
     """
     2. for each mesh, gather data to bake from its attributes and for each normal, compute the XYZ vector to
     store in the normal to check if said vector is of unit length. We sadly need to know this ahead of time
-    before actually iterating meshes, and it's far from ideal... @NOTE find more elegant solution
+    before actually iterating meshes, and it's far from ideal...
     """
     unit_normal = True
     for eval_obj_to_bake_index, eval_obj_to_bake in enumerate(eval_objs_to_bake):
@@ -1613,7 +1619,7 @@ def bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals):
                     datas[2] = data
 
         """
-        5. build normal buffer @NOTE find a more elegant solution
+        5. build normal buffer
         """
         num_normals = len(eval_mesh.loops)
         normals = [None] * num_normals
@@ -1650,9 +1656,17 @@ def bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals):
                 normal[index_to_derive] = math.sqrt(1.0 - min(1.0, max(0.0, flat_normal.dot(flat_normal))))
 
         """
+        7.1. it's critical to account for mesh orientation! normals are set in local space and thus are rotated based on
+        the mesh's orientation so normal has to be oriented by the inverse of the upcoming rotation change
+        """
+        for i, _ in enumerate(normals):
+            normals[i] = eval_obj_to_bake.matrix_world.inverted().to_quaternion() @ normals[i]
+
+        """
         8. bake!
         """
         eval_mesh.normals_split_custom_set(normals)
+
     """
     9. modify report
     """
@@ -1660,10 +1674,13 @@ def bake_data_layer_normal(context, eval_objs_to_bake, data_layers_normals):
         for data_layer_normal, layer_info in data_layers_normals:
             edit_bake_layer_report_range_offset(data_layer_normal, mathutils.Vector((0.0, 0.0, 0.0)))
             edit_bake_layer_report_range(data_layer_normal, mathutils.Vector((1.0, 1.0, 1.0)))
+            edit_bake_layer_report_range_valid(data_layer_normal, True)
     else:
         for data_layer_normal, layer_info in data_layers_normals:
             edit_bake_layer_report_range_offset(data_layer_normal, mathutils.Vector((global_average.x, global_average.y, global_average.z if layer_z_available else 0.0)) * signed_axis)
             edit_bake_layer_report_range(data_layer_normal, mathutils.Vector((global_radius, global_radius, global_radius if layer_z_available else 0.0)))
+            range_valid = abs(global_average.x - global_radius) > 0.0001 and abs(global_average.y - global_radius) > 0.0001 and abs(global_average.z - global_radius) > 0.0001
+            edit_bake_layer_report_range_valid(data_layer_normal, range_valid)
 
             if not layer_z_available and data_layer_normal.normal_xyz == "Z":
                 clear_bake_layer_report(data_layer_normal)
@@ -1697,10 +1714,12 @@ def pre_bake_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
-            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
         eval_obj_source_loc = eval_obj_source_mat.to_translation()
 
         vector_to_bake = eval_obj_source_loc * signed_scale
+        if settings.unit_axis_order != "XYZ":
+                vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
         if data_layer.component == "X":
             data_to_bake = vector_to_bake.x
@@ -1736,10 +1755,6 @@ def pre_bake_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
     """
     settings = context.scene.DataBakerSettings
 
-    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
-                                    -1.0 if settings.unit_invert_y else 1.0,
-                                    -1.0 if settings.unit_invert_z else 1.0))
-
     bake_range_values = []
 
     for eval_obj_to_bake in eval_objs_to_bake:
@@ -1749,20 +1764,23 @@ def pre_bake_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
         eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
-            eval_obj_source_mat = eval_obj_source_mat @ settings.origin_obj.matrix_world.inverted()
-        eval_obj_source_euler = eval_obj_source_mat.to_euler()
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
+
+        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                    (-1 if settings.unit_invert_y else 1),
+                                                    (-1 if settings.unit_invert_z else 1), 1))
+        eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
+        eval_obj_source_mat = eval_obj_source_mat.to_3x3()
 
         if data_layer.axis == "X":
-            axis = mathutils.Vector((1.0, 0.0, 0.0))
+            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((1.0, 0.0, 0.0))
         elif data_layer.axis == "Y":
-            axis = mathutils.Vector((0.0, 1.0, 0.0))
-        elif data_layer.axis == "Z":
-            axis = mathutils.Vector((0.0, 0.0, 1.0))
-        else:
-            axis = mathutils.Vector((0.0, 0.0, 0.0))
+            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 1.0, 0.0))
+        else: # Z
+            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 0.0, 1.0))
 
-        axis.rotate(eval_obj_source_euler)
-        vector_to_bake = axis * signed_axis
+        if settings.unit_axis_order != "XYZ":
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
         if data_layer.component == "X":
             data_to_bake = vector_to_bake.x
@@ -1948,7 +1966,7 @@ def pre_bake_mask(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
             world_axis = mathutils.Vector((0.0, 0.0, 0.0))
 
         if settings.origin_obj:
-            world_axis = settings.origin_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj
+            world_axis = settings.origin_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj @TODO
 
         return pre_bake_mask_linear(dgraph, data_layer, eval_objs_to_bake, "BakedSource", origin_mode, signed_scale, world_axis)
     else:
@@ -2881,7 +2899,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str) -> tuple[b
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
         # export selection and assume selection was properly handled outside of this function
-        bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_animation=True, bake_space_animation=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
+        bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
     else:
         return (False, msg, None)
 

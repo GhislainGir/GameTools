@@ -248,22 +248,18 @@ class DATABAKER_PG_Report(PropertyGroup):
         ("ZXY", "ZXY", "ZXY"),
         ("ZYX", "ZYX", "ZYX"),
     ]
-    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)") # @TODO implement & expose in panel & add to report & write to xml
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
 
     packing_precision: FloatProperty(name="Precision", min=0.001, max=0.999, default=0.99, description="")
 
     mesh: PointerProperty(type=bpy.types.Object, description="")
+    mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
     mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
     xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
 
-    mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="") # @TODO duplicate?!
-    unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="") # @TODO duplicate?!
-    unit_invert_x: BoolProperty(name="Invert X", default=False, description="") # @TODO duplicate?!
-    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="") # @TODO duplicate?!
-    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="") # @TODO duplicate?!
     origin_obj: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
 
     export_mesh: BoolProperty(name="Export", default=True, description="")
