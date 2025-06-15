@@ -105,6 +105,7 @@ class VATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.offset_tex_file_name',
         'settings.normal_tex',
         'settings.normal_tex_remap',
+        'settings.normal_tex_remap_biasscale',
         'settings.normal_tex_file_name',
         'settings.export_tex',
         'settings.export_tex_file_path',

@@ -226,8 +226,11 @@ class VATBAKER_PT_MeshMainPanel(bpy.types.Panel):
             panel_header.label(text="Previz")
         if panel_body:
             row = panel_body.row()
-            row.prop(settings, "previz_result", text="Anim")
-            row.prop(settings, "previz_bounds", text="Bounds")
+            col = row.split()
+            col.prop(settings, "previz_result", text="Anim")
+            col.enabled = False
+            col = row.split()
+            col.prop(settings, "previz_bounds", text="Bounds")
 
 
 class VATBAKER_PT_MeshUVPanel(bpy.types.Panel):
@@ -401,6 +404,8 @@ class VATBAKER_PT_TexNormalPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "normal_tex_remap")
+        row.prop(settings, "normal_tex_remap_biasscale")
+        row.enabled = settings.normal_tex_remap
 
 class VATBAKER_PT_TexExportPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_texexportpanel"
@@ -618,14 +623,26 @@ class VATBAKER_PT_ReportTexPanel(bpy.types.Panel):
 
             if report.tex_offset_remapped:
                 row = layout.row()
-                row.label(text="Remapping")
+                row.label(text="Offset")
                 
                 row = layout.row()
-                row.label(text="X: " + str(report.tex_offset_remapping[0]), icon="DOT")
+                row.label(text="X: " + str(report.tex_offset_range_offset[0]), icon="DOT")
                 row = layout.row()
-                row.label(text="Y: " + str(report.tex_offset_remapping[1]), icon="DOT")
+                row.label(text="Y: " + str(report.tex_offset_range_offset[1]), icon="DOT")
                 row = layout.row()
-                row.label(text="Z: " + str(report.tex_offset_remapping[2]), icon="DOT")
+                row.label(text="Z: " + str(report.tex_offset_range_offset[2]), icon="DOT")
+
+                row.separator()
+
+                row = layout.row()
+                row.label(text="Range")
+                
+                row = layout.row()
+                row.label(text="X: " + str(report.tex_offset_range[0]), icon="DOT")
+                row = layout.row()
+                row.label(text="Y: " + str(report.tex_offset_range[1]), icon="DOT")
+                row = layout.row()
+                row.label(text="Z: " + str(report.tex_offset_range[2]), icon="DOT")
 
             row = layout.row()
             if report.tex_offset_mode == "OFFSET":
@@ -656,6 +673,30 @@ class VATBAKER_PT_ReportTexPanel(bpy.types.Panel):
             row = layout.row()
             row.label(text="Remapped: " + str(report.tex_normal_remapped), icon=icon)
             row.enabled = report.tex_normal_remapped
+
+            if report.tex_normal_remapped:
+                row = layout.row()
+                row.label(text="Offset")
+                
+                row = layout.row()
+                row.label(text="X: " + str(report.tex_normal_range_offset[0]), icon="DOT")
+                row = layout.row()
+                row.label(text="Y: " + str(report.tex_normal_range_offset[1]), icon="DOT")
+                row = layout.row()
+                row.label(text="Z: " + str(report.tex_normal_range_offset[2]), icon="DOT")
+
+                row.separator()
+
+                row = layout.row()
+                row.label(text="Range")
+                
+                row = layout.row()
+                row.label(text="X: " + str(report.tex_normal_range[0]), icon="DOT")
+                row = layout.row()
+                row.label(text="Y: " + str(report.tex_normal_range[1]), icon="DOT")
+                row = layout.row()
+                row.label(text="Z: " + str(report.tex_normal_range[2]), icon="DOT")
+
         else:
             row.label(text="None generated", icon="X")
 
@@ -964,5 +1005,5 @@ class VATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
         row.enabled = report.unit_invert_z
 
         row = layout.row()
-        row.label(report, "unit_axis_order")
+        row.prop(report, "unit_axis_order")
         row.enabled = False
