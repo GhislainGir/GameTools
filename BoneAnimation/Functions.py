@@ -469,67 +469,6 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     fp = cast(cp, POINTER(c_float))
     return fp.contents.value
 
-def get_axis_inverted_matrix(settings: object, matrix: mathutils.Matrix) -> mathutils.Matrix:
-    """ """
-    if settings.unit_invert_x:
-        flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
-        matrix = flip_x @ matrix @ flip_x
-
-    if settings.unit_invert_y:
-        flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
-        matrix = flip_y @ matrix @ flip_y
-
-    if settings.unit_invert_z:
-        flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
-        matrix = flip_z @ matrix @ flip_z
-    return matrix
-
-def get_swizzled_matrix(unit_axis_order: str, matrix: mathutils.Matrix) -> mathutils.Matrix:
-    """ """
-
-    if unit_axis_order == "XYZ":
-        basis_matrix = mathutils.Matrix([[1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]])
-    elif unit_axis_order == "XZY":
-        basis_matrix = mathutils.Matrix([[1,0,0,0], [0,0,1,0], [0,1,0,0], [0,0,0,1]])
-    elif unit_axis_order == "YXZ":
-        basis_matrix = mathutils.Matrix([[0,1,0,0], [1,0,0,0], [0,0,1,0], [0,0,0,1]])
-    elif unit_axis_order == "YZX":
-        basis_matrix = mathutils.Matrix([[0,1,0,0], [0,0,1,0], [1,0,0,0], [0,0,0,1]])
-    elif unit_axis_order == "ZXY":
-        basis_matrix = mathutils.Matrix([[0,0,1,0], [1,0,0,0], [0,1,0,0], [0,0,0,1]])
-    else: # ZYX
-        basis_matrix = mathutils.Matrix([[0,0,1,0], [0,1,0,0], [1,0,0,0], [0,0,0,1]])
-    
-    return basis_matrix @ matrix @ basis_matrix.inverted()
-
-def get_swizzled_vector(settings: object, unit_axis_order: str, vector: mathutils.Vector) -> mathutils.Vector:
-    """ """
-
-    if settings.unit_invert_x:
-        flip_x = mathutils.Matrix.Scale(-1, 4, (1,0,0))
-        matrix = flip_x @ matrix @ flip_x
-
-    if settings.unit_invert_y:
-        flip_y = mathutils.Matrix.Scale(-1, 4, (0,1,0))
-        matrix = flip_y @ matrix @ flip_y
-
-    if settings.unit_invert_z:
-        flip_z = mathutils.Matrix.Scale(-1, 4, (0,0,1))
-        matrix = flip_z @ matrix @ flip_z
-
-    if unit_axis_order == "XYZ":
-        return mathutils.Vector((vector.x, vector.y, vector.z))
-    elif unit_axis_order == "XZY":
-        return mathutils.Vector((vector.x, vector.z, vector.y))
-    elif unit_axis_order == "YXZ":
-        return mathutils.Vector((vector.y, vector.x, vector.z))
-    elif unit_axis_order == "YZX":
-        return mathutils.Vector((vector.y, vector.z, vector.x))
-    elif unit_axis_order == "ZXY":
-        return mathutils.Vector((vector.z, vector.x, vector.y))
-    else: # ZYX
-        return mathutils.Vector((vector.z, vector.y, vector.x))
-
 ############
 ### BAKE ###
 def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, list, int]:
@@ -1186,8 +1125,6 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
         add_bake_report("padding", 0)
         add_bake_report("padding_mode", "SUFFIX")
 
-        print(frames_to_bake_indices)
-
         # if frame range isn't derived from NLA track(s)...
         frame_nla_strips = []
         for frame in frames_to_bake_indices:
@@ -1252,7 +1189,11 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
         add_bake_report("frame_ref_mode", settings.frame_ref_mode)
         add_bake_report("frame_ref", ref_frame)
 
+        if settings.frame_ref_padding:
+            frames_to_bake.insert(0, end_frame) # insert last frame before first frame
         frames_to_bake.insert(0, ref_frame) # insert ref frame
+        if settings.frame_ref_padding:
+            frames_to_bake.append(start_frame) # insert first frame after last frame
 
         return (True, "", (frames_to_bake, start_frame, end_frame, ref_frame))
 
@@ -2617,7 +2558,8 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
                                                      (-1 if settings.unit_invert_z else 1), 1))
             pose_mat = sign_matrix @ pose_mat @ sign_matrix
             vector_to_bake = pose_mat.to_3x3().to_scale()
-            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in texture_channel.unit_axis_order])
+            if settings.unit_axis_order != "XYZ":
+                vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
             if texture_channel.component == "X":
                 data_to_bake = vector_to_bake.x
@@ -2672,6 +2614,9 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
                 vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 1.0, 0.0))
             else: # Z
                 vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, 1.0))
+
+            if settings.unit_axis_order != "XYZ":
+                vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
             if not texture_channel.axis_scaled:
                 vector_to_bake.normalize()
@@ -2870,7 +2815,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
 
     image = bpy.data.images.get(image_name, None)
     if image is not None and bpy.data.is_saved:
-        if image.packed_file:
+        if image.packed_file and bpy.data.is_saved:
             image.unpack()
         bpy.data.images.remove(image) # remove image if it exists
 
@@ -2880,7 +2825,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     image.use_half_precision = False
     image.pixels = buffer
     image.use_fake_user = True
-    if bpy.data.is_saved:
+    if bpy.data.is_saved and bpy.data.is_saved:
         image.pack()
 
     return (True, "", image)
@@ -3141,7 +3086,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                              padded=str(report.num_frames_padded),
                              padding=str(report.padding),
                              rate=str(report.frame_rate),
-                             ref=str(report.frame_ref))
+                             ref=str(report.frame_ref),
+                             ref_padding=str(report.frame_ref_padding))
 
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""

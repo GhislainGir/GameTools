@@ -224,9 +224,11 @@ class BATBAKER_PT_MeshMainPanel(bpy.types.Panel):
             panel_header.label(text="Previz")
         if panel_body:
             row = panel_body.row()
-            row.prop(settings, "previz_result", text="Anim")
-            row.enabled = False
-            row.prop(settings, "previz_bounds", text="Bounds")
+            col = row.split()
+            col.prop(settings, "previz_result", text="Anim")
+            col.enabled = False
+            col = row.split()
+            col.prop(settings, "previz_bounds", text="Bounds")
 
 class BATBAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_idname = "BATBAKER_PT_meshuvpanel"

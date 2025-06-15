@@ -428,6 +428,7 @@ class BATBAKER_PG_Report(PropertyGroup):
     padding_mode: StringProperty(name="Sampling", default="", description="")
     frame_ref_mode: StringProperty(name="Frame Ref Mode", default="", description="")
     frame_ref: IntProperty(name="Frame Ref", default=1, description="")
+    frame_ref_padding: BoolProperty(name="Ref Padding", default=False, description="")
     anims: CollectionProperty(type=BATBAKER_PG_ReportAnim)
     selected_anim: IntProperty(name="Selected Anim", default=0, description="")
 

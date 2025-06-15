@@ -67,6 +67,7 @@ class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.frame_range_custom_end',
         'settings.frame_range_custom_step',
         'settings.frame_range_custom_step_mode',
+        'settings.frame_ref_padding',
         'settings.frame_padding_mode',
         'settings.frame_padding',
         'settings.frame_ref_mode',
