@@ -50,7 +50,8 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("depth_limit_use", settings.depth_limit_use)
     add_bake_report("depth_limit", settings.depth_limit)
     add_bake_report("use_pivot_painter_packing", settings.use_pivot_painter_packing)
-    
+    add_bake_report("use_8bit_packing", settings.use_8bit_packing)
+
 def reset_bake_report():
     """
     Reset all properties stored in the bake report to their default values
@@ -79,6 +80,7 @@ def reset_bake_report():
     report.depth_limit_use = False
     report.depth_limit = 0
     report.use_pivot_painter_packing = False
+    report.use_8bit_packing = False
 
     report.tex_width = 0
     report.tex_height = 0
@@ -588,6 +590,9 @@ def pre_process_bake_selection(context: bpy.types.Context, objs_to_bake: list) -
                 obj["ObjectAttributesHierarchyIndex"] = element_index
                 element_index += 1
 
+    if element_index > 256 and (settings.use_8bit_packing and not settings.use_pivot_painter_packing):
+        return (False, "There are more than 256 elements to bake. Indices can't be packed using 8-bit packing", eval_objs_to_bake, element_index)
+
     return (True, "", eval_objs_to_bake, element_index)
 
 def post_process_bake_selection(context: bpy.types.Context, eval_objs_to_bake: list, tex_width: int, tex_height: int) -> tuple[bool, str]:
@@ -896,7 +901,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
     :param eval_objs_to_bake: List of duplicated objects (evaluated). Length & order must match source_objs'
     :param tex_width: OA's texture width
     :param tex_height: OA's texture height
-    :param attr_buffer_length: length of attribute buffer to create @TODO this shouldn't be necessary. width/height do the job?
+    :param attr_buffer_length: length of attribute buffer to create
     :return: buffer (one set of RGBA values per object)
     :rtype: list
     """
@@ -913,7 +918,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
     buffer_ranges = [1.0] * 4
     buffer_ranges_valid = [False] * 4
 
-    for texture_channel_index, texture_channel in enumerate(texture_channels): # @NOTE performance
+    for texture_channel_index, texture_channel in enumerate(texture_channels):
         if texture_channel is None:
             continue
 
@@ -937,7 +942,10 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
                     obj_attr_buffer = [((data - buffer_min) / buffer_range) for data in obj_attr_buffer]
 
             for attr_index in range(len(obj_attr_buffer)):
-                buffer[(attr_index * 4) + texture_channel_index] = obj_attr_buffer[attr_index]
+                try:
+                    buffer[(attr_index * 4) + texture_channel_index] = obj_attr_buffer[attr_index]
+                except:
+                    break
 
     return (buffer, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid)
 
@@ -1071,22 +1079,22 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
 
         # output position relative to parent, if desired
         if texture_channel.reference_mode == "REL_PARENT" and uneval_obj_source.parent:
-            eval_obj_source = uneval_obj_source.parent.evaluated_get(dgraph)
-            eval_obj_source_mat = eval_obj_source.matrix_world
+            eval_obj_source_parent = uneval_obj_source.parent.evaluated_get(dgraph)
+            eval_obj_source_parent_mat = eval_obj_source_parent.matrix_world
             if settings.origin_obj:
-                eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
-            eval_obj_source_loc -= eval_obj_source_mat.to_translation()
+                eval_obj_source_parent_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_parent_mat
+            eval_obj_source_loc -= eval_obj_source_parent_mat.to_translation()
 
         vector_to_bake = eval_obj_source_loc * signed_scale
+        if settings.unit_axis_order != "XYZ":
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
         if texture_channel.component == "X":
             data_to_bake = vector_to_bake.x
         elif texture_channel.component == "Y":
             data_to_bake = vector_to_bake.y
-        elif texture_channel.component == "Z":
+        else: # Z
             data_to_bake = vector_to_bake.z
-        else:
-            data_to_bake = 0.0
 
         try:
             obj_attr_buffer[index] = data_to_bake
@@ -1109,11 +1117,6 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
     """
     settings = context.scene.ObjectAttributesSettings
 
-    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
-                                    -1.0 if settings.unit_invert_y else 1.0,
-                                    -1.0 if settings.unit_invert_z else 1.0))
-    signed_scale = signed_axis * settings.unit_scale
-
     obj_attr_buffer = [0.0] * attr_buffer_length
     for eval_obj_to_bake in eval_objs_to_bake:
         if "ObjectAttributesHierarchyIndex" in eval_obj_to_bake:
@@ -1129,25 +1132,27 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
 
         # output axis relative to parent, if desired
         if texture_channel.reference_mode == "REL_PARENT" and uneval_obj_source.parent:
-            eval_obj_source_rel = uneval_obj_source.parent.evaluated_get(dgraph)
-            eval_obj_source_rel_mat = eval_obj_source_rel.matrix_world
+            eval_obj_source_parent = uneval_obj_source.parent.evaluated_get(dgraph)
+            eval_obj_source_parent_mat = eval_obj_source_parent.matrix_world
             if settings.origin_obj:
-                eval_obj_source_rel_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_rel_mat
-            eval_obj_source_mat = eval_obj_source_rel_mat.inverted() @ eval_obj_source_rel_mat
+                eval_obj_source_parent_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_parent_mat
+            eval_obj_source_mat = eval_obj_source_mat @ eval_obj_source_parent_mat.inverted()
 
-        eval_obj_source_euler = eval_obj_source_mat.to_euler()
+        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                    (-1 if settings.unit_invert_y else 1),
+                                                    (-1 if settings.unit_invert_z else 1), 1))
+        eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
+        eval_obj_source_mat = eval_obj_source_mat.to_3x3()
 
         if texture_channel.axis == "X":
-            axis = mathutils.Vector((1.0, 0.0, 0.0))
+            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((1.0, 0.0, 0.0))
         elif texture_channel.axis == "Y":
-            axis = mathutils.Vector((0.0, 1.0, 0.0))
-        elif texture_channel.axis == "Z":
-            axis = mathutils.Vector((0.0, 0.0, 1.0))
-        else:
-            axis = mathutils.Vector((0.0, 0.0, 0.0))
+            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 1.0, 0.0))
+        else: # Z
+            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 0.0, 1.0))
 
-        axis.rotate(eval_obj_source_euler)
-        vector_to_bake = axis * signed_axis
+        if settings.unit_axis_order != "XYZ":
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
         if texture_channel.component == "X":
             data_to_bake = vector_to_bake.x
@@ -1182,7 +1187,6 @@ def texture_buffer_scale(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
     signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
                                     -1.0 if settings.unit_invert_y else 1.0,
                                     -1.0 if settings.unit_invert_z else 1.0))
-    signed_scale = signed_axis * settings.unit_scale
 
     obj_attr_buffer = [0.0] * attr_buffer_length
     for eval_obj_to_bake in eval_objs_to_bake:
@@ -1200,16 +1204,20 @@ def texture_buffer_scale(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
 
         # output scale relative to parent, if desired
         if texture_channel.reference_mode == "REL_PARENT" and uneval_obj_source.parent:
-            eval_obj_source_rel = uneval_obj_source.parent.evaluated_get(dgraph)
-            eval_obj_source_rel_mat = eval_obj_source_rel.matrix_world
+            eval_obj_source_parent = uneval_obj_source.parent.evaluated_get(dgraph)
+            eval_obj_source_parent_mat = eval_obj_source_parent.matrix_world
             if settings.origin_obj:
-                eval_obj_source_rel_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_rel_mat
-            eval_obj_source_rel_mat = eval_obj_source_rel_mat.to_scale()
-            eval_obj_source_scale.x /= eval_obj_source_rel_mat.x
-            eval_obj_source_scale.y /= eval_obj_source_rel_mat.y
-            eval_obj_source_scale.z /= eval_obj_source_rel_mat.z
+                eval_obj_source_parent_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_parent_mat
+            eval_obj_source_parent_mat = eval_obj_source_parent_mat.to_scale()
+            eval_obj_source_scale.x /= eval_obj_source_parent_mat.x
+            eval_obj_source_scale.y /= eval_obj_source_parent_mat.y
+            eval_obj_source_scale.z /= eval_obj_source_parent_mat.z
 
-        vector_to_bake = eval_obj_source_scale * signed_axis
+        # @NOTE I think we want to skip inversion here. It doesn't make sense to output negative scale in Y by default for exporting to UE?
+        #vector_to_bake = eval_obj_source_scale * signed_axis
+        vector_to_bake = eval_obj_source_scale
+        if settings.unit_axis_order != "XYZ":
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
         if texture_channel.component == "X":
             data_to_bake = vector_to_bake.x
@@ -1258,24 +1266,26 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
         eval_obj_source_mat = eval_obj_source.matrix_world
         if settings.origin_obj:
             eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
-        eval_obj_source_loc = eval_obj_source_mat.to_translation()
-        eval_obj_source_euler = eval_obj_source_mat.to_euler()
+
+        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                     (-1 if settings.unit_invert_y else 1),
+                                                     (-1 if settings.unit_invert_z else 1), 1))
+        eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
 
         if texture_channel.axis == "X":
-            axis = mathutils.Vector((1.0, 0.0, 0.0))
+            vector_to_bake = eval_obj_source_mat.to_3x3() @ mathutils.Vector((1.0, 0.0, 0.0))
         elif texture_channel.axis == "Y":
-            axis = mathutils.Vector((0.0, 1.0, 0.0))
-        elif texture_channel.axis == "Z":
-            axis = mathutils.Vector((0.0, 0.0, 1.0))
-        else:
-            axis = mathutils.Vector((0.0, 0.0, 0.0))
+            vector_to_bake = eval_obj_source_mat.to_3x3() @ mathutils.Vector((0.0, 1.0, 0.0))
+        else: # Z
+            vector_to_bake = eval_obj_source_mat.to_3x3() @ mathutils.Vector((0.0, 0.0, 1.0))
 
-        axis.rotate(eval_obj_source_euler)
-        axis *= signed_axis
+        if settings.unit_axis_order != "XYZ":
+            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
         eval_mesh_source = uneval_obj_source.to_mesh()
-        eval_mesh_source.transform(eval_obj_source.matrix_world)
-        vertices_delta = [((vertex.co - eval_obj_source_loc) * signed_scale).dot(axis) for vertex in eval_mesh_source.vertices]
+        eval_mesh_source.transform(eval_obj_source_mat)
+        eval_obj_source_loc = eval_obj_source_mat.to_translation()
+        vertices_delta = [((vertex.co - eval_obj_source_loc) * settings.unit_scale).dot(vector_to_bake) for vertex in eval_mesh_source.vertices]
         data_to_bake = abs(max(vertices_delta, key=abs))
 
         uneval_obj_source.to_mesh_clear()
@@ -1333,6 +1343,8 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
 
         if settings.use_pivot_painter_packing:
             parent_hierarchy_index = get_bitpacked_integer(parent_hierarchy_index)
+        elif settings.use_8bit_packing:
+            parent_hierarchy_index /= 255
 
         try:
             obj_attr_buffer[index] = parent_hierarchy_index
@@ -1363,12 +1375,27 @@ def texture_buffer_custom_prop(context: bpy.types.Context, dgraph: bpy.types.Dep
             continue
 
         uneval_obj_source = get_texture_buffer_obj_source_obj(texture_channel, eval_obj_to_bake, settings.depth_limit_use, settings.depth_limit)
-        if texture_channel.name != "" and texture_channel.name in uneval_obj_source:
-            custom_prop = uneval_obj_source[texture_channel.name]
-            if not isinstance(custom_prop, float) and not isinstance(custom_prop, int):
-               continue
-        else:
-            continue
+        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+
+        if texture_channel.custom_prop_mode == "OBJECT":
+            if texture_channel.name != "" and texture_channel.name in eval_obj_source:
+                custom_prop = eval_obj_source[texture_channel.name]
+                if not isinstance(custom_prop, float) and not isinstance(custom_prop, int):
+                    continue
+            else:
+                continue
+        else: # MESH
+            eval_mesh_source = eval_obj_source.to_mesh()
+            if texture_channel.name != "" and texture_channel.name in eval_mesh_source:
+                custom_prop = eval_mesh_source[texture_channel.name]
+                if not isinstance(custom_prop, float) and not isinstance(custom_prop, int):
+                    eval_obj_source.to_mesh_clear()
+                    continue
+            else:
+                eval_obj_source.to_mesh_clear()
+                continue
+
+            eval_obj_source.to_mesh_clear()
 
         data_to_bake = custom_prop
 
@@ -1408,51 +1435,21 @@ def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Deps
 
         # output axis relative to parent, if desired
         if texture_channel.reference_mode == "REL_PARENT" and uneval_obj_source.parent:
-            eval_obj_source_rel = uneval_obj_source.parent.evaluated_get(dgraph)
-            eval_obj_source_rel_mat = eval_obj_source_rel.matrix_world
+            eval_obj_source_parent = uneval_obj_source.parent.evaluated_get(dgraph)
+            eval_obj_source_parent_mat = eval_obj_source_parent.matrix_world
             if settings.origin_obj:
-                eval_obj_source_rel_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_rel_mat
-            eval_obj_source_mat = eval_obj_source_rel_mat.inverted() @ eval_obj_source_rel_mat
+                eval_obj_source_parent_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_parent_mat
+            eval_obj_source_mat = eval_obj_source_mat @ eval_obj_source_parent_mat.inverted()
 
-        eval_obj_source_mat_3x3 = eval_obj_source_mat.to_3x3()
-        eval_obj_source_mat_3x3_ordered = eval_obj_source_mat_3x3
-        
-        # reorder axes if desired @TODO check?! is this needed?
-        if texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "XZY":
-            eval_obj_source_mat_3x3_ordered[0] = eval_obj_source_mat_3x3[0]
-        elif texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "ZXY":
-            eval_obj_source_mat_3x3_ordered[0] = eval_obj_source_mat_3x3[1]
-        elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "ZYX":
-            eval_obj_source_mat_3x3_ordered[0] = eval_obj_source_mat_3x3[2]
+        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                     (-1 if settings.unit_invert_y else 1),
+                                                     (-1 if settings.unit_invert_z else 1), 1))
+        rot_matrix = sign_matrix @ eval_obj_source_mat @ sign_matrix
 
-        if texture_channel.quat_xyz_order == "YXZ" or texture_channel.quat_xyz_order == "YZX":
-            eval_obj_source_mat_3x3_ordered[1] = eval_obj_source_mat_3x3[0]
-        elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "ZYX":
-            eval_obj_source_mat_3x3_ordered[1] = eval_obj_source_mat_3x3[1]
-        elif texture_channel.quat_xyz_order == "ZXY" or texture_channel.quat_xyz_order == "XZY":
-            eval_obj_source_mat_3x3_ordered[1] = eval_obj_source_mat_3x3[2]
-        
-        if texture_channel.quat_xyz_order == "ZYX" or texture_channel.quat_xyz_order == "ZXY":
-            eval_obj_source_mat_3x3_ordered[2] = eval_obj_source_mat_3x3[0]
-        elif texture_channel.quat_xyz_order == "YZX" or texture_channel.quat_xyz_order == "XZY":
-            eval_obj_source_mat_3x3_ordered[2] = eval_obj_source_mat_3x3[1]
-        elif texture_channel.quat_xyz_order == "XYZ" or texture_channel.quat_xyz_order == "YXZ":
-            eval_obj_source_mat_3x3_ordered[2] = eval_obj_source_mat_3x3[2]
+        xyz_order = texture_channel.quat_xyz_order if texture_channel.override_xyz_order else settings.unit_axis_order
+        euler = rot_matrix.to_euler(xyz_order)
 
-        # create a reflection matrix that flips the X/Y/Z axes (apply the flip on both sides to preserve handedness)
-        if settings.unit_invert_x:
-            flip_x = mathutils.Matrix.Scale(-1, 3, (1,0,0))
-            eval_obj_source_mat_3x3_ordered = flip_x @ eval_obj_source_mat_3x3_ordered @ flip_x
-
-        if settings.unit_invert_y:
-            flip_y = mathutils.Matrix.Scale(-1, 3, (0,1,0))
-            eval_obj_source_mat_3x3_ordered = flip_y @ eval_obj_source_mat_3x3_ordered @ flip_y
-
-        if settings.unit_invert_z:
-            flip_z = mathutils.Matrix.Scale(-1, 3, (0,0,1))
-            eval_obj_source_mat_3x3_ordered = flip_z @ eval_obj_source_mat_3x3_ordered @ flip_z
-
-        eval_obj_source_quat = eval_obj_source_mat_3x3_ordered.to_quaternion()
+        eval_obj_source_quat = euler.to_quaternion()
 
         if texture_channel.quat == "X":
             data_to_bake = eval_obj_source_quat.x
@@ -1843,11 +1840,11 @@ def get_best_texture_resolution(context: bpy.types.Context, num_indices: int) ->
 
     if (settings.tex_force_power_of_two):
         tex_height = 2
-        while (tex_height < tex_width):
+        while (tex_height < math.ceil(num_indices / tex_width)):
             tex_height *= 2
     else:
         tex_height = math.ceil(num_indices / (tex_width))
-
+ 
     if tex_height > settings.export_tex_max_height:
          return (False, "Invalid Height", 0, 0)
 
@@ -1931,7 +1928,8 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     depth_el = ET.SubElement(root, "Depth",
                              depth_limit_use=str(report.depth_limit_use),
                              depth_limit=str(report.depth_limit),
-                             use_pivot_painter_packing=str(report.use_pivot_painter_packing)
+                             use_pivot_painter_packing=str(report.use_pivot_painter_packing),
+                             use_8bit_packing=str(report.use_8bit_packing)
                              )
 
     # mesh info

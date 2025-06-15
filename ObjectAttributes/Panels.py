@@ -108,6 +108,11 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
     
     #bl_options = {'DEFAULT_CLOSED'}
 
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.ObjectAttributesSettings
+        return settings.textures
+    
     def draw(self, context):
         layout = self.layout
         scene = context.scene
@@ -177,6 +182,9 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
                                 row.prop(texture_channel, "name")
 
                                 row = panel_body.row()
+                                row.prop(texture_channel, "custom_prop_mode")
+
+                                row = panel_body.row()
                                 row.prop(texture_channel, "obj_mode")
                             elif texture_channel.channel_mode == "QUATERNION":
                                 row = panel_body.row()
@@ -186,7 +194,11 @@ class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
                                 row.prop(texture_channel, "quat")
 
                                 row = panel_body.row()
-                                row.prop(texture_channel, "quat_xyz_order")
+                                col = row.split()
+                                col.prop(texture_channel, "override_xyz_order")
+                                col = row.split()
+                                col.prop(texture_channel, "quat_xyz_order")
+                                col.enabled = texture_channel.override_xyz_order
 
                                 row = panel_body.row()
                                 row.prop(texture_channel, "obj_mode")
@@ -227,7 +239,11 @@ class OBJECTATTRIBUTES_PT_HierarchyPanel(bpy.types.Panel):
         settings = scene.ObjectAttributesSettings
 
         row = layout.row()
-        row.prop(settings, "use_pivot_painter_packing")
+        col = row.split()
+        col.prop(settings, "use_pivot_painter_packing")
+        col = row.split()
+        col.prop(settings, "use_8bit_packing")
+        col.enabled = not settings.use_pivot_painter_packing
 
         layout.separator()
 
@@ -655,6 +671,9 @@ class OBJECTATTRIBUTES_PT_ReportTexPanel(bpy.types.Panel):
                             row.prop(texture_channel, "name")
 
                             row = panel_body.row()
+                            row.prop(texture_channel, "custom_prop_mode")
+
+                            row = panel_body.row()
                             row.prop(texture_channel, "obj_mode")
                         elif texture_channel.channel_mode == "QUATERNION":
                             row = panel_body.row()
@@ -664,7 +683,11 @@ class OBJECTATTRIBUTES_PT_ReportTexPanel(bpy.types.Panel):
                             row.prop(texture_channel, "quat")
 
                             row = panel_body.row()
-                            row.prop(texture_channel, "quat_xyz_order")
+                            col = row.split()
+                            col.prop(texture_channel, "override_xyz_order")
+                            col = row.split()
+                            col.prop(texture_channel, "quat_xyz_order")
+                            col.enabled = texture_channel.override_xyz_order
 
                             row = panel_body.row()
                             row.prop(texture_channel, "obj_mode")
@@ -828,5 +851,5 @@ class OBJECTATTRIBUTES_PT_ReportUnitPanel(bpy.types.Panel):
         row.enabled = report.unit_invert_z
 
         row = layout.row()
-        row.label(report, "unit_axis_order")
+        row.prop(report, "unit_axis_order")
         row.enabled = False

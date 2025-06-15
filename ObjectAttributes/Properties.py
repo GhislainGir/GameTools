@@ -30,7 +30,7 @@ class OBJECTATTRIBUTES_PG_SettingsTexChannel(PropertyGroup):
         ("SCALE", "Scale", "X/Y/Z component of the object's scale"),
         ("EXTENTS", "Extents", "Length of the object along its forward/right/up vector"),
         ("HIERARCHY", "Hierarchy", "Object's linear index in the hierarchy"),
-        ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
+        ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property (object property, not mesh/data-block property)"),
         ("QUATERNION", "Quaternion", "X/Y/Z/W component of the object's orientation, or the XYZW components bit-packed into a single float using the smallest-three method (which requires a 32-bit HDR texture!)")
     ]
     channel_mode: EnumProperty(items=channel_modes, name="Mode", default="NONE", description="")
@@ -66,6 +66,7 @@ class OBJECTATTRIBUTES_PG_SettingsTexChannel(PropertyGroup):
          ("ZYX", "ZYX", "ZYX")
     ]
     quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
+    override_xyz_order: BoolProperty(name="Override", default=False, description="Override the global mesh axis order setting")
 
     axis_x_y_z = [
         ("X", "Forward (X)", "X-axis"),
@@ -87,6 +88,11 @@ class OBJECTATTRIBUTES_PG_SettingsTexChannel(PropertyGroup):
     depth: IntProperty(name="Depth", default=1, min=1, description="1 - parent, 2 - grandparent, etc.")
 
     name: StringProperty(name="Name", default="")
+    custom_prop_modes = [
+         ("OBJECT", "Object", ""),
+         ("MESH", "Mesh", ""),
+    ]
+    custom_prop_mode: EnumProperty(name="Owner", default="OBJECT", items=custom_prop_modes, description="")
 
     remapping: BoolProperty(name="Remap", default=False, description="Enable to remap values stored in this channel from their initial [-min:max] range to [0:1] which can later be brought back to their initial range using the reported offset and range values. This may allow 8-bit RGBA textures to be used for storing data.")
 
@@ -107,9 +113,11 @@ class OBJECTATTRIBUTES_PG_Settings(PropertyGroup):
 
     depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="Enable this option to prevent the hierarchy from becoming too deep. At the specified depth, children will be treated as part of their parent and will share the parent’s object data—such as position, axis, and more—as if they were part of the same mesh. Non-mesh objects within the hierarchy will be discarded and treated as if they do not exist by the algorithm, without affecting the transforms of their children")
     depth_limit: IntProperty(name="Limit", default=3, min=0, description="Specifies the maximum depth allowed for the hierarchy. A value of 1 allows the tree to contain a parent and its children; a value of 2 includes a parent, children, and grandchildren, and so on")
-    use_pivot_painter_packing: BoolProperty(name="Use Pivot Painter Packing", default=True, description="Enable the use of Pivot Painter’s 16-bit integer to 16-bit float packing algorithm to store the index. If disabled, the index will be stored as-is in a float. When packing is enabled, the index must be decoded before use; otherwise, it can be read directly. Note that 16-bit floats can only reliably store integers as-is up to 2048")
+    use_pivot_painter_packing: BoolProperty(name="Use Pivot Painter Packing", default=True, description="Enable the use of Pivot Painter's 16-bit integer to 16-bit float packing algorithm to store the index. If disabled, the index will be stored as-is in a float. When packing is enabled, the index must be decoded before use; otherwise, it can be read directly. Note that 16-bit floats can only reliably store integers as-is up to 2048")
+    use_8bit_packing: BoolProperty(name="Use 8-bit Packing", default=False, description="If the Pivot Painter algorithm is not used, indices can be remapped to the [0:1] range by simply dividing by 255, assuming the total number of elements to bake does not exceed 256. This allows indices to be stored in 8-bit RGBA texture(s)")
 
     mesh_name: StringProperty(name="Name", default="BakedMesh.OA", description="Name of the resulting baked mesh")
+    mesh_materials: BoolProperty(name="Materials", default=True, description="Enable to copy materials")
     mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.OA", description="UVMap to get or create for setting up the mesh UVs")
     mesh_count_limit: IntProperty(name="Limit", default=32768, description="Cancel the bake if the amount of objects to bake exceed this limit. This is because Pivot Painter's algorithm has limited precision")
     mesh_merge: BoolProperty(name="Merge", default=True, description="Enable merging of the duplicated selection once baking is complete. Otherwise, keep them separated to allow for additional bakes on the individual objects")
@@ -129,7 +137,7 @@ class OBJECTATTRIBUTES_PG_Settings(PropertyGroup):
         ("ZXY", "ZXY", "ZXY"),
         ("ZYX", "ZYX", "ZYX"),
     ]
-    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)") # @TODO implement & expose in panel & add to report & write to xml
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
     origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="Optional object to use as the baking origin instead of the world origin. It takes into account the object's location, rotation, and scale, which may lead to unexpected results. For this reason, it's considered experimental, but it might be useful in rare cases")
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
@@ -214,6 +222,7 @@ class OBJECTATTRIBUTES_PG_Report(PropertyGroup):
     depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="")
     depth_limit: IntProperty(name="Limit", default=3, min=1, description="")
     use_pivot_painter_packing: BoolProperty(name="Use Pivot Painter Packing", default=True, description="")
+    use_8bit_packing: BoolProperty(name="Use 8-bit Packing", default=False, description="")
 
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")

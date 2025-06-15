@@ -1,3 +1,1 @@
-# @TODO hide channels if no texture?
-# @TODO implement axis order
-# @TODO implement materials setting
+# @TODO images are exported with wrong path?!

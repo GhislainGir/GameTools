@@ -36,6 +36,7 @@ class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Op
         'settings.depth_limit_use',
         'settings.depth_limit',
         'settings.use_pivot_painter_packing',
+        'settings.use_8bit_packing',
         'settings.mesh_name',
         'settings.mesh_materials',
         'settings.mesh_uvmap_name',
