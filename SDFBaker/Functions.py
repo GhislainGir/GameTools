@@ -49,10 +49,10 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_system", context.scene.unit_settings.system)
     add_bake_report("unit_unit", context.scene.unit_settings.length_unit)
     add_bake_report("unit_length", context.scene.unit_settings.scale_length)
-    add_bake_report("unit_scale", settings.scale)
-    add_bake_report("unit_invert_x", settings.invert_x)
-    add_bake_report("unit_invert_y", settings.invert_y)
-    add_bake_report("unit_invert_z", settings.invert_z)
+    add_bake_report("unit_scale", settings.unit_scale)
+    add_bake_report("unit_invert_x", settings.unit_invert_x)
+    add_bake_report("unit_invert_y", settings.unit_invert_y)
+    add_bake_report("unit_invert_z", settings.unit_invert_z)
 
 def reset_bake_report():
     """
@@ -81,10 +81,10 @@ def reset_bake_report():
     report.xml = False
     report.xml_path = ""
 
-    report.scale = 0.0
-    report.invert_x = False
-    report.invert_y = False
-    report.invert_z = False
+    report.unit_scale = 0.0
+    report.unit_invert_x = False
+    report.unit_invert_y = False
+    report.unit_invert_z = False
     
     report.frames = 0
     report.x = 0
@@ -95,7 +95,7 @@ def reset_bake_report():
     report.offset = mathutils.Vector((0.0, 0.0, 0.0))
 
     report.tile_sort_mode = ""
-    report.invert_v = False
+    report.unit_invert_v = False
     report.invert_sign = False
     report.two_sided = False
 
@@ -145,7 +145,7 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
     """
 
     settings = context.scene.SDFBakerSettings
-    
+
     active_obj = context.view_layer.objects.active # cache active object
 
     for selected_object in context.selected_objects:
@@ -159,19 +159,20 @@ def get_bake_selection(context: bpy.types.Context) -> tuple[bool, str, list, bpy
     objs_to_bake = context.selected_objects
     if len(objs_to_bake) <= 0:
         return (False, "No mesh selected", None, None)
-    
+
     for selected_object in context.selected_objects:
         selected_object.select_set(False)
 
     if active_obj is None:
         active_obj = objs_to_bake[0]
-        context.view_layer.objects.active = active_obj
+        #context.view_layer.objects.active = active_obj
+        context.view_layer.objects.active = None
 
     return (True, "", objs_to_bake, active_obj)
 
 def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -> str:
     """
-    Return the name to give to the mesh & image to generate.
+    Return the name to give to the bake operation.
 
     :param context: Blender current execution context
     :param active_object: object to derive name from
@@ -182,7 +183,7 @@ def get_bake_name(context: bpy.types.Context, active_object: bpy.types.Object) -
     settings = context.scene.SDFBakerSettings
 
     name = settings.mesh_name if settings.mesh_name != "" else "BakedMesh.SDF"
-    tags = { "ObjectName" : active_object.name if active_object is not None else ""}
+    tags = { "BakeName" : active_object.name if active_object is not None else ""}
     name = replace_tags(name, tags)
     return name
 
@@ -228,20 +229,34 @@ def get_bake_obj(context: bpy.types.Context, objs_to_bake: list, bake_name: str)
         bpy.data.meshes.remove(mesh) # clean
         return (False, "Mesh has no faces or vertices", None)
 
-    if settings.invert_x or settings.invert_y or settings.invert_z:
-        # invert axis if needed
-        signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                        -1.0 if settings.invert_y else 1.0,
-                                        -1.0 if settings.invert_z else 1.0))
-        signed_axis_mat_x = mathutils.Matrix.Scale(signed_axis.x, 4, (1,0,0))
-        signed_axis_mat_y = mathutils.Matrix.Scale(signed_axis.y, 4, (0,1,0))
-        signed_axis_mat_z = mathutils.Matrix.Scale(signed_axis.z, 4, (0,0,1))
-        mesh.transform(signed_axis_mat_x @ signed_axis_mat_y @ signed_axis_mat_z) # @NOTE can't we create a scale matrix in one call?
+    if settings.unit_invert_x or settings.unit_invert_y or settings.unit_invert_z:    
+        custom_bounds = False
+        if settings.sdf_mode == "CUSTOM" and settings.sdf_bounds:
+            if settings.sdf_bounds.type == "MESH" or settings.sdf_bounds.type == "EMPTY":
+                custom_bounds = True
+        
+        if custom_bounds:
+            mirror_pos = settings.sdf_bounds.matrix_world.to_translation()
+            mirror_pos.x = mirror_pos.x if settings.unit_invert_x else 0
+            mirror_pos.y = mirror_pos.y if settings.unit_invert_y else 0
+            mirror_pos.z = mirror_pos.z if settings.unit_invert_z else 0
+            mesh.transform(mathutils.Matrix.Translation(-mirror_pos))
 
-        # need to recalc normals @NOTE I don't like this, as it may change the mesh in a way the user doesn't expects
+        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                (-1 if settings.unit_invert_y else 1),
+                                                (-1 if settings.unit_invert_z else 1), 1))
+        mesh.transform(sign_matrix)
+
+        if custom_bounds:
+            mesh.transform(mathutils.Matrix.Translation(mirror_pos))
+
         bm = bmesh.new()
         bm.from_mesh(mesh)
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        # only reverse face if only doing one or three mirror operations. Mirroring twice will reverse faces twice already, which has no effect
+        mirror_operations = (1 if settings.unit_invert_x else 0) + (1 if settings.unit_invert_y else 0) + (1 if settings.unit_invert_z else 0)
+        if mirror_operations == 1 or mirror_operations == 3:
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
         bm.to_mesh(mesh)
 
     obj = bpy.data.objects.new(name, mesh)
@@ -281,9 +296,9 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
     """
     settings = context.scene.SDFBakerSettings
 
-    signed_axis = mathutils.Vector((-1.0 if settings.invert_x else 1.0,
-                                    -1.0 if settings.invert_y else 1.0,
-                                    -1.0 if settings.invert_z else 1.0))
+    signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
+                                    -1.0 if settings.unit_invert_y else 1.0,
+                                    -1.0 if settings.unit_invert_z else 1.0))
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     BVH = mathutils.bvhtree.BVHTree.FromBMesh(bm)
@@ -292,7 +307,7 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
         return (False, "Couldn't create BVH", None, (None, None))
 
     add_bake_report("tile_sort_mode", settings.tile_sort_mode)
-    add_bake_report("invert_v", settings.invert_v)
+    add_bake_report("unit_invert_v", settings.unit_invert_v)
     add_bake_report("invert_sign", settings.invert_sign)
     add_bake_report("two_sided", settings.two_sided)
 
@@ -351,7 +366,7 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
 
         for y in range(settings.y):
             #progress_y = y / max(1.0, (settings.y - 1))
-            sdf_index_y_offset = ((settings.y - 1 - y) if settings.invert_v else y) * tex_width * 4
+            sdf_index_y_offset = ((settings.y - 1 - y) if settings.unit_invert_v else y) * tex_width * 4
             for x in range(settings.x):
                 #progress_x = x / max(1.0, (settings.x - 1))
                 sdf_index_x_offset = x * 4
@@ -363,7 +378,7 @@ def bake_sdf(context, bake_name: str, obj: bpy.types.Object, tex_width: int, tex
 
                 nearest_pos, nearest_nor, nearest_index, nearest_dist = BVH.find_nearest(sample_pos)
                 if nearest_dist:
-                    nearest_dist *= abs(settings.scale)
+                    nearest_dist *= abs(settings.unit_scale)
                     max_dist = max(max_dist, nearest_dist)
 
                     # tracing any ray from within the geometry will result in a hit, allowing us to figure out if voxel
@@ -434,7 +449,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE is this necessary?
+    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? it fails when there's no active selection anyway
 
     settings = context.scene.SDFBakerSettings
     new_bake_report(context)
@@ -486,7 +501,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("msg", msg)
         return (False, "ERROR", msg)
 
-    success, msg, obj_to_export = generate_sdf_mesh_bounds(bake_name, corners, settings.scale)
+    success, msg, obj_to_export = generate_sdf_mesh_bounds(bake_name, corners, settings.unit_scale)
     if not success:
         clear_bake_obj(context, obj)
         add_bake_report("success", False)
@@ -635,15 +650,15 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
     :return: the function's success, potential error message, export path
     :rtype: tuple
     """
-    settings = context.scene.VATBakerSettings
+    settings = context.scene.SDFBakerSettings
 
-    tags = { "ObjectName" : bake_name}
+    tags = { "BakeName" : bake_name}
     success, msg, export_path = get_path(settings.export_mesh_file_path, settings.export_mesh_file_name, ".fbx", tags, settings.export_mesh_file_override)
     if success:
         # export selection and assume selection was properly handled outside of this function
         bpy.ops.export_scene.fbx(filepath=export_path, check_existing=False, filter_glob='*.fbx', use_selection=True, use_visible=False, use_active_collection=False, global_scale=1.0, apply_unit_scale=True, apply_scale_options='FBX_SCALE_NONE', use_space_transform=True, bake_space_transform=False, object_types={'MESH'}, use_mesh_modifiers=True, use_mesh_modifiers_render=True, mesh_smooth_type='FACE', colors_type='SRGB', prioritize_active_color=False, use_subsurf=False, use_mesh_edges=False, use_tspace=False, use_triangles=False, use_custom_props=False, add_leaf_bones=False, primary_bone_axis='Y', secondary_bone_axis='X', use_armature_deform_only=False, armature_nodetype='NULL', bake_anim=False, bake_anim_use_all_bones=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True, bake_anim_step=1.0, bake_anim_simplify_factor=1.0, path_mode='AUTO', embed_textures=False, batch_mode='OFF', use_batch_own_dir=True, use_metadata=True, axis_forward='-Z', axis_up='Y')
     else:
-        return (False, msg, None, -1)
+        return (False, msg, None)
 
     return (True, "", export_path)
 
@@ -3198,16 +3213,16 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
 
     buffer_size = tex_width * tex_height * 4 # RGBA
     if ((len(buffer)) != buffer_size):
-        return (False, "Vertex buffer has unexpected length: " + str(len(buffer)) + " vs " + str(buffer_size), None)
+        return (False, "Buffer has unexpected length: " + str(len(buffer)) + " vs " + str(buffer_size), None)
 
     image_name = filename if filename != "" else "T_Bake_VertOffsets"
-    tags = { "ObjectName": bake_name}
+    tags = { "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
     image_name += ".exr"
 
     image = bpy.data.images.get(image_name, None)
     if image is not None:
-        if image.packed_file:
+        if image.packed_file and bpy.data.is_saved:
             image.unpack()
         bpy.data.images.remove(image) # remove image if it exists
 
@@ -3217,7 +3232,8 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     image.use_half_precision = False
     image.pixels = buffer
     image.use_fake_user = True
-    image.pack()
+    if bpy.data.is_saved:
+        image.pack()
 
     return (True, "", image)
 
@@ -3235,7 +3251,7 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str
     :rtype: tuple
     """
 
-    tags = {"ObjectName": bake_name}
+    tags = {"BakeName": bake_name}
     success, msg, tex_path = get_path(path, name, ".exr", tags, override_file)
     if success:
         image.filepath_raw = tex_path
@@ -3334,10 +3350,10 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             system=report.unit_system,
                             unit=str(report.unit_unit),
                             length=str(report.unit_length),
-                            scale=str(report.unit_scale),
-                            invert_x=str(report.unit_invert_x),
-                            invert_y=str(report.unit_invert_y),
-                            invert_z=str(report.unit_invert_z))
+                            unit_scale=str(report.unit_scale),
+                            unit_invert_x=str(report.unit_invert_x),
+                            unit_invert_y=str(report.unit_invert_y),
+                            unit_invert_z=str(report.unit_invert_z))
     
     # mesh info
     mesh_export_path = os.path.abspath(report.mesh_path) if report.mesh_path != "" else ""
@@ -3381,16 +3397,16 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 #########################
 ### PATHS & FILENAMES ###
-def get_path(path: str, file_name: str, file_ext: str, tags: dict, override_file: bool) -> tuple[bool, str, str]:
+def get_path(file_path: str, file_name: str, file_ext: str, tags: list, override_file: bool) -> tuple[bool, str, str]:
     """
-    Compile file path/name/extension into a path and perform a couples of safety checks
-
-    :param path: export path
+    Compile path/name/extension into a path on disk, and performs a couples of safety checks
+    
+    :param file_path: file path
     :param file_name: file name
-    :param file_ext: file extension
-    :param tags: dict of tags to look for and what they should be replaced with
-    :param override_file: if any existing file at the computed path should be overriden
-    :return: the function's success, potential error message, export path
+    :param file_ext: file extention
+    :param tags: tags to search for and replace in the file_name
+    :param override_file: if False, function fails if computed path lead to an existing file
+    :return: the function's success, potential error message, path
     :rtype: tuple
     """
     
@@ -3399,45 +3415,44 @@ def get_path(path: str, file_name: str, file_ext: str, tags: dict, override_file
         return (False, "Invalid File Extension", "")
 
     file_name = replace_tags(file_name, tags)
-    export_path = os.path.abspath(os.path.join(bpy.path.abspath(path), file_name + file_ext))
+    export_path = os.path.abspath(os.path.join(bpy.path.abspath(file_path), file_name + file_ext))
     success, msg = check_path(export_path, override_file)
     
     return (success, msg, export_path)
 
-def replace_tags(name: str, tags: dict) -> str:
+def replace_tags(file_name: str, tags: list) -> str:
     """
-    Check for tags and replace them with their associated value
-
-    :param name: string to search tags in
-    :param tags: dict of tags to look for and what they should be replaced with
-    :return: the modified name
+    Scan the provided string and replace any <tag> with the provided tags dictionnary
+    
+    :param file_name: string to modify
+    :param tags: tags to search for and replace in the file_name
+    :return: the modified file_name
     :rtype: str
     """
-    # check tags
     for tag_key, tag_value in tags.items():
         tag = "<"+tag_key+">"
-        if (tag in name):
-            name = name.replace(tag, tag_value)
+        if (tag in file_name):
+            file_name = file_name.replace(tag, tag_value)
 
-    return name
+    return file_name
 
-def check_path(path: str, override_file: str) -> tuple[bool, str]:
+def check_path(disk_path: str, override_file: str) -> tuple[bool, str]:
     """
-    Check for tags and replace them with their associated value
+    Check that the directory exists and is writable, and check that the file can be overriden, if any exist at that location
 
-    :param path: export path
-    :param override_file: if any existing file at the given path should be overriden
-    :return: the path's validity and potential error message
+    :param disk_path: path to validate
+    :param override_file: if False, function fails if computed path lead to an existing file
+    :return: the path's validity, potential error message
     :rtype: tuple
     """
-    dir = os.path.dirname(path)
+    dir = os.path.dirname(disk_path)
     if not os.path.isdir(dir):
         return (False, f"Directory does not exist: {dir}")
     
     if not os.access(dir, os.W_OK):
         return (False, f"Directory is not writable: {dir}")
 
-    if os.path.isfile(path) and not override_file:
-        return (False, f"File already exists: {path}")
+    if os.path.isfile(disk_path) and not override_file:
+        return (False, f"File already exists: {disk_path}")
 
     return (True, "")

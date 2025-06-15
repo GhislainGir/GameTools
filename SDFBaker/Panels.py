@@ -21,17 +21,17 @@ from bl_ui.utils import PresetPanel
 
 ###############
 ### PRESETS ###
-class SDFBAKER_MT_SDF_Presets(bpy.types.Menu):
+class SDFBAKER_MT_MainPanel_Presets(bpy.types.Menu):
     bl_label = 'SDF Baker Presets'
-    preset_subdir = 'operator/databaker_sdf'
+    preset_subdir = 'operator/gametools_sdfbaker'
     preset_operator = 'script.execute_preset'
     draw = bpy.types.Menu.draw_preset
 
 class SDFBAKER_PT_SDF_Preset(PresetPanel, bpy.types.Panel):
     bl_label = 'SDF Baker Presets'
-    preset_subdir = 'operator/databaker_sdf'
+    preset_subdir = 'operator/gametools_sdfbaker'
     preset_operator = 'script.execute_preset'
-    preset_add_operator = 'databaker_sdfpanel.addpreset'
+    preset_add_operator = 'gametools.sdfbaker_addpreset'
 
 ############
 ### MAIN ###
@@ -123,13 +123,13 @@ class SDFBAKER_PT_MeshPanel(bpy.types.Panel):
         settings = scene.SDFBakerSettings
         
         row = layout.row()
-        row.prop(settings, "scale")
+        row.prop(settings, "unit_scale")
 
         row = layout.row()
         row.label(text="Invert")
-        row.prop(settings, "invert_x", text="X")
-        row.prop(settings, "invert_y", text="Y")
-        row.prop(settings, "invert_z", text="Z")
+        row.prop(settings, "unit_invert_x", text="X")
+        row.prop(settings, "unit_invert_y", text="Y")
+        row.prop(settings, "unit_invert_z", text="Z")
 
         row = layout.row()
         row.prop(settings, "mesh_name")
@@ -225,7 +225,7 @@ class SDFBAKER_PT_TexPanel(bpy.types.Panel):
 
         row = layout.row()
         col = row.split()
-        col.prop(settings, "invert_v")
+        col.prop(settings, "unit_invert_v")
         col = row.split()
         col.prop(settings, "invert_sign")
         col = row.split()
@@ -371,19 +371,15 @@ class SDFBAKER_PT_ReportPanel(bpy.types.Panel):
 
         row = layout.row()
         if report.success:
-            row.label(text="Success", icon="CHECKMARK")
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
         else:
-            row.label(text="Fail", icon="ERROR")
-
-        row = layout.row()
-        row.prop(report, "ID")
-
-        if not report.success:
+            row.label(text=report.name + " : Fail", icon="ERROR")
             row = layout.row()
             row.label(text=report.msg)
 
         row = layout.row()
-        row.label(text=report.name)
+        row.prop(report, "ID", text="")
+        row.enabled = False
 
 class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
     bl_idname = "SDFBAKER_PT_reporttexpanel"
@@ -457,7 +453,7 @@ class SDFBAKER_PT_ReportTexPanel(bpy.types.Panel):
 
         row = layout.row()
         col = row.split()
-        col.label(text="Invert V: " + str(report.invert_v))
+        col.label(text="Invert V: " + str(report.unit_invert_v))
         col.label(text="Invert Sign: " + str(report.invert_sign))
 
         row = layout.row()

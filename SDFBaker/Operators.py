@@ -83,9 +83,9 @@ class SDFBAKER_OT_GenerateGeoNodes(bpy.types.Operator):
 ##############
 ### PRESET ###
 class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'databaker_sdfpanel.addpreset'
+    bl_idname = 'gametools.sdfbaker_addpreset'
     bl_label = 'Add preset'
-    preset_menu = 'SDFBAKER_MT_SDF_Presets'
+    preset_menu = 'SDFBAKER_MT_MainPanel_Presets'
 
     preset_defines = [ 'settings = bpy.context.scene.SDFBakerSettings' ]
     preset_values = [
@@ -98,7 +98,7 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, bpy.types.Operator):
     'settings.z',
     'settings.offset',
     'settings.tile_sort_mode',
-    'settings.invert_v',
+    'settings.unit_invert_v',
     'settings.invert_sign',
     'settings.two_sided',
     'settings.mesh_name',
@@ -108,10 +108,10 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, bpy.types.Operator):
     'settings.export_mesh_file_name',
     'settings.export_mesh_file_path',
     'settings.export_mesh_file_override',
-    'settings.scale',
-    'settings.invert_x',
-    'settings.invert_y',
-    'settings.invert_z',
+    'settings.unit_scale',
+    'settings.unit_invert_x',
+    'settings.unit_invert_y',
+    'settings.unit_invert_z',
     'settings.export_xml',
     'settings.export_xml_mode',
     'settings.export_xml_file_name',
@@ -123,7 +123,7 @@ class SDFBAKER_OT_SDFBaker_AddPreset(AddPresetBase, bpy.types.Operator):
     'settings.export_tex_override',
     ]
 
-    preset_subdir = 'operator/databaker_sdf'
+    preset_subdir = 'operator/gametools_sdfbaker'
 
 ##############
 ### REPORT ###
