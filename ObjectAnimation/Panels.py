@@ -45,19 +45,23 @@ class OATBAKER_PT_MainPanel(bpy.types.Panel):
 
     bl_options = {'DEFAULT_CLOSED'}
 
+    # @classmethod
+    # def poll(cls, context):
+    #     Object = context.active_object
+    #     # show panel as long as we have an active object
+    #     if context.view_layer.objects.active == None:
+    #         return False
+        
+    #     # show panel as long as there's at least one mesh selected
+    #     for Object in context.selected_objects:
+    #         if (Object.type == "MESH"):
+    #             return True
+        
+    #     return False
+
     @classmethod
     def poll(cls, context):
-        Object = context.active_object
-        # show panel as long as we have an active object
-        if context.view_layer.objects.active == None:
-            return False
-        
-        # show panel as long as there's at least one mesh selected
-        for Object in context.selected_objects:
-            if (Object.type == "MESH"):
-                return True
-        
-        return False
+        return False # @TODO disabled for now
 
     def draw_header_preset(self, _context):
         OATBAKER_PT_ObjectAnimation_Preset.draw_panel_header(self.layout)

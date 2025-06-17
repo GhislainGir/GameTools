@@ -53,6 +53,10 @@ class FFTOCEANBAKER_PT_FFTOceanBaker(bpy.types.Panel):
     def draw_header_preset(self, _context):
         FFTOCEANBAKER_PT_FFTOceanBaker_Preset.draw_panel_header(self.layout)
 
+    @classmethod
+    def poll(cls, context):
+        return False # @TODO disabled for now
+    
     def draw(self, context):
         layout = self.layout
         scene = context.scene
