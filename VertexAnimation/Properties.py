@@ -197,7 +197,7 @@ class VATBAKER_PG_Report(PropertyGroup):
         ("ZXY", "ZXY", "ZXY"),
         ("ZYX", "ZYX", "ZYX"),
     ]
-    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="")
 
     padded: BoolProperty(name="Padded", default=False, description="")
     padding: IntProperty(name="Padding", default=0, description="")

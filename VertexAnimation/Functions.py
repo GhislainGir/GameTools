@@ -50,6 +50,7 @@ def new_bake_report(context: bpy.types.Context):
     add_bake_report("unit_invert_y", settings.unit_invert_y)
     add_bake_report("unit_invert_z", settings.unit_invert_z)
     add_bake_report("unit_invert_v", settings.unit_invert_v)
+    add_bake_report("unit_axis_order", settings.unit_axis_order)
 
 def reset_bake_report():
     """
@@ -72,6 +73,7 @@ def reset_bake_report():
     report.unit_invert_x = False
     report.unit_invert_y = False
     report.unit_invert_z = False
+    report.unit_axis_order = "XYZ"
 
     report.padded = False
     report.padding = 0
