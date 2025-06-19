@@ -216,7 +216,7 @@ class OBJECTATTRIBUTES_PG_Report(PropertyGroup):
         ("ZXY", "ZXY", "ZXY"),
         ("ZYX", "ZYX", "ZYX"),
     ]
-    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="Swizzle world axis (applied after inversion)")
+    unit_axis_order: EnumProperty(name="Order", items=unit_axis_orders, default="XYZ", description="")
     origin_obj: PointerProperty(type=bpy.types.Object, name="Origin", description="")
 
     depth_limit_use: BoolProperty(name="Limit Depth", default=True, description="")
