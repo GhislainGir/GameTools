@@ -2007,7 +2007,7 @@ def pre_bake_mask(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_
             world_axis = mathutils.Vector((0.0, 0.0, 0.0))
 
         if settings.origin_obj:
-            world_axis = settings.origin_obj.matrix_world.to_quaternion() @ world_axis # relative to world obj @TODO
+            world_axis = settings.origin_obj.matrix_world.inverted().to_quaternion() @ world_axis
 
         return pre_bake_mask_linear(dgraph, data_layer, eval_objs_to_bake, "BakedSource", origin_mode, signed_scale, world_axis)
     else:
