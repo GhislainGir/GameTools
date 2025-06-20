@@ -1116,7 +1116,7 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
 
         num_frames = len(frames_to_bake_indices)
         add_bake_report("num_frames", num_frames)
-        add_bake_report("num_frames_padded", num_frames)
+        add_bake_report("num_frames_padded", num_frames + (2 if settings.frame_ref_padding else 0))
 
         if num_frames < 2:
             return (False, str(num_frames) + " frames detected: too few frames to bake", (None, 0, 0, 0))
