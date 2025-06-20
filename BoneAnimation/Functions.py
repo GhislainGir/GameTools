@@ -1622,6 +1622,9 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
 
     settings = context.scene.BATBakerSettings
     rows = len(settings.skinning_textures[0].rows)
+    for skinning_texture in settings.skinning_textures:
+        if rows != len(skinning_texture.rows):
+            return (False, "Can't generate mesh UVs because skinning textures do not share the same row amount", 0)
 
     uvmap = None
     uvmap_index = 0
