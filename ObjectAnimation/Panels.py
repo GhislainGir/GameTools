@@ -15,13 +15,16 @@ import bpy
 
 from bl_ui.utils import PresetPanel
 
+from . import Functions
+from .Functions import get_texture_channel_allow_remap
+
 ####################################################################################
 ###################################### PANELS ######################################
 ####################################################################################
 
 ###############
 ### PRESETS ###
-class OATBAKER_MT_MainPanel_Presets(bpy.types.Menu):
+class OATBAKER_MT_ObjectAnimation_Presets(bpy.types.Menu):
     bl_label = 'OA Presets'
     preset_subdir = 'operator/gametools_oatbaker'
     preset_operator = 'script.execute_preset'
@@ -36,7 +39,7 @@ class OATBAKER_PT_ObjectAnimation_Preset(PresetPanel, bpy.types.Panel):
 ############
 ### MAIN ###
 class OATBAKER_PT_MainPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_oatpanel"
+    bl_idname = "OATBAKER_PT_mainpanel"
     bl_label = "OAT Baker"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -45,551 +48,718 @@ class OATBAKER_PT_MainPanel(bpy.types.Panel):
 
     bl_options = {'DEFAULT_CLOSED'}
 
-    # @classmethod
-    # def poll(cls, context):
-    #     Object = context.active_object
-    #     # show panel as long as we have an active object
-    #     if context.view_layer.objects.active == None:
-    #         return False
-        
-    #     # show panel as long as there's at least one mesh selected
-    #     for Object in context.selected_objects:
-    #         if (Object.type == "MESH"):
-    #             return True
-        
-    #     return False
-
     @classmethod
     def poll(cls, context):
-        return False # @TODO disabled for now
+        return context.view_layer.objects.active and context.view_layer.objects.active.type == "MESH"
 
     def draw_header_preset(self, _context):
         OATBAKER_PT_ObjectAnimation_Preset.draw_panel_header(self.layout)
 
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
+        scene = context.scene
+        settings = scene.OATBakerSettings
 
-########
-# DATA #
-########
-class OATBAKER_PT_DataPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_datapanel"
-    bl_parent_id = "OATBAKER_PT_oatpanel"
-    bl_label = "Data"		
+        row = layout.row()
+        row.operator("gametools.oatbaker_bake")
+        row.scale_y = 2.0
+
+##############
+### MESHES ###
+class OATBAKER_PT_MeshMainPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_meshmainpanel"
+    bl_parent_id = "OATBAKER_PT_mainpanel"
+    bl_label = "Mesh"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        row = layout.row()
+        row.prop(settings, "unit_scale")
+
+        row = layout.row()
+        row.label(text="Invert")
+        row.prop(settings, "unit_invert_x", text="X")
+        row.prop(settings, "unit_invert_y", text="Y")
+        row.prop(settings, "unit_invert_z", text="Z")
+
+        row = layout.row()
+        row.prop(settings, "mesh_name")
+
+        row = layout.row()
+        row.prop(settings, "mesh_materials")
+
+        row = layout.row()
+        row.prop(settings, "mesh_target_prop")
+
+        panel_header, panel_body = layout.panel("bat_mesh_previz")
+        if panel_header:
+            panel_header.label(text="Previz")
+        if panel_body:
+            row = panel_body.row()
+            col = row.split()
+            col.prop(settings, "previz_result", text="Anim")
+            col.enabled = False
+            col = row.split()
+            col.prop(settings, "previz_bounds", text="Bounds")
+
+class OATBAKER_PT_MeshUVPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_meshuvpanel"
+    bl_parent_id = "OATBAKER_PT_meshmainpanel"
+    bl_label = "UV"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        row = layout.row()
+        row.prop(settings, "mesh_uvmap_name", text="Name")
+
+        row = layout.row()
+        row.prop(settings, "unit_invert_v")
+
+# EXPORT #
+class OATBAKER_PT_MeshExportPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_meshexportpanel"
+    bl_parent_id = "OATBAKER_PT_meshmainpanel"
+    bl_label = "Export"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 3
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        layout.prop(settings, "export_mesh", text="")
+        layout.enabled = bpy.data.is_saved
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        layout.enabled = settings.export_mesh and bpy.data.is_saved
+
+        row = layout.row()
+        row.prop(settings, "export_mesh_file_name")
+
+        row = layout.row()
+        row.prop(settings, "export_mesh_file_path")
+
+class OATBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_meshadvexportpanel"
+    bl_parent_id = "OATBAKER_PT_meshexportpanel"
+    bl_label = "Advanced"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 3
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        row = layout.row()
+        row.prop(settings, "export_mesh_file_override")
+
+################
+### TEXTURES ###
+class OATBAKER_UL_TextureList(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            if item:
+                other_tex_names = [texture.name for texture in context.scene.OATBakerSettings.textures if texture != item]
+                if item.name in other_tex_names:
+                    layout.prop(item, "name", text="", emboss=False, icon="ERROR")
+                else:
+                    layout.prop(item, "name", text="", emboss=False, icon="TEXTURE")
+            else:
+                layout.label(text="", translate=False, icon="X")
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", translate=False, icon="TEXTURE")
+
+class OATBAKER_PT_TexturesPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_texturespanel"
+    bl_parent_id = "OATBAKER_PT_mainpanel"
+    bl_label = "Textures"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        row = layout.row()
+        row.template_list("OATBAKER_UL_TextureList", "", settings, "textures", settings, "textures_selected_index", rows=5)
+
+        col = row.column(align=True)
+        col.operator("oat_textures_item.new_item", text="", icon="ADD")
+        col.operator("oat_textures_item.delete_item", text="", icon="REMOVE")
+
+        col.separator()
+
+        col.operator("oat_textures_item.move_item", text="", icon="TRIA_UP").direction = "UP"
+        col.operator("oat_textures_item.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
+
+class OATBAKER_PT_ChannelsPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_channelspanel"
+    bl_parent_id = "OATBAKER_PT_texturespanel"
+    bl_label = "Channels"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 0
+
+    #bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.OATBakerSettings
+        return settings.textures
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        if settings.textures:
+            texture = settings.textures[settings.textures_selected_index]
+
+            if texture:
+                channels = [
+                    (texture.R, "R"),
+                    (texture.G, "G"),
+                    (texture.B, "B"),
+                    (texture.A, "A"),
+                    ]
+
+                for texture_channel, texture_channel_name in channels:
+                    if texture_channel.channel_mode == "NONE":
+                        row = layout.row()
+                        row.prop(texture_channel, "channel_mode", text=texture_channel_name)
+                    else:
+                        panel_header, panel_body = layout.panel(texture_channel_name)
+                        if panel_header:
+                            panel_header.prop(texture_channel, "channel_mode", text=texture_channel_name)
+                        if panel_body:
+                            if texture_channel.channel_mode == "POSITION":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "unit_axis_order")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "component")
+                            elif texture_channel.channel_mode == "ROTATION":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "unit_axis_order")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "rot_mode")
+
+                                if texture_channel.rot_mode == "QUAT":
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "quat")    
+                                else: #AXIS_ANGLE
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "axis_angle_mode")
+
+                                    if texture_channel.axis_angle_mode == "ANGLE":
+                                        row = panel_body.row()
+                                        row.prop(texture_channel, "quat_angle_unit_mode")
+                            elif texture_channel.channel_mode == "SCALE":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "unit_axis_order")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "component")
+                            elif texture_channel.channel_mode == "AXIS":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "axis")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "component")
+
+                                row = panel_body.row()
+                                row.prop(texture_channel, "axis_scaled")
+                            elif texture_channel.channel_mode == "CUSTOM_PROP":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "name")
+                            else:
+                                pass
+
+                            if get_texture_channel_allow_remap(texture_channel):
+                                row = panel_body.row()
+                                row.prop(texture_channel, "remapping")
+
+##########
+# EXPORT #
+class OATBAKER_PT_TexExportPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_texexportpanel"
+    bl_parent_id = "OATBAKER_PT_channelspanel"
+    bl_label = "Export"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        layout.prop(settings, "export_tex", text="")
+        layout.enabled = bpy.data.is_saved
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        layout.enabled = settings.export_tex and bpy.data.is_saved
+
+        row = layout.row()
+        row.prop(settings, "export_tex_file_path")
+
+class OATBAKER_PT_TexAdvExportPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_texadvexportpanel"
+    bl_parent_id = "OATBAKER_PT_texexportpanel"
+    bl_label = "Advanced"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 2
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        row = layout.row()
+        row.prop(settings, "export_tex_override")
+
+#############
+### SCENE ###
+class OATBAKER_PT_FramePanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_framepanel"
+    bl_parent_id = "OATBAKER_PT_mainpanel"
+    bl_label = "Frames"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 0
 
     bl_options = {'DEFAULT_CLOSED'}
-    
+
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
+        scene = context.scene
+        settings = scene.OATBakerSettings
 
-class OATBAKER_PT_FirstTexPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_firsttexpanel"
-    bl_parent_id = "OATBAKER_PT_datapanel"
-    bl_label = "First Texture"		
+        row = layout.row()
+        row.prop(settings, "frame_range_mode", text="")
+
+        if (settings.frame_range_mode == "NLA"):
+            row = layout.row()
+            row.prop(settings, "frame_range_custom_step", text="Step:")
+
+            if settings.frame_range_custom_step > 1:
+                row = layout.row()
+                row.prop(settings, "frame_range_custom_step_mode")
+
+            row = layout.row()
+            row.prop(settings, "frame_padding")
+
+            row = layout.row()
+            row.prop(settings, "frame_padding_mode")
+            row.enabled = settings.frame_padding > 0
+
+            row = layout.row()
+            row.prop(settings, "frame_ref_padding", text="Ref Padding:")
+        
+        elif (settings.frame_range_mode == "SCENE"):
+            row = layout.row()
+            row.label(text="Frame Range:")
+
+            row = layout.row()
+            row.prop(scene, "frame_start", text="")
+            row.prop(scene, "frame_end", text="")
+
+            row = layout.row()
+            row.prop(scene, "frame_step", text="Step:")
+
+            row = layout.row()
+            row.prop(settings, "frame_ref_padding", text="Ref Padding:")
+        elif (settings.frame_range_mode == "CUSTOM"):
+            row = layout.row()
+            row.label(text="Frame Range:")
+
+            row = layout.row()
+            row.prop(settings, "frame_range_custom_start", text="")
+            row.prop(settings, "frame_range_custom_end", text="")
+
+            row = layout.row()
+            row.prop(settings, "frame_range_custom_step", text="Step:")
+
+            row = layout.row()
+            row.prop(settings, "frame_ref_padding", text="Ref Padding:")
+
+        row = layout.row()
+        row.prop(settings, "frame_ref_mode", text="Ref")
+        if settings.frame_ref_mode == "CUSTOM":
+            row = layout.row()
+            row.prop(settings, "frame_ref_custom", text="Frame")
+
+class OATBAKER_PT_FrameAdvPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_frameadvpanel"
+    bl_parent_id = "OATBAKER_PT_framepanel"
+    bl_label = "Advanced"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 0
-
-    #bl_options = {'DEFAULT_CLOSED'}
-
-    def draw_header(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        layout.active = settings.FirstTexture
-        layout.prop(settings, "FirstTexture", text="")
-
-    def draw(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        bEnabled = settings.FirstTexture
-
-        row = layout.row()
-        row.prop(settings, "FirstTextureR")
-        row.enabled = bEnabled
-
-        row = layout.row()
-        row.prop(settings, "FirstTextureG")
-        row.enabled = bEnabled
-
-        row = layout.row()
-        row.prop(settings, "FirstTextureB")
-        row.enabled = bEnabled
-
-        row = layout.row()
-        row.prop(settings, "FirstTextureA")
-        row.enabled = bEnabled
-
-        row = layout.separator(factor=2)
-
-        if bEnabled:
-            bPosition = settings.FirstTextureR == "PosX" or \
-                        settings.FirstTextureG == "PosY" or \
-                        settings.FirstTextureB == "PosZ"
-
-            if bPosition:
-                row = layout.row()
-                row.prop(settings, "NormalizePosition")
-
-            bRotation = settings.FirstTextureR == "QuatX" or \
-                        settings.FirstTextureG == "QuatY" or \
-                        settings.FirstTextureB == "QuatZ" or \
-                        settings.FirstTextureA == "QuatW"
-
-            if bRotation:    
-                row = layout.row()
-                row.prop(settings, "NormalizeQuaternion")
-
-            bScale =    settings.FirstTextureR == "ScaleX" or \
-                        settings.FirstTextureG == "ScaleY" or \
-                        settings.FirstTextureB == "ScaleZ" or \
-                        settings.FirstTextureA == "Scale"
-
-            if settings.FirstTextureA == "Scale":
-                row = layout.row()
-                row.prop(settings, "ScaleUniformAxis")
-
-            if bScale:    
-                row = layout.row()
-                row.prop(settings, "NormalizeScale")
-
-            row = layout.separator(factor=2)
-
-            bR8bits  = settings.FirstTextureR == "PosX" and settings.NormalizePosition
-            bR8bits |= settings.FirstTextureR == "QuatX" and settings.NormalizeQuaternion
-            bR8bits |= settings.FirstTextureR == "ScaleX" and settings.NormalizeScale
-
-            bG8bits  = settings.FirstTextureG == "PosY" and settings.NormalizePosition
-            bG8bits |= settings.FirstTextureG == "QuatY" and settings.NormalizeQuaternion
-            bG8bits |= settings.FirstTextureG == "ScaleY" and settings.NormalizeScale
-
-            bB8bits  = settings.FirstTextureB == "PosZ" and settings.NormalizePosition
-            bB8bits |= settings.FirstTextureB == "QuatZ" and settings.NormalizeQuaternion
-            bB8bits |= settings.FirstTextureB == "ScaleZ" and settings.NormalizeScale
-
-            bA8bits  = settings.FirstTextureA == "Scale" and settings.NormalizeScale
-            bA8bits |= settings.FirstTextureA == "ObjRand"
-            bA8bits |= settings.FirstTextureA == "None"
-
-            b8bits = bR8bits and bG8bits and bB8bits and bA8bits
-
-            b32bits = settings.FirstTextureA == "Quat"
-
-            if b8bits:
-                row = layout.row()
-                row.label(text="First texture *CAN* be RGBA 8 bits", icon="CHECKMARK")
-            elif b32bits:
-                row = layout.row()
-                row.label(text="First texture *MUST* be HDR 32 bits", icon="ERROR")
-            else:
-                row = layout.row()
-                row.label(text="First texture *MUST* at least be 16 bits", icon="ERROR")
-
-            if (settings.FirstTextureA == "Scale" or \
-               settings.SecondTextureA == "Scale" or \
-               settings.FirstTextureA == "Scale") and \
-               (settings.FirstTextureR == "ScaleX" or \
-                settings.FirstTextureG == "ScaleY" or \
-                settings.FirstTextureB == "ScaleZ"):
-                row = layout.row()
-                row.label(text="Uniform scale is already packed in the position texture", icon="ERROR")
-
-class OATBAKER_PT_SecondTexPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_secondtexpanel"
-    bl_parent_id = "OATBAKER_PT_datapanel"
-    bl_label = "Second Texture"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 1
-
-    #bl_options = {'DEFAULT_CLOSED'}
-
-    def draw_header(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        layout.active = settings.SecondTexture
-        layout.prop(settings, "SecondTexture", text="")
-
-    def draw(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        bEnabled = settings.SecondTexture
-
-        row = layout.row()
-        row.prop(settings, "SecondTextureR")
-        row.enabled = bEnabled
-
-        row = layout.row()
-        row.prop(settings, "SecondTextureG")
-        row.enabled = bEnabled
-
-        row = layout.row()
-        row.prop(settings, "SecondTextureB")
-        row.enabled = bEnabled
-
-        row = layout.row()
-        row.prop(settings, "SecondTextureA")
-        row.enabled = bEnabled
-
-        row = layout.separator(factor=2)
-
-        if bEnabled:
-            bPosition = settings.SecondTextureR == "PosX" or \
-                        settings.SecondTextureG == "PosY" or \
-                        settings.SecondTextureB == "PosZ"
-
-            if bPosition:
-                row = layout.row()
-                row.prop(settings, "NormalizePosition")
-
-            bRotation = settings.SecondTextureR == "QuatX" or \
-                        settings.SecondTextureG == "QuatY" or \
-                        settings.SecondTextureB == "QuatZ" or \
-                        settings.SecondTextureA == "QuatW"
-
-            if bRotation:    
-                row = layout.row()
-                row.prop(settings, "NormalizeQuaternion")
-
-            bScale =    settings.SecondTextureR == "ScaleX" or \
-                        settings.SecondTextureG == "ScaleY" or \
-                        settings.SecondTextureB == "ScaleZ" or \
-                        settings.SecondTextureA == "Scale"
-
-            if settings.SecondTextureA == "Scale":
-                row = layout.row()
-                row.prop(settings, "ScaleUniformAxis")
-
-            if bScale:    
-                row = layout.row()
-                row.prop(settings, "NormalizeScale")
-
-            row = layout.separator(factor=2)
-            
-            bR8bits  = settings.SecondTextureR == "PosX" and settings.NormalizePosition
-            bR8bits |= settings.SecondTextureR == "QuatX" and settings.NormalizeQuaternion
-            bR8bits |= settings.SecondTextureR == "ScaleX" and settings.NormalizeScale
-
-            bG8bits  = settings.SecondTextureG == "PosY" and settings.NormalizePosition
-            bG8bits |= settings.SecondTextureG == "QuatY" and settings.NormalizeQuaternion
-            bG8bits |= settings.SecondTextureG == "ScaleY" and settings.NormalizeScale
-
-            bB8bits  = settings.SecondTextureB == "PosZ" and settings.NormalizePosition
-            bB8bits |= settings.SecondTextureB == "QuatZ" and settings.NormalizeQuaternion
-            bB8bits |= settings.SecondTextureB == "ScaleZ" and settings.NormalizeScale
-
-            bA8bits  = settings.SecondTextureA == "Scale" and settings.NormalizeScale
-            bA8bits |= settings.SecondTextureA == "ObjRand"
-            bA8bits |= settings.SecondTextureA == "None"
-
-            b8bits = bR8bits and bG8bits and bB8bits and bA8bits
-
-            b32bits = settings.SecondTextureA == "Quat"
-
-            if b8bits:
-                row = layout.row()
-                row.label(text="Second texture *CAN* be RGBA 8 bits", icon="CHECKMARK")
-            elif b32bits:
-                row = layout.row()
-                row.label(text="Second texture *MUST* be HDR 32 bits", icon="ERROR")
-            else:
-                row = layout.row()
-                row.label(text="Second texture *MUST* at least be 16 bits", icon="ERROR")
-
-            if (settings.FirstTextureA == "Scale" or \
-               settings.SecondTextureA == "Scale" or \
-               settings.ThirdTextureA == "Scale") and \
-               (settings.SecondTextureR == "ScaleX" or \
-                settings.SecondTextureG == "ScaleY" or \
-                settings.SecondTextureB == "ScaleZ"):
-                row = layout.row()
-                row.label(text="Uniform scale is already packed in the position texture", icon="ERROR")
-
-class OATBAKER_PT_ThirdTexPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_thirdtexpanel"
-    bl_parent_id = "OATBAKER_PT_datapanel"
-    bl_label = "Third Texture"		
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 2
 
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
-        return True
+        return context.scene.OATBakerSettings.frame_range_mode == "NLA"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        row = layout.row()
+        row.label(text="NLA clips to exclude:")
+
+        row = layout.row()
+        row.template_list("OATBAKER_UL_NLAExclusionList", "", settings, "frame_range_nla_exclusion", settings, "frame_range_nla_exclusion_selected_index", rows=4)
+
+        col = row.column(align=True)
+        col.operator("gametools.oatbaker_frame_range_nla_exclusion_new_item", text="", icon="ADD")
+        col.operator("gametools.oatbaker_frame_range_nla_exclusion_delete_item", text="", icon="REMOVE")
+
+        col.separator()
+
+        col.operator("gametools.oatbaker_frame_range_nla_exclusion_move_item", text="", icon="TRIA_UP").direction = "UP"
+        col.operator("gametools.oatbaker_frame_range_nla_exclusion_move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
+
+        row = layout.row()
+        row.prop(settings, "frame_range_nla_exclusion_selected")
+
+class OATBAKER_UL_NLAExclusionList(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.prop(item, "name", text="", emboss=False, icon_value=icon)
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon="ANIM_DATA")
+
+##############
+### REPORT ###
+class OATBAKER_PT_ReportPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reportpanel"
+    bl_parent_id = "OATBAKER_PT_mainpanel"
+    bl_label = "Report"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 500
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.OATBakerReport.baked
+
+    # def draw_header(self, context):
+    #     report = context.scene.OATBakerReport
+    #     row = self.layout.row(align=True)
+    #     if report.success:
+    #         row.label(text="", icon="CHECKMARK")
+    #     else:
+    #         row.label(text="", icon="ERROR")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.OATBakerReport
+
+        if report.baked:
+            row = layout.row()
+            row.scale_y = 2.0
+            col = row.split()
+            col.operator("gametools.oatbaker_export_report")
+            col = row.split()
+            col.operator("gametools.oatbaker_clear_report")
+
+        row = layout.row()
+        if report.success:
+            row.label(text=report.name + " : Success", icon="CHECKMARK")
+        else:
+            row.label(text=report.name + " : Fail", icon="ERROR")
+            row = layout.row()
+            row.label(text=report.msg)
+
+        row = layout.row()
+        row.prop(report, "ID", text="")
+        row.enabled = False
+
+# TEXTURES #
+class OATBAKER_PT_ReportTexPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reporttexpanel"
+    bl_parent_id = "OATBAKER_PT_reportpanel"
+    bl_label = "Textures"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        layout.active = settings.ThirdTexture
-        layout.prop(settings, "ThirdTexture", text="")
+        report = context.scene.OATBakerReport
+        row = self.layout.row(align=True)
+        if report.textures:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="ERROR")
 
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        bEnabled = settings.ThirdTexture
+        scene = context.scene
+        report = scene.OATBakerReport
 
         row = layout.row()
-        row.prop(settings, "ThirdTextureR")
-        row.enabled = bEnabled
+        col = row.split()
+        col.label(text="Width: " + str(report.tex_width))
+        col.label(text="Height: " + str(report.tex_height))
 
         row = layout.row()
-        row.prop(settings, "ThirdTextureG")
-        row.enabled = bEnabled
+        row.prop(report, "tex_sampling_mode")
+        row.enabled = False
 
         row = layout.row()
-        row.prop(settings, "ThirdTextureB")
-        row.enabled = bEnabled
+        if report.tex_sampling_mode == 'CONTINUOUS':
+            row.label(text="Width: " + str(report.tex_frame_width))
+            row.enabled = report.tex_underflow or report.tex_overflow
+        else:
+            row.label(text="Height: " + str(report.tex_frame_height))
+            row.enabled = report.tex_overflow
 
         row = layout.row()
-        row.prop(settings, "ThirdTextureA")
-        row.enabled = bEnabled
+        row.template_list("OATBAKER_UL_ReportTextureList", "", report, "textures", report, "textures_selected_index", rows=5)
 
-        row = layout.separator(factor=2)
+        if report.textures:
+            try:
+                texture = report.textures[report.textures_selected_index]
+            except:
+                texture = None
 
-        if bEnabled:
-            bPosition = settings.ThirdTextureR == "PosX" or \
-                        settings.ThirdTextureG == "PosY" or \
-                        settings.ThirdTextureB == "PosZ"
-
-            if bPosition:
+            if texture:
                 row = layout.row()
-                row.prop(settings, "NormalizePosition")
+                row.prop(texture, "img", text="")
+                row.enabled = False
 
-            bRotation = settings.ThirdTextureR == "QuatX" or \
-                        settings.ThirdTextureG == "QuatY" or \
-                        settings.ThirdTextureB == "QuatZ" or \
-                        settings.ThirdTextureA == "QuatW"
+                if texture.exported:
+                    row = layout.row()
+                    row.label(text=texture.path, icon="CHECKMARK")
+                else:
+                    row = layout.row()
+                    row.label(text="Not exported", icon="ERROR")
 
-            if bRotation:    
-                row = layout.row()
-                row.prop(settings, "NormalizeQuaternion")
+                texture_channels = [
+                    ("texture_channel_R", "R", texture.R, texture.R_range_offset, texture.R_range, texture.R_range_valid),
+                    ("texture_channel_G", "G", texture.G, texture.G_range_offset, texture.G_range, texture.G_range_valid),
+                    ("texture_channel_B", "B", texture.B, texture.B_range_offset, texture.B_range, texture.B_range_valid),
+                    ("texture_channel_A", "A", texture.A, texture.A_range_offset, texture.A_range, texture.A_range_valid)
+                ]
 
-            bScale =    settings.ThirdTextureR == "ScaleX" or \
-                        settings.ThirdTextureG == "ScaleY" or \
-                        settings.ThirdTextureB == "ScaleZ" or \
-                        settings.ThirdTextureA == "Scale"
-            
-            if settings.ThirdTextureA == "Scale":
-                row = layout.row()
-                row.prop(settings, "ScaleUniformAxis")
+                for texture_channel_name, texture_channel_prefix, texture_channel, texture_channel_range_offset, texture_channel_range, texture_channel_range_valid in texture_channels:
+                    panel_header, panel_body = layout.panel(texture_channel_name)
+                    if panel_header:
+                        panel_header.prop(texture_channel, "channel_mode", text=texture_channel_prefix)
+                        panel_header.enabled = False
+                    if panel_body:
+                        panel_body.enabled = False
+                        if texture_channel.channel_mode == "POSITION":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "unit_axis_order")
 
-            if bScale:    
-                row = layout.row()
-                row.prop(settings, "NormalizeScale")
-                
-            row = layout.separator(factor=2)
-            
-            bR8bits  = settings.ThirdTextureR == "PosX" and settings.NormalizePosition
-            bR8bits |= settings.ThirdTextureR == "QuatX" and settings.NormalizeQuaternion
-            bR8bits |= settings.ThirdTextureR == "ScaleX" and settings.NormalizeScale
+                            row = panel_body.row()
+                            row.prop(texture_channel, "component")
+                        elif texture_channel.channel_mode == "ROTATION":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "unit_axis_order")
 
-            bG8bits  = settings.ThirdTextureG == "PosY" and settings.NormalizePosition
-            bG8bits |= settings.ThirdTextureG == "QuatY" and settings.NormalizeQuaternion
-            bG8bits |= settings.ThirdTextureG == "ScaleY" and settings.NormalizeScale
+                            row = panel_body.row()
+                            row.prop(texture_channel, "rot_mode")
 
-            bB8bits  = settings.ThirdTextureB == "PosZ" and settings.NormalizePosition
-            bB8bits |= settings.ThirdTextureB == "QuatZ" and settings.NormalizeQuaternion
-            bB8bits |= settings.ThirdTextureB == "ScaleZ" and settings.NormalizeScale
+                            if texture_channel.rot_mode == "QUAT":
+                                row = panel_body.row()
+                                row.prop(texture_channel, "quat")
+                            else: #AXIS_ANGLE
+                                row = panel_body.row()
+                                row.prop(texture_channel, "axis_angle_mode")
 
-            bA8bits  = settings.ThirdTextureA == "Scale" and settings.NormalizeScale
-            bA8bits |= settings.ThirdTextureA == "ObjRand"
-            bA8bits |= settings.ThirdTextureA == "None"
+                                if texture_channel.axis_angle_mode == "ANGLE":
+                                    row = panel_body.row()
+                                    row.prop(texture_channel, "quat_angle_unit_mode")
+                        elif texture_channel.channel_mode == "SCALE":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "unit_axis_order")
 
-            b8bits = bR8bits and bG8bits and bB8bits and bA8bits
+                            row = panel_body.row()
+                            row.prop(texture_channel, "component")
+                        elif texture_channel.channel_mode == "AXIS":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis")
 
-            b32bits = settings.ThirdTextureA == "Quat"
+                            row = panel_body.row()
+                            row.prop(texture_channel, "component")
 
-            if b8bits:
-                row = layout.row()
-                row.label(text="Third texture *CAN* be RGBA 8 bits", icon="CHECKMARK")
-            elif b32bits:
-                row = layout.row()
-                row.label(text="Third texture *MUST* be HDR 32 bits", icon="ERROR")
+                            row = panel_body.row()
+                            row.prop(texture_channel, "axis_scaled")
+                        elif texture_channel.channel_mode == "CUSTOM_PROP":
+                            row = panel_body.row()
+                            row.prop(texture_channel, "name")
+                        else:
+                            pass
+
+                        icon = "CHECKMARK" if texture_channel_range_valid else "ERROR"
+                        row = layout.row()
+                        row.label(text="Offset: %.5f" % texture_channel_range_offset, icon="DOT")
+                        row.enabled = texture_channel.remapping and get_texture_channel_allow_remap(texture_channel)
+                        row = layout.row()
+                        row.label(text="Range: %.5f" % texture_channel_range, icon=icon)
+                        row.enabled = texture_channel.remapping and get_texture_channel_allow_remap(texture_channel)
+
+class OATBAKER_UL_ReportTextureList(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        settings = context.scene.BATBakerSettings
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            if item.name:
+                layout.prop(item, "name", text="", emboss=False, icon="TEXTURE")
             else:
-                row = layout.row()
-                row.label(text="Third texture *MUST* at least be 16 bits", icon="ERROR")
+                layout.label(text="", translate=False, icon="TEXTURE")
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon="ANIM_DATA")
 
-            if (settings.FirstTextureA == "Scale" or \
-               settings.SecondTextureA == "Scale" or \
-               settings.ThirdTextureA == "Scale") and \
-               (settings.ThirdTextureR == "ScaleX" or \
-                settings.ThirdTextureG == "ScaleY" or \
-                settings.ThirdTextureB == "ScaleZ"):
-                row = layout.row()
-                row.label(text="Uniform scale is already packed in the position texture", icon="ERROR")
-
-########
-# BAKE #
-########
-class OATBAKER_PT_BakePanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_bakepanel"
-    bl_parent_id = "OATBAKER_PT_oatpanel"
-    bl_label = "Bake"		
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 1
-
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-        
-        row = layout.row()
-        row.prop(settings, "Scale")
-
-        row = layout.row()
-        row.prop(settings, "ORIGIN")
-        
-        # bake button
-        row = layout.row()
-        row.operator("gametools.objectanimbaker_bake")
-        row.scale_y = 2.0 # bigger button
-
-class OATBAKER_PT_ObjPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_objpanel"
-    bl_parent_id = "OATBAKER_PT_bakepanel"
+# MESH #
+class OATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reportmeshpanel"
+    bl_parent_id = "OATBAKER_PT_reportpanel"
     bl_label = "Mesh"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 1
-
-    #bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        row = layout.row()
-        row.prop(settings, "MergeBakedMesh")
-
-        row = layout.row()
-        row.prop(settings, "MergedBakedMeshName")
-        row.enabled = settings.MergeBakedMesh
-
-        row = layout.row()
-        row.prop(settings, "ObjAutoExport")
-        row.enabled = settings.MergeBakedMesh
-        if settings.ObjAutoExport:
-            row = layout.row()
-            row.prop(settings, "ObjPath")
-
-class OATBAKER_PT_UVPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_uvpanel"
-    bl_parent_id = "OATBAKER_PT_objpanel"
-    bl_label = "UVs"		
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 0
-
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        # uv settings
-        row = layout.row()
-        row.prop(settings, "uv_index")
-
-        row = layout.row()
-        row.prop(settings, "uv_channelMode")
-        if settings.uv_channelMode == "Value":
-            row = layout.row()
-            row.prop(settings, "uv_channelValue")
-
-class OATBAKER_PT_TexPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_texpanel"
-    bl_parent_id = "OATBAKER_PT_bakepanel"
-    bl_label = "Textures"		
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Game Tools"
-    bl_order = 1
-
-    #bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-
-        # texture settings
-        row = layout.row()
-        row.prop(settings, "TexName")
-
-        row = layout.row()
-        row.prop(settings, "TexAutoExport")
-        if settings.TexAutoExport:
-            row = layout.row()
-            row.prop(settings, "TexPath")
-
-class OATBAKER_PT_FramesPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_framespanel"
-    bl_parent_id = "OATBAKER_PT_bakepanel"
-    bl_label = "Frames"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 2
 
-    #bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        report = context.scene.OATBakerReport
+        row = self.layout.row(align=True)
+        if report.mesh:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="X")
 
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
+        scene = context.scene
+        report = scene.OATBakerReport
 
-        # frame range
-        row = layout.row()
-        row.label(text="Frame Range:")
+        if report.mesh:
+            row = layout.row()
+            row.prop(report, "mesh", text="")
+            row.enabled = False
 
-        row = layout.row()
-        row.prop(context.scene, "frame_start", text="")
-        row.prop(context.scene, "frame_end", text="")
-        
-        # frame step
-        row = layout.row()
-        row.prop(context.scene, "frame_step", text="Frame Step:")
+            row = layout.row()
+            if report.mesh_export:
+                row.label(text="File: " + report.mesh_path, icon="FILE")
+            else:
+                row.label(text="Not exported", icon="X")
+            
+            row = layout.row()
+            row.label(text="UVMap")
+            icon = "QUESTION" if report.mesh_uvmap_index == 0 else "DOT"
+            row = layout.row()
+            row.label(text="Index: " + str(report.mesh_uvmap_index), icon=icon)
 
-        # last frame?
-        row = layout.row()
-        row.prop(settings, "bIncludeLastFrame")
+            icon = "CHECKMARK" if report.unit_invert_v else "X"
+            row = layout.row()
+            row.label(text="Invert V: " + str(report.unit_invert_v), icon=icon)
+            row.enabled = report.unit_invert_v
 
-class OATBAKER_PT_BakeInfoPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_bakeinfopanel"
-    bl_parent_id = "OATBAKER_PT_bakepanel"
-    bl_label = "Bake Info"
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Min Bounds Offset")
+
+            row = layout.row()
+            row.label(text="X: " + str(report.mesh_min_bounds_offset[0]), icon="DOT")
+            row = layout.row()
+            row.label(text="Y: " + str(report.mesh_min_bounds_offset[1]), icon="DOT")
+            row = layout.row()
+            row.label(text="Z: " + str(report.mesh_min_bounds_offset[2]), icon="DOT")
+
+            layout.separator()
+
+            row = layout.row()
+            row.label(text="Max Bounds Offset")
+
+            row = layout.row()
+            row.label(text="X: " + str(report.mesh_max_bounds_offset[0]), icon="DOT")
+            row = layout.row()
+            row.label(text="Y: " + str(report.mesh_max_bounds_offset[1]), icon="DOT")
+            row = layout.row()
+            row.label(text="Z: " + str(report.mesh_max_bounds_offset[2]), icon="DOT")
+        else:
+            row = layout.row()
+            row.label(text="Verts: " + str(report.num_verts))
+
+            row = layout.row()
+            row.label(text="None generated")
+
+# XML #
+class OATBAKER_PT_ReportXMLPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reportxmlpanel"
+    bl_parent_id = "OATBAKER_PT_reportpanel"
+    bl_label = "XML"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
@@ -597,159 +767,165 @@ class OATBAKER_PT_BakeInfoPanel(bpy.types.Panel):
 
     bl_options = {'DEFAULT_CLOSED'}
 
+    def draw_header(self, context):
+        report = context.scene.OATBakerReport
+        row = self.layout.row(align=True)
+        if report.xml:
+            row.label(text="", icon="CHECKMARK")
+        else:
+            row.label(text="", icon="X")
+
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
-'''
-        Frames = GetFramesToBake(context)
-        Icon = "CHECKMARK" if Frames > 0 else "ERROR"
-        
+        scene = context.scene
+        report = scene.OATBakerReport
+
         row = layout.row()
-        row.label(text="Frames: " + str(Frames), icon=Icon)
-
-        TextureResolution = GetTextureResolution(context)
-        if TextureResolution[0]:
-            row = layout.row()
-            row.label(text="Texture size: " + str(TextureResolution[2]) + "x" + str(TextureResolution[3]), icon="CHECKMARK")
-
-            row = layout.separator(factor=1)
-
-            MemoryFootprintPerTexture = TextureResolution[2] * TextureResolution[3] * 32 * 4
-            Textures = 0
-            if settings.FirstTexture:
-                Textures += 1
-            if settings.SecondTexture:
-                Textures += 1
-            if settings.ThirdTexture:
-                Textures += 1
-
-            MemoryFootprintPerTexture *= Textures
-            MemoryFootprintPerTexture = MemoryFootprintPerTexture / 1024.0
-
-            row = layout.row()
-            row.label(text="HDR Textures MemSize: " + str(MemoryFootprintPerTexture) + "KB")
+        if report.xml:
+            row.label(text="File: " + report.xml_path, icon="FILE")
         else:
-            row = layout.row()
-            row.label(text="Texture size: INVALID!", icon="ERROR")'''
+            row.label(text="Not exported", icon="X")
 
-class OATBAKER_PT_UEInfoPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_ueinfopanel"
-    bl_parent_id = "OATBAKER_PT_bakepanel"
-    bl_label = "UE Material Multipliers"
+# ANIMS #
+class OATBAKER_PT_ReportAnimsPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reportanimspanel"
+    bl_parent_id = "OATBAKER_PT_reportpanel"
+    bl_label = "Anims"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
-    bl_order = 4
+    bl_order = 10
 
     bl_options = {'DEFAULT_CLOSED'}
 
+    # @classmethod
+    # def poll(cls, context):
+    #     return context.scene.OATBakerReport.success
+
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
+        scene = context.scene
+        report = scene.OATBakerReport
 
-        row = layout.row()
-        row.label(text="Position Multiplier")
-        if settings.bPositionNormalized:
-            row = layout.row()
-            row.label(text="X: " + str(settings.MaxPosition.x * settings.unit_scale), icon="CON_OBJECTSOLVER")
+        layout.template_list("OATBAKER_UL_ReportAnimsList", "", report, "anims", report, "selected_anim", rows=3)
+        if report.anims:
+            anim = report.anims[report.selected_anim]
+            if anim:
+                row = layout.row()
+                row.label(text="Length: " + str(anim.end_frame - (anim.start_frame - 1)))
 
-            row = layout.row()
-            row.label(text="Y: " + str(settings.MaxPosition.y * settings.unit_scale), icon="CON_OBJECTSOLVER")
+                row = layout.row()
+                row.label(text="Start: " + str(anim.start_frame))
+                row = layout.row()
+                row.label(text="End: " + str(anim.end_frame))
 
-            row = layout.row()
-            row.label(text="Z: " + str(settings.MaxPosition.z * settings.unit_scale), icon="CON_OBJECTSOLVER")
-        else:
-            row = layout.row()
-            row.label(text="No multiplier", icon="CHECKMARK")
-
-        row = layout.separator(factor=1)
-
-        row = layout.row()
-        row.label(text="Scale Multiplier")
-        if settings.bScaleNormalized:
-            if settings.FirstTextureA == "Scale" or \
-               settings.SecondTextureA == "Scale" or \
-               settings.ThirdTextureA == "Scale":
-                if settings.scaleUniformAxis == "X":
-                    row = layout.row()
-                    row.label(text="Uniform Scale X: " + str(settings.MaxScale.x), icon="CON_OBJECTSOLVER")
-                elif settings.scaleUniformAxis == "Y":
-                    row = layout.row()
-                    row.label(text="Uniform Scale Y: " + str(settings.MaxScale.y), icon="CON_OBJECTSOLVER")
-                else: #Z
-                    row = layout.row()
-                    row.label(text="Uniform Scale Z: " + str(settings.MaxScale.z), icon="CON_OBJECTSOLVER")
+class OATBAKER_UL_ReportAnimsList(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            if item.name:
+                layout.label(text=item.name, translate=False, icon="ANIM_DATA")
             else:
-                row = layout.row()
-                row.label(text="X: " + str(settings.MaxScale.x), icon="CON_OBJECTSOLVER")
+                layout.label(text="", translate=False, icon="ANIM_DATA")
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon="ANIM_DATA")
 
-                row = layout.row()
-                row.label(text="Y: " + str(settings.MaxScale.y), icon="CON_OBJECTSOLVER")
-
-                row = layout.row()
-                row.label(text="Z: " + str(settings.MaxScale.z), icon="CON_OBJECTSOLVER")
-        else:
-            row = layout.row()
-            row.label(text="No multiplier", icon="CHECKMARK")
-
-        row = layout.separator(factor=1)
-
-        row = layout.row()
-        row.label(text="Speed Multiplier: " + str(settings.AnimSpeed))
-        
-
-class OATBAKER_PT_UEBoundsInfoPanel(bpy.types.Panel):
-    bl_idname = "OATBAKER_PT_ueboundsinfopanel"
-    bl_parent_id = "OATBAKER_PT_bakepanel"
-    bl_label = "UE Mesh vertices_bounds"
+# FRAMES #
+class OATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reportframespanel"
+    bl_parent_id = "OATBAKER_PT_reportpanel"
+    bl_label = "Frames"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
-    bl_order = 5
+    bl_order = 12
 
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
-        # get settings
-        settings = context.scene.OATBakerSettings
+        scene = context.scene
+        report = scene.OATBakerReport
 
         row = layout.row()
-        row.prop(settings, "bAccurateBounds")
+        row.prop(report, "tex_sampling_mode")
+        row.enabled = False
+
+        layout.separator()
+
+        icon = "CHECKMARK" if report.padded else "ERROR" if (scene.BATBakerSettings.frame_padding > 0 and not report.padded) else "X"
+        row = layout.row()
+        row.label(text="Padding: " + str(report.padding), icon=icon)
+
+        if report.padded:
+            row = layout.row()
+            row.prop(report, "padding_mode", text="")
+            row.enabled = False
+
+        layout.separator()
 
         row = layout.row()
-        row.prop(settings, "bPrevizBounds")
+        col = row.split()
+        col.label(text="Start: " + str(report.start_frame))
+        col.label(text="End: " + str(report.end_frame))
+        row.enabled = False
 
         row = layout.row()
-        row.label(text="Max vertices_bounds")
-        if settings.bMaxBounds:
-            row = layout.row()
-            row.label(text="X: " + str(settings.MaxBounds.x), icon="CON_OBJECTSOLVER")
+        col = row.split()
+        col.label(text="Frames: " + str(report.num_frames))
+        col.enabled = False
+        col.label(text="Step: " + str(report.frame_step))
+        col.enabled = report.frame_step != 1
+        col.label(text="FPS: " + str(report.frame_rate))
+        col.enabled = report.frame_rate != 24.0
 
-            row = layout.row()
-            row.label(text="Y: " + str(settings.MaxBounds.y), icon="CON_OBJECTSOLVER")
+# UNIT #
+class OATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_reportunitpanel"
+    bl_parent_id = "OATBAKER_PT_reportpanel"
+    bl_label = "Unit"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 14
 
-            row = layout.row()
-            row.label(text="Z: " + str(settings.MaxBounds.z), icon="CON_OBJECTSOLVER")
-        else:
-            row = layout.row()
-            row.label(text="No bounds computed", icon="CHECKMARK")
+    bl_options = {'DEFAULT_CLOSED'}
 
-        row = layout.separator(factor=2)
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        report = scene.OATBakerReport
 
         row = layout.row()
-        row.label(text="Min vertices_bounds")
-        if settings.bMinBounds:
-            row = layout.row()
-            row.label(text="X: " + str(settings.MinBounds.x), icon="CON_OBJECTSOLVER")
+        row.label(text="System: " + report.unit_system)
+        row.enabled = report.unit_system != "METRIC"
 
-            row = layout.row()
-            row.label(text="Y: " + str(settings.MinBounds.y), icon="CON_OBJECTSOLVER")
+        row = layout.row()
+        row.label(text="Unit: " + report.unit_unit)
+        row.enabled = report.unit_unit != "METERS"
 
-            row = layout.row()
-            row.label(text="Z: " + str(settings.MinBounds.z), icon="CON_OBJECTSOLVER")
-        else:
-            row = layout.row()
-            row.label(text="No bounds computed", icon="CHECKMARK")
+        row = layout.row()
+        row.label(text="Length: " + str(report.unit_length))
+        row.enabled = report.unit_length != 1.0
+
+        row = layout.row()
+        row.label(text="Scale: " + str(report.unit_scale))
+
+        layout.separator()
+        row = layout.row()
+        row.label(text="Invert")
+
+        icon = "CHECKMARK" if report.unit_invert_x else "X"
+        row = layout.row()
+        row.label(text="X: " + str(report.unit_invert_x), icon=icon)
+        row.enabled = report.unit_invert_x
+
+        icon = "CHECKMARK" if report.unit_invert_y else "X"
+        row = layout.row()
+        row.label(text="Y: " + str(report.unit_invert_y), icon=icon)
+        row.enabled = report.unit_invert_y
+
+        icon = "CHECKMARK" if report.unit_invert_z else "X"
+        row = layout.row()
+        row.label(text="Z: " + str(report.unit_invert_z), icon=icon)
+        row.enabled = report.unit_invert_z
