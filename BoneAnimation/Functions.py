@@ -605,7 +605,7 @@ def get_bake_animation_textures(context: bpy.types.Context) -> tuple[bool, str, 
         other_tex_names = [other_texture.name for other_texture in settings.animation_textures if other_texture != texture]
         skinning_tex_names = [skinning_texture.name for skinning_texture in settings.skinning_textures] # account for index/weight textures (there are two separate sets of textures)
         all_other_tex_names = other_tex_names + skinning_tex_names
-        if texture.name in other_tex_names: # texture must be uniquely named
+        if texture.name in all_other_tex_names: # texture must be uniquely named
             return (False, "Multiple animation textures share the same name", None)
 
         if texture.R.channel_mode == "NONE" and texture.G.channel_mode == "NONE" and texture.B.channel_mode == "NONE" and texture.A.channel_mode == "NONE":
