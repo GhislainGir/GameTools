@@ -1018,7 +1018,6 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
             add_bake_report("success", False)
             add_bake_report("msg", msg)
             return (False, 'ERROR', msg)
-        
 
     else: # settings.bake_mode == 'MESHSEQUENCE'
         success, msg, vertices_offsets, vertices_normals, bounds_info = get_sequence_vertices_buffers(context, objs_to_bake, bake_frames_info, bake_frame_height, tex_width, tex_height, num_verts)
