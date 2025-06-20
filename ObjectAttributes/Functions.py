@@ -1903,8 +1903,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
             tex_subel = ET.SubElement(tex_el, "Texture",
                                       name=texture.name,
                                       path=texture.path)
-            
-            
+
             channels = [
                 (texture.R, "R", texture.R_range_offset, texture.R_range, texture.R_range_valid),
                 (texture.G, "G", texture.G_range_offset, texture.G_range, texture.G_range_valid),
@@ -1920,6 +1919,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                                            component=channel.component,
                                            axis=channel.axis,
                                            quat=channel.quat,
+                                           quat_axis_order=channel.quat_xyz_order if channel.override_xyz_order else report.unit_axis_order,
                                            depth=str(channel_depth),
                                            remapped=str(channel_remapped),
                                            range_offset=str(channel_range_offset),
