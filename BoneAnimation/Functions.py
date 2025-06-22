@@ -12,7 +12,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import bpy
-from ctypes import POINTER, pointer, c_int, cast, c_float
+from ctypes import POINTER, pointer, c_int, c_uint, cast, c_float
 import bmesh
 import math
 import os
@@ -386,6 +386,8 @@ def export_bake_report(context: bpy.types.Context) -> tuple[bool, str, str]:
 def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     """
     Quaternion packing using the three smallest component method (from quat to 32bits float)
+    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    problematic, though it technically shouldn't
 
     :param quat: WXYZ quaternion to pack
     :return: bit-packed float
@@ -442,18 +444,14 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
     packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
 
-    # 2 bits for the index to reconstruct, 10 each for the others
-    compression_bits = 10
-    compression_mask = 1023.0 # 1023, precision mask
-
     # XYZ component converted into [0:1023] integer range to be packed into 10 bits
-    int_packed_quat_x = math.floor(packed_quat.x * compression_mask)
-    int_packed_quat_y = math.floor(packed_quat.y * compression_mask)
-    int_packed_quat_z = math.floor(packed_quat.z * compression_mask)
+    int_packed_quat_x = math.floor(packed_quat.x * 511)
+    int_packed_quat_y = math.floor(packed_quat.y * 1023)
+    int_packed_quat_z = math.floor(packed_quat.z * 1023)
 
     bitstring_x = str(bin(int_packed_quat_x))
     bitstring_x = bitstring_x[2:] # get rid of 0b
-    bitstring_x = bitstring_x.zfill(10) # ensure it's 10 char long
+    bitstring_x = bitstring_x.zfill(9) # ensure it's 10 char long
 
     bitstring_y = str(bin(int_packed_quat_y))
     bitstring_y = bitstring_y[2:] # get rid of 0b
@@ -463,10 +461,12 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     bitstring_z = bitstring_z[2:] # get rid of 0b
     bitstring_z = bitstring_z.zfill(10) # ensure it's 10 char long
 
-    bits_string = "0b" + bitstring_index + bitstring_x + bitstring_y + bitstring_z
+    bits_string = bitstring_index + "0" + bitstring_x + bitstring_y + bitstring_z
+    bits_string = "0b" + bits_string
 
-    cp = pointer(c_int(int(bits_string, 0)))
+    cp = pointer(c_uint(int(bits_string, 0)))
     fp = cast(cp, POINTER(c_float))
+
     return fp.contents.value
 
 ############
