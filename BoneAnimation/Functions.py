@@ -579,7 +579,6 @@ def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, l
                 pass
 
     if len(bones_indices) > 0:
-        for i in bones_indices:
         return (False, "Bone index(ices) missing", None, 0)
     if len(bones_weights) > 0:
         return (False, "Bone weight(s) missing", None, 0)
