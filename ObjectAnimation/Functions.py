@@ -12,7 +12,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import bpy
-from ctypes import POINTER, pointer, c_int, cast, c_float
+from ctypes import POINTER, pointer, c_int, c_uint, cast, c_float
 import math
 import mathutils
 import bmesh
@@ -1064,14 +1064,10 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
     """
     compile linear list of all texture channels. For each, pre-allocate a pixel buffer
     """
-    buffer_length = frame_width * frame_height # single channel
+    buffer_length = frame_width * frame_height * 4 # RGBA
     buffers = []
-    buffer_channels = []
-    for texture in textures:
-        channels = [texture.R, texture.G, texture.B, texture.A]
-        for channel in channels:
-            buffers.append([0.0] * buffer_length)
-            buffer_channels.append(channel)
+    for texture in settings.textures:
+        buffers.append([0.0] * buffer_length)
 
     context.scene.frame_set(bake_ref_frame)
     dgraph = context.evaluated_depsgraph_get()
@@ -1086,8 +1082,8 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
 
     obj_ref_matrices = [None] * len(objs_to_bake)
     for obj_to_bake_index, obj_to_bake in enumerate(objs_to_bake):
-        uneval_obj_source = get_texture_buffer_obj_source_obj(channel, obj_to_bake)
-        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+        #uneval_obj_source = get_texture_buffer_obj_source_obj(channel, obj_to_bake) # ref bound isn't based on source obj
+        eval_obj_source = obj_to_bake.evaluated_get(dgraph)
         eval_obj_source_mat = eval_obj_source.matrix_world
         obj_ref_matrices[obj_to_bake_index] = eval_obj_source_mat.copy()
 
@@ -1103,6 +1099,8 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                                             max(ref_max_bounds.y, max(bbox_corners_y)),
                                             max(ref_max_bounds.z, max(bbox_corners_z))))
 
+    bake_progress = 10
+    bake_progress_step = (1.0 / (len(frames_to_bake))) * 80
     """
     main loop: for each frame, for each object, for each texture channel to bake
     """
@@ -1113,157 +1111,162 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
         context.scene.frame_set(frame)
         dgraph = context.evaluated_depsgraph_get()
 
-        buffer_frame_offset = frame_index * len(objs_to_bake)
+        bake_progress += bake_progress_step
+        context.window_manager.progress_update(bake_progress)
+
+        buffer_frame_offset = frame_index * len(objs_to_bake) * 4
         for obj_to_bake_index, obj_to_bake in enumerate(objs_to_bake):
-            for buffer_channel_index, buffer_channel in enumerate(buffer_channels):
-                # get object to bake. Likely self but could be another object because of a custom prop or parent because of user-set option
-                uneval_obj_source = get_texture_buffer_obj_source_obj(channel, obj_to_bake)
-                eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
-                eval_obj_source_mat = eval_obj_source.matrix_world
+            for texture_index, texture in enumerate(textures):
+                channels = [texture.R, texture.G, texture.B, texture.A]
+                for buffer_channel_index, buffer_channel in enumerate(channels):
+                    # get object to bake. Likely self but could be another object because of a custom prop or parent because of user-set option
+                    uneval_obj_source = get_texture_buffer_obj_source_obj(buffer_channel, obj_to_bake)
+                    eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+                    eval_obj_source_mat = eval_obj_source.matrix_world
 
-                """
-                This step calculates the minimum and maximum bounds of the mesh in its animated pose. These bounds can be then compared to the bounds of the mesh in reference pose to compute
-                an offset to apply to the exported mesh's bounding box. This is important for accurate occlusion culling.
-                """
-                bbox_corners = [(eval_obj_source_mat @ mathutils.Vector(corner)) * signed_scale for corner in eval_obj_source.bound_box]
-                bbox_corners_x = [corner.x for corner in bbox_corners]
-                bbox_corners_y = [corner.y for corner in bbox_corners]
-                bbox_corners_z = [corner.z for corner in bbox_corners]
+                    """
+                    This step calculates the minimum and maximum bounds of the mesh in its animated pose. These bounds can be then compared to the bounds of the mesh in reference pose to compute
+                    an offset to apply to the exported mesh's bounding box. This is important for accurate occlusion culling.
+                    """
+                    bbox_corners = [(eval_obj_source_mat @ mathutils.Vector(corner)) * signed_scale for corner in eval_obj_source.bound_box]
+                    bbox_corners_x = [corner.x for corner in bbox_corners]
+                    bbox_corners_y = [corner.y for corner in bbox_corners]
+                    bbox_corners_z = [corner.z for corner in bbox_corners]
 
-                min_bounds = mathutils.Vector((min(min_bounds.x, min(bbox_corners_x)),
-                                            min(min_bounds.y, min(bbox_corners_y)),
-                                            min(min_bounds.z, min(bbox_corners_z))))
-                max_bounds = mathutils.Vector((max(max_bounds.x, max(bbox_corners_x)),
-                                            max(max_bounds.y, max(bbox_corners_y)),
-                                            max(max_bounds.z, max(bbox_corners_z))))
+                    min_bounds = mathutils.Vector((min(min_bounds.x, min(bbox_corners_x)),
+                                                min(min_bounds.y, min(bbox_corners_y)),
+                                                min(min_bounds.z, min(bbox_corners_z))))
+                    max_bounds = mathutils.Vector((max(max_bounds.x, max(bbox_corners_x)),
+                                                max(max_bounds.y, max(bbox_corners_y)),
+                                                max(max_bounds.z, max(bbox_corners_z))))
 
-                if settings.origin_obj:
-                    eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
-
-                if buffer_channel.channel_mode == "POSITION":
-                    ref_obj_source_mat = obj_ref_matrices[obj_to_bake_index]
                     if settings.origin_obj:
-                        ref_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ ref_obj_source_mat
-                    if frame_index <= 0: # ref frame is the first animation data in list
-                        vector_to_bake = ref_obj_source_mat.to_translation()
-                    else:
-                        vector_to_bake = eval_obj_source_mat.to_translation() - ref_obj_source_mat.to_translation()
+                        eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
 
-                    vector_to_bake *= signed_scale
-                    if settings.unit_axis_order != "XYZ":
-                        vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
+                    if buffer_channel.channel_mode == "POSITION":
+                        ref_obj_source_mat = obj_ref_matrices[obj_to_bake_index]
+                        if settings.origin_obj:
+                            ref_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ ref_obj_source_mat
+                        if frame_index <= 0: # ref frame is the first animation data in list
+                            vector_to_bake = ref_obj_source_mat.to_translation()
+                        else:
+                            vector_to_bake = eval_obj_source_mat.to_translation() - ref_obj_source_mat.to_translation()
 
-                    if buffer_channel.component == "X":
-                        data_to_bake = vector_to_bake.x
-                    elif buffer_channel.component == "Y":
-                        data_to_bake = vector_to_bake.y
-                    else: # Z
-                        data_to_bake = vector_to_bake.z
-                elif buffer_channel.channel_mode == "ROTATION":
-                    ref_obj_source_mat = obj_ref_matrices[obj_to_bake_index]
-                    if settings.origin_obj:
-                        ref_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ ref_obj_source_mat
+                        vector_to_bake *= signed_scale
+                        if settings.unit_axis_order != "XYZ":
+                            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
-                    if frame_index <= 0: # ref frame is the first animation data in list
-                        eval_obj_source_mat = ref_obj_source_mat
-                    else:
-                        eval_obj_source_mat = eval_obj_source_mat @ ref_obj_source_mat.inverted()
+                        if buffer_channel.component == "X":
+                            data_to_bake = vector_to_bake.x
+                        elif buffer_channel.component == "Y":
+                            data_to_bake = vector_to_bake.y
+                        else: # Z
+                            data_to_bake = vector_to_bake.z
+                    elif buffer_channel.channel_mode == "ROTATION":
+                        ref_obj_source_mat = obj_ref_matrices[obj_to_bake_index]
+                        if settings.origin_obj:
+                            ref_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ ref_obj_source_mat
 
-                    sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                        if frame_index <= 0: # ref frame is the first animation data in list
+                            eval_obj_source_mat = ref_obj_source_mat
+                        else:
+                            eval_obj_source_mat = eval_obj_source_mat @ ref_obj_source_mat.inverted()
+
+                        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                                    (-1 if settings.unit_invert_y else 1),
+                                                                    (-1 if settings.unit_invert_z else 1), 1))
+                        rot_matrix = sign_matrix @ eval_obj_source_mat @ sign_matrix
+
+                        xyz_order = buffer_channel.quat_xyz_order if buffer_channel.override_xyz_order else settings.unit_axis_order
+                        euler = rot_matrix.to_euler(xyz_order)
+
+                        if buffer_channel.rot_mode == "QUAT":
+                            quat = euler.to_quaternion()
+
+                            if buffer_channel.quat == "X":
+                                data_to_bake = quat.x
+                            elif buffer_channel.quat == "Y":
+                                data_to_bake = quat.y
+                            elif buffer_channel.quat == "Z":
+                                data_to_bake = quat.z
+                            elif buffer_channel.quat == "W":
+                                data_to_bake = quat.w
+                            else: # XYZW
+                                data_to_bake = get_compressed_quat(quat)
+                        else: # AXIS_ANGLE
+                            axis, angle = euler.to_quaternion().to_axis_angle()
+
+                            if buffer_channel.axis_angle_mode == "AXIS_X":
+                                data_to_bake = axis.x
+                            elif buffer_channel.axis_angle_mode == "AXIS_Y":
+                                data_to_bake = axis.y
+                            elif buffer_channel.axis_angle_mode == "AXIS_Z":
+                                data_to_bake = axis.z
+                            else: # ANGLE
+                                if buffer_channel.quat_angle_unit_mode == "DEGREES":
+                                    data_to_bake = angle * (180/math.pi)
+                                elif buffer_channel.quat_angle_unit_mode == "UNIT":
+                                    data_to_bake = angle * (180/math.pi)
+                                    data_to_bake /= 360
+                                else: # RADIANS
+                                    data_to_bake = angle
+                    elif buffer_channel.channel_mode == "SCALE":
+                        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                        (-1 if settings.unit_invert_y else 1),
+                                                        (-1 if settings.unit_invert_z else 1), 1))
+                        eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
+                        vector_to_bake = eval_obj_source_mat.to_3x3().to_scale()
+                        
+                        if settings.unit_axis_order != "XYZ":
+                            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
+
+                        if buffer_channel.component == "X":
+                            data_to_bake = vector_to_bake.x
+                        elif buffer_channel.component == "Y":
+                            data_to_bake = vector_to_bake.y
+                        elif buffer_channel.component == "Z":
+                            data_to_bake = vector_to_bake.z
+                        else:
+                            data_to_bake = 0.0
+                    elif buffer_channel.channel_mode == "AXIS":
+                        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
                                                                 (-1 if settings.unit_invert_y else 1),
-                                                                (-1 if settings.unit_invert_z else 1), 1))
-                    rot_matrix = sign_matrix @ eval_obj_source_mat @ sign_matrix
+                                                                (-1 if settings.unit_invert_z else 1)))
+                        eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
 
-                    xyz_order = buffer_channel.quat_xyz_order if buffer_channel.override_xyz_order else settings.unit_axis_order
-                    euler = rot_matrix.to_euler(xyz_order)
+                        if data_to_bake.axis == "X":
+                            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((1.0, 0.0, 0.0))
+                        elif data_to_bake.axis == "Y":
+                            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 1.0, 0.0))
+                        else: # Z
+                            vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 0.0, 1.0))
 
-                    if buffer_channel.rot_mode == "QUAT":
-                        quat = euler.to_quaternion()
+                        if settings.unit_axis_order != "XYZ":
+                            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
-                        if buffer_channel.quat == "X":
-                            data_to_bake = quat.x
-                        elif buffer_channel.quat == "Y":
-                            data_to_bake = quat.y
-                        elif buffer_channel.quat == "Z":
-                            data_to_bake = quat.z
-                        elif buffer_channel.quat == "W":
-                            data_to_bake = quat.w
-                        else: # XYZW
-                            data_to_bake = get_compressed_quat(quat)
-                    else: # AXIS_ANGLE
-                        axis, angle = euler.to_quaternion().to_axis_angle()
+                        if not data_to_bake.axis_scaled:
+                            vector_to_bake.normalize()
 
-                        if buffer_channel.axis_angle_mode == "AXIS_X":
-                            data_to_bake = axis.x
-                        elif buffer_channel.axis_angle_mode == "AXIS_Y":
-                            data_to_bake = axis.y
-                        elif buffer_channel.axis_angle_mode == "AXIS_Z":
-                            data_to_bake = axis.z
-                        else: # ANGLE
-                            if buffer_channel.quat_angle_unit_mode == "DEGREES":
-                                data_to_bake = angle * (180/math.pi)
-                            elif buffer_channel.quat_angle_unit_mode == "UNIT":
-                                data_to_bake = angle * (180/math.pi)
-                                data_to_bake /= 360
-                            else: # RADIANS
-                                data_to_bake = angle
-                elif buffer_channel.channel_mode == "SCALE":
-                    sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
-                                                    (-1 if settings.unit_invert_y else 1),
-                                                    (-1 if settings.unit_invert_z else 1), 1))
-                    eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
-                    vector_to_bake = eval_obj_source_mat.to_3x3().to_scale()
-                    
-                    if settings.unit_axis_order != "XYZ":
-                        vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
-
-                    if buffer_channel.component == "X":
-                        data_to_bake = vector_to_bake.x
-                    elif buffer_channel.component == "Y":
-                        data_to_bake = vector_to_bake.y
-                    elif buffer_channel.component == "Z":
-                        data_to_bake = vector_to_bake.z
+                        if data_to_bake.component == "X":
+                            data_to_bake = vector_to_bake.x
+                        elif data_to_bake.component == "Y":
+                            data_to_bake = vector_to_bake.y
+                        elif data_to_bake.component == "Z":
+                            data_to_bake = vector_to_bake.z
+                        else:
+                            data_to_bake = 0.0
+                    elif buffer_channel.channel_mode == "CUSTOM_PROP":
+                        if buffer_channel.name in eval_obj_source:
+                            data_to_bake = eval_obj_source[buffer_channel.name]
+                        else:
+                            data_to_bake = 0
                     else:
-                        data_to_bake = 0.0
-                elif buffer_channel.channel_mode == "AXIS":
-                    sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
-                                                            (-1 if settings.unit_invert_y else 1),
-                                                            (-1 if settings.unit_invert_z else 1)))
-                    eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
+                        continue
 
-                    if data_to_bake.axis == "X":
-                        vector_to_bake = eval_obj_source_mat @ mathutils.Vector((1.0, 0.0, 0.0))
-                    elif data_to_bake.axis == "Y":
-                        vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 1.0, 0.0))
-                    else: # Z
-                        vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 0.0, 1.0))
-
-                    if settings.unit_axis_order != "XYZ":
-                        vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
-
-                    if not data_to_bake.axis_scaled:
-                        vector_to_bake.normalize()
-
-                    if data_to_bake.component == "X":
-                        data_to_bake = vector_to_bake.x
-                    elif data_to_bake.component == "Y":
-                        data_to_bake = vector_to_bake.y
-                    elif data_to_bake.component == "Z":
-                        data_to_bake = vector_to_bake.z
-                    else:
-                        data_to_bake = 0.0
-                elif buffer_channel.channel_mode == "CUSTOM_PROP":
-                    if buffer_channel.name in eval_obj_source:
-                        data_to_bake = eval_obj_source[buffer_channel.name]
-                    else:
-                        data_to_bake = 0
-                else:
-                    pass
-
-                try:
-                    buffers[buffer_channel_index][obj_to_bake_index + buffer_frame_offset] = data_to_bake
-                except:
-                    pass
+                    try:
+                        buffers[texture_index][(obj_to_bake_index * 4) + buffer_frame_offset + buffer_channel_index] = data_to_bake
+                    except:
+                        pass
 
     min_bounds_offset = (min_bounds - ref_min_bounds)
     min_bounds_offset.x = min(0, min_bounds_offset.x)
@@ -1291,15 +1294,7 @@ def get_texture_buffers(context, bake_name: str, buffers, textures, frame_width:
     # interleave [R,R,R,...], [G,G,G,...], [B,B,B,...], [A,A,A,...] buffers
     # into a single [R,G,B,A,R,G,B,A,...] pixel buffer for this texture
     for texture_index, texture in enumerate(textures):
-        texture_offset = texture_index * 4
-        print(texture_index)
-        r = np.array(buffers[texture_offset + 0], dtype=np.float32)
-        g = np.array(buffers[texture_offset + 1], dtype=np.float32)
-        b = np.array(buffers[texture_offset + 2], dtype=np.float32)
-        a = np.array(buffers[texture_offset + 3], dtype=np.float32)
-
-        interleaved = np.stack((r, g, b, a), axis=1).reshape(-1)
-        pixels = interleaved.tolist()
+        pixels = buffers[texture_index]
         if len(pixels) != buffer_length:
             return (False, "Unexpected pixel buffer length: " + str(len(pixels)) + " vs " + str(buffer_length))
 
@@ -1310,7 +1305,6 @@ def get_texture_buffers(context, bake_name: str, buffers, textures, frame_width:
         if not success:
             return (False, msg)
         report_texture = add_bake_texture_report(texture, tex)
-        print(report_texture)
 
         tex_path = ""
         if settings.export_tex and bpy.data.is_saved:
@@ -1517,44 +1511,11 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
 
 ###############
 ### PACKING ###
-def get_bitpacked_integer(index: int) -> float:
-	"""
-    https://github.com/Gvgeo/Pivot-Painter-for-Blender, original algorithm by Jonathan Lindquist.
-    
-    Pivot Painter algorithm for packing a 16-bit integer into a 32-bit float, in a way that preserves the value during 32-bit to 16-bit float conversion.
-    
-    :param index: integer index to bitpack
-    :return: bit-packed float
-    :rtype: float
-    """
-	index = int(index)
-	index = index + 1024
-	sigh = index & 0x8000
-	sigh = sigh << 16
-	
-	exptest = index & 0x7fff
-
-	if exptest == 0:
-		exp = 0
-	else:
-		exp = index >> 10
-		exp = exp & 0x1f
-		exp = exp - 15
-		exp = exp + 127
-		exp = exp << 23
-	
-	mant = index & 0x3ff
-	mant = mant << 13
-	
-	index = sigh|exp|mant
-	
-	cp = pointer(c_int(index))
-	fp = cast(cp, POINTER(c_float))
-	return fp.contents.value
-
 def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     """
     Quaternion packing using the three smallest component method (from quat to 32bits float)
+    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    problematic, though it technically shouldn't
 
     :param quat: WXYZ quaternion to pack
     :return: bit-packed float
@@ -1611,18 +1572,14 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
     packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
 
-    # 2 bits for the index to reconstruct, 10 each for the others
-    compression_bits = 10
-    compression_mask = 1023.0 # 1023, precision mask
-
     # XYZ component converted into [0:1023] integer range to be packed into 10 bits
-    int_packed_quat_x = math.floor(packed_quat.x * compression_mask)
-    int_packed_quat_y = math.floor(packed_quat.y * compression_mask)
-    int_packed_quat_z = math.floor(packed_quat.z * compression_mask)
+    int_packed_quat_x = math.floor(packed_quat.x * 511)
+    int_packed_quat_y = math.floor(packed_quat.y * 1023)
+    int_packed_quat_z = math.floor(packed_quat.z * 1023)
 
     bitstring_x = str(bin(int_packed_quat_x))
     bitstring_x = bitstring_x[2:] # get rid of 0b
-    bitstring_x = bitstring_x.zfill(10) # ensure it's 10 char long
+    bitstring_x = bitstring_x.zfill(9) # ensure it's 10 char long
 
     bitstring_y = str(bin(int_packed_quat_y))
     bitstring_y = bitstring_y[2:] # get rid of 0b
@@ -1632,10 +1589,12 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     bitstring_z = bitstring_z[2:] # get rid of 0b
     bitstring_z = bitstring_z.zfill(10) # ensure it's 10 char long
 
-    bits_string = "0b" + bitstring_index + bitstring_x + bitstring_y + bitstring_z
+    bits_string = bitstring_index + "0" + bitstring_x + bitstring_y + bitstring_z
+    bits_string = "0b" + bits_string
 
-    cp = pointer(c_int(int(bits_string, 0)))
+    cp = pointer(c_uint(int(bits_string, 0)))
     fp = cast(cp, POINTER(c_float))
+
     return fp.contents.value
 
 ##############
