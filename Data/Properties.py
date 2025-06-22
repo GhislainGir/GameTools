@@ -39,7 +39,8 @@ class DATABAKER_PG_SettingsDataLayer(PropertyGroup):
         ("VALUE", "Value", "Fixed value"),
         ("CUSTOM_PROP", "Custom Property", "Object's Float/Integer custom property"),
         ("FRAME", "Frame", "Vertex offset/normal of the object's vertices at a given frame based on the current frame (vertex count/order must be maintained)"),
-        ("HIERARCHY", "Depth", "Hierarchy depth index (0 for root object, 1 for children, 2 for grandchildren etc.)")
+        ("HIERARCHY", "Depth", "Hierarchy depth index (0 for root object, 1 for children, 2 for grandchildren etc.)"),
+        ("QUATERNION", "Quaternion", "X/Y/Z/W component of the object's quaternion"),
     ]
     data: EnumProperty(name="Data", items=datas, default="POSITION", description="Type of data to bake")
 
@@ -75,6 +76,26 @@ class DATABAKER_PG_SettingsDataLayer(PropertyGroup):
     ]
     vcol_rgba: EnumProperty(name="Channel", items=vcol_r_g_b_a, default="R", description="Target RGBA channel")
 
+    quat_x_y_z_w = [
+        ("X", "X", "The quaternion's X component"),
+        ("Y", "Y", "The quaternion's Y component"),
+        ("Z", "Z", "The quaternion's Z component"),
+        ("W", "W", "The quaternion's W component"),
+        ("XYZW", "XYZW", "The quaternion's XYZW components bit-packed into a single float using the smallest-three method. This requires a 32-bit UVs! !!PACKING IN THE V CHANNEL IS DANGEROUS!!"),
+    ]
+    quat: EnumProperty(name="Component", items=quat_x_y_z_w, default="XYZW", description="Component to bake")
+
+    quat_xyz_orders = [
+         ("XYZ", "XYZ", "XYZ"),
+         ("XZY", "XZY", "XZY"),
+         ("YXZ", "YXZ", "YXZ"),
+         ("YZX", "YZX", "YZX"),
+         ("ZXY", "ZXY", "ZXY"),
+         ("ZYX", "ZYX", "ZYX")
+    ]
+    quat_xyz_order: EnumProperty(name="Order", items=quat_xyz_orders, default="XYZ", description="Basis for the quaternion")
+    override_xyz_order: BoolProperty(name="Override", default=False, description="Override the global mesh axis order setting")
+
     normal_xyz: EnumProperty(name="Component", items=component_x_y_z, default="X", description="Normal component to store the data in")
 
     pack_x_y = [
@@ -106,12 +127,14 @@ class DATABAKER_PG_SettingsDataLayer(PropertyGroup):
     name: StringProperty(name="Name", default="", description="")
 
     obj_modes = [
-        ("SELF", "Self", "Itself"),
-        ("PARENT", "Parent", "Parent, if it has any"),
-        ("CUSTOM", "Custom", "Target Object"),
+        ("SELF", "Self", "Data is fetched from the object itself"),
+        ("PARENT", "Parent", "Data is fetched from the object's parent, if it has at least one, at the specified depth, if possible: 1 is the immediate parent, 2 grandparent, etc. It stops at the last valid parent and falls back to itself if no parent at all"),
+        ("CUSTOM", "Custom", "Data is fetched from the a shared, user-specified object. Falls back to itself if none is set"),
+        ("PROPERTY", "Property", "Data is fetched from the object targeted by a custom object property stored in the object itself. Falls back to itself if no property name is set, or if said property isn't itself set to point to a valid object")
     ]
     obj_mode: EnumProperty(name="Source", items=obj_modes, default="SELF", description="Source object to use")
     obj: PointerProperty(type=bpy.types.Object, name="Object", description="")
+    obj_prop: StringProperty(name="Property", default="SourceObject", description="Name of the custom property stored in the objects to bake, to point to the desired targets")
 
     vertex_modes = [
         ("OFFSET", "Offset", ""),
@@ -174,7 +197,7 @@ class DATABAKER_PG_Settings(PropertyGroup):
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
+    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
     unit_axis_orders = [
         ("XYZ", "XYZ", "XYZ"),
         ("XZY", "XZY", "XZY"),

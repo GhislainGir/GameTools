@@ -174,32 +174,22 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
                     if data.data == "POSITION":
                         row = panel_body.row()
                         row.prop(data, "component")
+                    elif data.data == "QUATERNION":
+                        row = panel_body.row()
+                        row.prop(data, "quat")
 
                         row = panel_body.row()
-                        row.prop(data, "obj_mode")
-
-                        if data.obj_mode == "CUSTOM":
-                            row = panel_body.row()
-                            row.prop(data, "obj")
-                        elif data.obj_mode == "PARENT":
-                            row = panel_body.row()
-                            row.prop(data, "index", text="Depth")
+                        col = row.split()
+                        col.prop(data, "override_xyz_order")
+                        col = row.split()
+                        col.prop(data, "quat_xyz_order")
+                        col.enabled = data.override_xyz_order
                     elif data.data == "AXIS":
                         row = panel_body.row()
                         row.prop(data, "axis", text="")
 
                         row = panel_body.row()
                         row.prop(data, "component")
-
-                        row = panel_body.row()
-                        row.prop(data, "obj_mode")
-
-                        if data.obj_mode == "CUSTOM":
-                            row = panel_body.row()
-                            row.prop(data, "obj")
-                        elif data.obj_mode == "PARENT":
-                            row = panel_body.row()
-                            row.prop(data, "index", text="Depth")
                     elif data.data == "SHAPEKEY":
                         row = panel_body.row()
                         row.prop(data, "name", text="Shapekey")
@@ -209,13 +199,6 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "component")
-
-                        row = panel_body.row()
-                        row.prop(data, "obj_mode")
-
-                        if data.obj_mode == "CUSTOM":
-                            row = panel_body.row()
-                            row.prop(data, "obj")
                     elif data.data == "MASK":
                         row = panel_body.row()
                         row.prop(data, "mask_mode")
@@ -251,7 +234,6 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
                         row = panel_body.row()
                         row.prop(data, "falloff")
                         row.enabled = data.normalize or data.clamp
-
                     elif data.data == "RANDOM":
                         row = panel_body.row()
                         row.prop(data, "rand_mode")
@@ -274,13 +256,6 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
                     elif data.data == "CUSTOM_PROP":
                         row = panel_body.row()
                         row.prop(data, "name", text="Name")
-
-                        row = panel_body.row()
-                        row.prop(data, "obj_mode")
-                        
-                        if data.obj_mode == "CUSTOM":
-                            row = panel_body.row()
-                            row.prop(data, "obj")
                     elif data.data == "FRAME":
                         row = panel_body.row()
                         row.prop(data, "vertex_mode", text="Mode")
@@ -290,17 +265,24 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
 
                         row = panel_body.row()
                         row.prop(data, "component")
+                    elif data.data == "HIERARCHY":
+                        pass
+                    else:
+                        pass
 
+                    if data.data == "POSITION" or data.data == "QUATERNION" or data.data == "AXIS" or data.data == "SHAPEKEY" or data.data == "CUSTOM_PROP" or data.data == "FRAME":
                         row = panel_body.row()
                         row.prop(data, "obj_mode")
                         
                         if data.obj_mode == "CUSTOM":
                             row = panel_body.row()
                             row.prop(data, "obj")
-                    elif data.data == "HIERARCHY":
-                        pass
-                    else:
-                        pass
+                        elif data.obj_mode == "PARENT":
+                            row = panel_body.row()
+                            row.prop(data, "index", text="Depth")
+                        elif data.obj_mode == "PROPERTY":
+                                row = panel_body.row()
+                                row.prop(data, "obj_prop")
 
                 panel_header, panel_body = layout.panel("packing_mode")
                 if panel_header:

@@ -321,14 +321,19 @@ class DATABAKER_OT_DataLayerTarget_ChangePtr(bpy.types.Operator):
         try:
             data_layer = settings.data_layers[settings.data_layers_selected_index]
 
+            prev_ptr = data_layer.ptr
+            
             data_layer.ptr += index_offset
             if data_layer.ptr == settings.data_layers_selected_index:
                 if self.direction == 'UP':
-                    data_layer.ptr += 1
-                else:
                     data_layer.ptr -= 1
+                else:
+                    data_layer.ptr += 1
 
             data_layer.ptr = max(0, min(len(settings.data_layers) - 1, data_layer.ptr))
+
+            if data_layer.ptr == settings.data_layers_selected_index:
+                data_layer.ptr = max(0, min(len(settings.data_layers) - 1, prev_ptr))
 
             return{'FINISHED'}
         except:

@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 import time
 import uuid
 import bmesh
-from ctypes import POINTER, pointer, c_int, cast, c_float
+from ctypes import POINTER, pointer, c_int, c_uint, cast, c_float
 
 #######################################################################################
 ###################################### FUNCTIONS ######################################
@@ -145,7 +145,7 @@ def add_bake_layer_report(data_layer, packing, pack_range = None):
                         pass
 
     report_data_layer.packed_mode = packed_mode
-    report_data_layer.range_high_precision = packed_mode == "FRACTION" or packed_mode == "XY" or packed_mode == "XYZ"
+    report_data_layer.range_high_precision = packed_mode == "FRACTION" or packed_mode == "XY" or packed_mode == "XYZ" or (data_layer.data == "QUATERNION" and data_layer.quat == "XYZW")
 
 def clear_bake_layer_report(data_layer) -> bool:
     """
@@ -457,6 +457,92 @@ def get_packed_ab_vector_legacy(unit_vector: mathutils.Vector, a_component: floa
     b = math.floor(b * (4096 - 1))
 
     return (a + b)
+
+def get_compressed_quat(quat: mathutils.Quaternion) -> float:
+    """
+    Quaternion packing using the three smallest component method (from quat to 32bits float)
+    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    problematic, though it technically shouldn't
+
+    :param quat: WXYZ quaternion to pack
+    :return: bit-packed float
+    :rtype: float
+    """
+    abs_quat_component = 0.0
+    max_abs_quat_component = -1000.0
+    max_abs_quat_component_index = 0
+
+    # re-order quat components... Blender is WXYZ ordered
+    quat_components = [
+        quat.x,
+        quat.y,
+        quat.z,
+        quat.w
+    ]
+
+    # get quat's largest absolute component
+    for quat_component_index in range(4):
+        abs_quat_component = abs(quat_components[quat_component_index])
+
+        if abs_quat_component > max_abs_quat_component:
+            max_abs_quat_component = abs_quat_component
+
+            max_abs_quat_component_index = quat_component_index
+
+    # ensure quat's largest component is positive so we don't have to save sign
+    quat_largest_component_sign = -1.0 if quat_components[max_abs_quat_component_index] < 0.0 else 1.0
+    quat_components[0] *= quat_largest_component_sign
+    quat_components[1] *= quat_largest_component_sign
+    quat_components[2] *= quat_largest_component_sign
+    quat_components[3] *= quat_largest_component_sign
+
+    packed_quat = mathutils.Vector((0.0,0.0,0.0))
+    # pack the smallest 3 components - fourth can be later reconstructed due to quaternions' property
+    if max_abs_quat_component_index == 0: # X component is largest!!
+        packed_quat = mathutils.Vector((quat_components[1], quat_components[2], quat_components[3]))
+        bitstring_index = "00"
+    elif max_abs_quat_component_index == 1: # Y component is largest!!
+        packed_quat = mathutils.Vector((quat_components[0], quat_components[2], quat_components[3]))
+        bitstring_index = "01"
+    elif max_abs_quat_component_index == 2: # Z component is largest!!
+        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[3]))
+        bitstring_index = "10"
+    else: # W component is largest!!
+        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+        bitstring_index = "11"
+
+    # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it can be remapped to increase accuracy
+    quat_normalization_offset = 0.707106781
+    quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
+
+    packed_quat.x = min(1.0, max(0.0, (packed_quat.x + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
+
+    # XYZ component converted into [0:1023] integer range to be packed into 10 bits
+    int_packed_quat_x = math.floor(packed_quat.x * 511)
+    int_packed_quat_y = math.floor(packed_quat.y * 1023)
+    int_packed_quat_z = math.floor(packed_quat.z * 1023)
+
+    bitstring_x = str(bin(int_packed_quat_x))
+    bitstring_x = bitstring_x[2:] # get rid of 0b
+    bitstring_x = bitstring_x.zfill(9) # ensure it's 10 char long
+
+    bitstring_y = str(bin(int_packed_quat_y))
+    bitstring_y = bitstring_y[2:] # get rid of 0b
+    bitstring_y = bitstring_y.zfill(10) # ensure it's 10 char long
+
+    bitstring_z = str(bin(int_packed_quat_z))
+    bitstring_z = bitstring_z[2:] # get rid of 0b
+    bitstring_z = bitstring_z.zfill(10) # ensure it's 10 char long
+
+    bits_string = bitstring_index + "0" + bitstring_x + bitstring_y + bitstring_z
+    bits_string = "0b" + bits_string
+
+    cp = pointer(c_uint(int(bits_string, 0)))
+    fp = cast(cp, POINTER(c_float))
+
+    return fp.contents.value
 
 ############
 ### BAKE ###
@@ -987,6 +1073,8 @@ def get_data_layer_targeting_info(data_layer: object, data_layers: list) -> tupl
         mode = data_layer_target.packing_mode
         if mode == "FRACTION" or mode == "XY" or mode == "XYZ" or mode == "VCOL" or mode == "NORMAL":
             return (False, "is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
+        elif data_layer_target.data == "QUATERNION" and data_layer_target.quat == "XYZW":
+            return (False, "is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
 
         return (True, "", data_layer_target)
     else:
@@ -1016,6 +1104,9 @@ def get_data_layer_non_targeting_info(data_layer: object, data_layers: list) -> 
                     uv_components.append(layer_index)
     # check if targeted VCOL RGBA channel is free                    
     elif data_layer.packing_mode == "VCOL":
+        if data_layer.data == "QUATERNION" and data_layer.quat == "XYZW":
+            return (False, "Bit-packed quaternion must be stored in 32-bit UVs")
+
         vcol_components = []
         for data_layer in data_layers:
             if data_layer.packing_mode == "VCOL":
@@ -1025,6 +1116,9 @@ def get_data_layer_non_targeting_info(data_layer: object, data_layers: list) -> 
                     vcol_components.append(data_layer.vcol_rgba)
     # check if targeted NORMAL XYZ component is free
     elif data_layer.packing_mode == "NORMAL":
+        if data_layer.data == "QUATERNION" and data_layer.quat == "XYZW":
+            return (False, "Bit-packed quaternion must be stored in 32-bit UVs")
+
         normal_components = []
         for data_layer in data_layers:
             if data_layer.packing_mode == "NORMAL":
@@ -1110,14 +1204,28 @@ def get_data_layer_name(data_layer: object) -> str:
                 prefix = "Parent "
             elif data_layer.obj_mode == "CUSTOM":
                 prefix = "Custom "
+            elif data_layer.obj_mode == "PROPERTY":
+                prefix = "Prop "
             else:
                 prefix = ""
             return prefix + "Position (" + data_layer.component + ")"
+        elif data_layer.data == "QUATERNION":
+            if data_layer.obj_mode == "PARENT":
+                prefix = "Parent "
+            elif data_layer.obj_mode == "CUSTOM":
+                prefix = "Custom "
+            elif data_layer.obj_mode == "PROPERTY":
+                prefix = "Prop "
+            else:
+                prefix = ""
+            return prefix + "Quaternion (" + data_layer.quat + ")"
         elif data_layer.data == "AXIS":
             if data_layer.obj_mode == "PARENT":
                 prefix = "Parent "
             elif data_layer.obj_mode == "CUSTOM":
                 prefix = "Custom "
+            elif data_layer.obj_mode == "PROPERTY":
+                prefix = "Prop "
             else:
                 prefix = ""
             return prefix + "Axis " + data_layer.axis + " (" + data_layer.component + ")"
@@ -1126,6 +1234,8 @@ def get_data_layer_name(data_layer: object) -> str:
                 prefix = "Parent "
             elif data_layer.obj_mode == "CUSTOM":
                 prefix = "Custom "
+            elif data_layer.obj_mode == "PROPERTY":
+                prefix = "Prop "
             else:
                 prefix = ""
 
@@ -1155,15 +1265,33 @@ def get_data_layer_name(data_layer: object) -> str:
         elif data_layer.data == "VALUE":
             return "Value" + " (" + str(data_layer.x) + ")"
         elif data_layer.data == "CUSTOM_PROP":
-            if data_layer.name == "":
-                return "Property (Invalid)"
+            if data_layer.obj_mode == "PARENT":
+                prefix = "Parent "
+            elif data_layer.obj_mode == "CUSTOM":
+                prefix = "Custom "
+            elif data_layer.obj_mode == "PROPERTY":
+                prefix = "Prop "
             else:
-                return "Property (" + data_layer.name + ")"
+                prefix = ""
+
+            if data_layer.name == "":
+                return prefix + "Property (Invalid)"
+            else:
+                return prefix + "Property (" + data_layer.name + ")"
         elif data_layer.data == "FRAME":
+            if data_layer.obj_mode == "PARENT":
+                prefix = "Parent "
+            elif data_layer.obj_mode == "CUSTOM":
+                prefix = "Custom "
+            elif data_layer.obj_mode == "PROPERTY":
+                prefix = "Prop "
+            else:
+                prefix = ""
+
             if data_layer.vertex_mode == "OFFSET":
-                return "Frame " + str(data_layer.index) + " Offset" + " (" + data_layer.component + ")"
+                return prefix + "Frame " + str(data_layer.index) + " Offset" + " (" + data_layer.component + ")"
             elif data_layer.vertex_mode == "NORMAL":
-                return "Frame " + str(data_layer.index) + " Normal" + " (" + data_layer.component + ")"
+                return prefix + "Frame " + str(data_layer.index) + " Normal" + " (" + data_layer.component + ")"
             else:
                 pass
         elif data_layer.data == "HIERARCHY":
@@ -1218,6 +1346,8 @@ def get_data_layer_pre_bake_function(data_layer: object) -> callable:
     if data_layer:
         if data_layer.data == "POSITION" :
             return pre_bake_position
+        elif data_layer.data == "QUATERNION":
+            return pre_bake_quaternion
         elif data_layer.data == "AXIS":
             return pre_bake_axis
         elif data_layer.data == "SHAPEKEY":
@@ -1291,6 +1421,13 @@ def get_data_layer_obj_source_obj(data_layer: object, obj: bpy.types.Object) -> 
 
         return parent
     # source object
+    elif data_layer.obj_mode == "PROPERTY":
+        if data_layer.obj_prop != "" and data_layer.obj_prop in obj:
+            source_obj = obj[data_layer.obj_prop]
+            if source_obj:
+                return source_obj
+            else:
+                return obj.get("BakedSource", obj) 
     else:
         return obj.get("BakedSource", obj)
 
@@ -1772,6 +1909,68 @@ def pre_bake_position(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, d
         attr.data.foreach_set('value', data_loop_ids)
 
         bake_range_values.append(data_to_bake)
+
+    return (True, "", get_data_layer_range(bake_range_values))
+
+def pre_bake_quaternion(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data_layer: object, eval_objs_to_bake: list) -> tuple[bool, str, float, float]:
+    """
+    Intermediate bake function to store the value in the meshes' face corner attributes
+
+    :param context: Blender current execution context
+    :param dgraph: evaluated depsgraph
+    :param data_layer: data layer to bake
+    :param eval_objs_to_bake: list of duplicated mesh objects included in the bake
+    :return: success, potential error message, range info
+    :rtype: tuple
+    """
+    settings = context.scene.DataBakerSettings
+
+    bake_range_values = []
+
+    for eval_obj_to_bake in eval_objs_to_bake:
+        eval_mesh = eval_obj_to_bake.data
+
+        uneval_obj_source = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
+        eval_obj_source = uneval_obj_source.evaluated_get(dgraph)
+        eval_obj_source_mat = eval_obj_source.matrix_world
+        if settings.origin_obj:
+            eval_obj_source_mat = settings.origin_obj.matrix_world.inverted() @ eval_obj_source_mat
+
+        sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
+                                                     (-1 if settings.unit_invert_y else 1),
+                                                     (-1 if settings.unit_invert_z else 1), 1))
+        rot_matrix = sign_matrix @ eval_obj_source_mat @ sign_matrix
+
+        xyz_order = data_layer.quat_xyz_order if data_layer.override_xyz_order else settings.unit_axis_order
+        euler = rot_matrix.to_euler(xyz_order)
+
+        eval_obj_source_quat = euler.to_quaternion()
+
+        if data_layer.quat == "X":
+            data_to_bake = eval_obj_source_quat.x
+        elif data_layer.quat == "Y":
+            data_to_bake = eval_obj_source_quat.y
+        elif data_layer.quat == "Z":
+            data_to_bake = eval_obj_source_quat.z
+        elif data_layer.quat == "W":
+            data_to_bake = eval_obj_source_quat.w
+        elif data_layer.quat == "XYZW":
+            data_to_bake = get_compressed_quat(eval_obj_source_quat)
+        else:
+            data_to_bake = 0.0
+
+        data_loop_ids = [data_to_bake] * len(eval_mesh.loops)
+
+        if data_layer.ID not in eval_mesh.attributes:
+            eval_mesh.attributes.new(name=data_layer.ID, type='FLOAT', domain='CORNER')
+
+        attr = eval_mesh.attributes[data_layer.ID]
+        attr.data.foreach_set('value', data_loop_ids)
+
+        if data_layer.quat != "XYZW":
+            bake_range_values.append(data_to_bake)
+        else:
+            bake_range_values.append(0)
 
     return (True, "", get_data_layer_range(bake_range_values))
 
