@@ -129,7 +129,7 @@ class OBJECTATTRIBUTES_PG_Settings(PropertyGroup):
     unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
     unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
     unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
-    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip VAT texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
+    unit_invert_v: BoolProperty(name="Invert V", default=True, description="Invert UVMap's V axis & flip texture(s) upside down (typically True for exporting to UE or DirectX apps in general, False for Unity or OpenGL apps in general)")
     unit_axis_orders = [
         ("XYZ", "XYZ", "XYZ"),
         ("XZY", "XZY", "XZY"),
