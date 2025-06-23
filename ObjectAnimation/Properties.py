@@ -165,7 +165,7 @@ class OATBAKER_PG_Settings(PropertyGroup):
     # mesh
     mesh_name: StringProperty(name="Name", default="BakedMesh.OAT", description="Name of the baked object")
     mesh_uvmap_name: StringProperty(name="UVMap Name", default="UVMap.BakedData.OAT", description="Name of the UVMap to be created or used for baking mesh UVs")
-    mesh_target_prop: StringProperty(name="Property", default="BakeTarget", description="Custom property name for the retargeting feature (to bake a high-res animated mesh to a low-res mesh)")
+    mesh_target_prop: StringProperty(name="Property", default="BakeTarget", description="Custom property name for the custom source feature (to query data from an object targeted using a data-block custom property in an object)")
     mesh_materials: BoolProperty(name="Materials", default=True, description="Enable to copy materials")
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")

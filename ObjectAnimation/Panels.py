@@ -223,10 +223,10 @@ class OATBAKER_PT_TexturesPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "export_tex_max_width")
-        
+
         row = layout.row()
         row.prop(settings, "export_tex_max_height")
-        
+
         row = layout.row()
         col = row.split()
         col.prop(settings, "tex_force_power_of_two")
@@ -248,6 +248,16 @@ class OATBAKER_PT_TexturesPanel(bpy.types.Panel):
 
         col.operator("oat_textures_item.move_item", text="", icon="TRIA_UP").direction = "UP"
         col.operator("oat_textures_item.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
+
+        if settings.textures:
+            try:
+                texture = settings.textures[settings.textures_selected_index]
+            except:
+                texture = None
+
+            if texture:
+                row = layout.row()
+                row.prop(texture, "name", text="Name")
 
 class OATBAKER_PT_ChannelsPanel(bpy.types.Panel):
     bl_idname = "OATBAKER_PT_channelspanel"
@@ -505,6 +515,64 @@ class OATBAKER_UL_NLAExclusionList(bpy.types.UIList):
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
             layout.label(text="", icon="ANIM_DATA")
+
+###########
+### XML ###
+class OATBAKER_PT_XMLPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_xmlpanel"
+    bl_parent_id = "OATBAKER_PT_mainpanel"
+    bl_label = "XML"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 10
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+class OATBAKER_PT_XMLExportPanel(bpy.types.Panel):
+    bl_idname = "OATBAKER_PT_xmlexportpanel"
+    bl_parent_id = "OATBAKER_PT_xmlpanel"
+    bl_label = "Export"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        layout.prop(settings, "export_xml", text="")
+        layout.enabled = bpy.data.is_saved
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OATBakerSettings
+
+        layout.enabled = bpy.data.is_saved
+
+        row = layout.row()
+        row.prop(settings, "export_xml_mode")
+        row.enabled = settings.export_mesh
+
+        if (settings.export_xml_mode == "CUSTOMPATH" or not settings.export_mesh):
+            row = layout.row()
+            row.prop(settings, "export_xml_file_name")
+
+            row = layout.row()
+            row.prop(settings, "export_xml_file_path")
+
+        row = layout.row()
+        row.prop(settings, "export_xml_override")
 
 ##############
 ### REPORT ###
