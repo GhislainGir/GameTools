@@ -83,21 +83,21 @@ def reset_bake_report():
     report.ref_custom = 0
     report.anims.clear()
     report.selected_anim = 0
-    
+
     report.start_frame = 0
     report.end_frame = 0
     report.num_frames = 0
     report.num_frames_padded = 0
     report.frame_step = 0
     report.frame_step_mode = "GLOBAL"
-    report.frame_height = 0.0
-    report.frame_width = 0.0
+    report.tex_frame_height = 0.0
+    report.tex_frame_width = 0.0
     report.frame_rate = 0
     report.frame_ref = 0
     report.frame_ref_mode = ""
-    
+
     report.num_verts = 0
-    
+
     report.mesh = None
     report.mesh_export = False
     report.mesh_path = ""
@@ -914,7 +914,7 @@ def bake(context):
 
     ###########
     # BUFFERS #
-    success, msg, buffers, buffers_info, bounds_info = get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, textures, tex_width, tex_height)
+    success, msg, buffers, buffers_info, bounds_info = get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, textures, tex_width, tex_height, bake_frame_height)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1067,7 +1067,7 @@ def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> tuple[
 
 ########################
 ### BUFFER FUNCTIONS ###
-def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, textures, frame_width: int, frame_height: int):
+def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, textures, tex_width: int, tex_height: int, bake_frame_height: int):
     """ """
     settings = context.scene.OATBakerSettings
 
@@ -1081,7 +1081,7 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
     """
     compile linear list of all texture channels. For each, pre-allocate a pixel buffer
     """
-    buffer_length = frame_width * frame_height * 4 # RGBA
+    buffer_length = tex_width * tex_height * 4 # RGBA
     buffers = []
     buffers_min = []
     buffers_max = []
@@ -1135,7 +1135,8 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
         bake_progress += bake_progress_step
         context.window_manager.progress_update(bake_progress)
 
-        buffer_frame_offset = frame_index * len(objs_to_bake) * 4
+        buffer_frame_offset = (frame_index * len(objs_to_bake) * 4) if settings.tex_packing_mode == "CONTINUOUS" else (frame_index * tex_width * bake_frame_height * 4)
+        print(bake_frame_height)
         for obj_to_bake_index, obj_to_bake in enumerate(objs_to_bake):
             for texture_index, texture in enumerate(textures):
                 channels = [texture.R, texture.G, texture.B, texture.A]
@@ -1315,7 +1316,7 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                     buffer_ranges[texture_index * 4 + buffer_channel_index] = buffer_range
 
                     if buffer_channel.remapping:
-                        for i in range(buffer_channel_index, frame_width * frame_height * 4, 4):
+                        for i in range(buffer_channel_index, tex_width * tex_height * 4, 4):
                             buffers[texture_index][i] = (buffers[texture_index][i] - buffer_min) / buffer_range
 
     min_bounds_offset = (min_bounds - ref_min_bounds)
@@ -1342,8 +1343,6 @@ def get_texture_buffers(context, bake_name: str, buffers, buffers_info, textures
     buffer_range, buffer_range_offset, buffer_range_valid = buffers_info
     buffer_length = frame_width * frame_height * 4 # RGBA
 
-    # interleave [R,R,R,...], [G,G,G,...], [B,B,B,...], [A,A,A,...] buffers
-    # into a single [R,G,B,A,R,G,B,A,...] pixel buffer for this texture
     for texture_index, texture in enumerate(textures):
         pixels = buffers[texture_index]
         if len(pixels) != buffer_length:
@@ -1903,8 +1902,8 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
     add_bake_report("tex_width", tex_width)
 
     bake_frame_width = num_objects / float(tex_width)
-    add_bake_report("frame_width", bake_frame_width)
-    add_bake_report("frame_height", bake_frame_height)
+    add_bake_report("tex_frame_width", bake_frame_width)
+    add_bake_report("tex_frame_height", bake_frame_height)
 
     sampling = "STACK_SINGLE"
     if (underflow or overflow):
@@ -1932,7 +1931,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     report = context.scene.OATBakerReport
 
     root = ET.Element("BakedData",
-                      type="ObjectAttributes",
+                      type="OAT",
                       ID=report.ID,
                       version="1.0")
 
@@ -1951,7 +1950,9 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     # textures
     tex_el = ET.SubElement(root, "Textures",
                            width=str(report.tex_width),
-                           height=str(report.tex_height))
+                           frame_width=str(report.tex_frame_width),
+                           height=str(report.tex_height),
+                           frame_height=str(report.tex_frame_height))
     if report.textures:
         for texture in report.textures:
             tex_subel = ET.SubElement(tex_el, "Texture",

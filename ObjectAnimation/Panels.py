@@ -222,6 +222,22 @@ class OATBAKER_PT_TexturesPanel(bpy.types.Panel):
         settings = scene.OATBakerSettings
 
         row = layout.row()
+        row.prop(settings, "export_tex_max_width")
+        
+        row = layout.row()
+        row.prop(settings, "export_tex_max_height")
+        
+        row = layout.row()
+        col = row.split()
+        col.prop(settings, "tex_force_power_of_two")
+        col = row.split()
+        col.prop(settings, "tex_force_power_of_two_square")
+        col.enabled = settings.tex_force_power_of_two
+
+        row = layout.row()
+        row.prop(settings, "tex_packing_mode")
+
+        row = layout.row()
         row.template_list("OATBAKER_UL_TextureList", "", settings, "textures", settings, "textures_selected_index", rows=5)
 
         col = row.column(align=True)
@@ -752,9 +768,6 @@ class OATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
             row = layout.row()
             row.label(text="Z: " + str(report.mesh_max_bounds_offset[2]), icon="DOT")
         else:
-            row = layout.row()
-            row.label(text="Verts: " + str(report.num_verts))
-
             row = layout.row()
             row.label(text="None generated")
 
