@@ -83,6 +83,9 @@ class OATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         settings = scene.OATBakerSettings
 
         row = layout.row()
+        row.prop(settings, "origin_obj")
+
+        row = layout.row()
         row.prop(settings, "unit_scale")
 
         row = layout.row()

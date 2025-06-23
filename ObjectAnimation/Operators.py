@@ -29,34 +29,83 @@ class OATBAKER_OT_ObjectAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
     bl_label = 'Add preset'
     preset_menu = 'OATBAKER_MT_ObjectAnimation_Presets'
 
-    # preset_defines = [ 'settings = bpy.context.scene.OATBakerSettings' ]
-    # preset_values = [
-    # 'settings.distance_mode',
-    # ] # @TODO presets
+    preset_defines = [ 'settings = bpy.context.scene.OATBakerSettings' ]
+    preset_values = [
+        "settings.textures",
+        "settings.textures_selected_index",
+        "settings.unit_scale",
+        "settings.unit_invert_x",
+        "settings.unit_invert_y",
+        "settings.unit_invert_z",
+        "settings.unit_invert_v",
+        "settings.unit_axis_order",
+        "settings.origin_obj",
+        "settings.mesh_name",
+        "settings.mesh_uvmap_name",
+        "settings.mesh_target_prop",
+        "settings.mesh_materials",
+        "settings.export_mesh",
+        "settings.export_mesh_file_name",
+        "settings.export_mesh_file_path",
+        "settings.export_mesh_file_override",
+        "settings.require_triangulation",
+        "settings.previz_result",
+        "settings.previz_bounds",
+        "settings.export_xml",
+        "settings.export_xml_mode",
+        "settings.export_xml_file_name",
+        "settings.export_xml_file_path",
+        "settings.export_xml_override",
+        "settings.frame_range_mode",
+        "settings.frame_range_nla_exclusion",
+        "settings.frame_range_nla_exclusion_selected_index",
+        "settings.frame_range_nla_exclusion_selected",
+        "settings.frame_range_custom_start",
+        "settings.frame_range_custom_end",
+        "settings.frame_range_custom_step",
+        "settings.frame_range_custom_step_mode",
+        "settings.frame_padding_mode",
+        "settings.frame_padding",
+        "settings.frame_ref_padding",
+        "settings.frame_ref_mode",
+        "settings.frame_ref_custom",
+        "settings.export_tex",
+        "settings.export_tex_file_name",
+        "settings.export_tex_file_path",
+        "settings.export_tex_override",
+        "settings.export_tex_max_width",
+        "settings.export_tex_max_height",
+        "settings.tex_force_power_of_two",
+        "settings.tex_force_power_of_two_square",
+        "settings.tex_packing_mode",
+    ]
 
     preset_subdir = 'operator/gametools_oatbaker'
 
 ############
 ### MAIN ###
 class OATBAKER_OT_Bake(bpy.types.Operator):
-	bl_label = "Bake"
-	bl_idname = "gametools.oatbaker_bake"
-	bl_category = "Game Tools"
-	bl_description = "Bake the objects animation into texture(s)"
+    """ Bake the objects animation into texture(s) """
+    bl_label = "Bake"
+    bl_idname = "gametools.oatbaker_bake"
+    bl_category = "Game Tools"
+    bl_options = {'REGISTER', 'UNDO'}
 
-	# @classmethod
-	# def poll(cls, context):
-	# 	settings = context.scene.OATBakerSettings
-	# 	return True
+    # tooltip: bpy.props.StringProperty(name="Name", default="BakedMesh.DATA", description="Name of the resulting baked mesh")
 
-	def execute(self, context):
-		success, verbose, msg = bake(context)
-		if success:
-			self.report({verbose}, msg)
-			return {'FINISHED'}
-		else:
-			self.report({verbose}, msg)
-			return {'CANCELLED'}
+    # @classmethod
+    # def poll(cls, context):
+    # 	settings = context.scene.OATBakerSettings
+    # 	return True
+
+    def execute(self, context):
+        success, verbose, msg = bake(context)
+        if success:
+            self.report({verbose}, msg)
+            return {'FINISHED'}
+        else:
+            self.report({verbose}, msg)
+            return {'CANCELLED'}
 
 ################
 ### TEXTURES ###

@@ -268,7 +268,7 @@ def get_bitpacked_integer(index: int) -> float:
 def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     """
     Quaternion packing using the three smallest component method (from quat to 32bits float)
-    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    @NOTE X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
     problematic, though it technically shouldn't
 
     :param quat: WXYZ quaternion to pack
@@ -1215,9 +1215,8 @@ def texture_buffer_scale(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
             eval_obj_source_scale.y /= eval_obj_source_parent_mat.y
             eval_obj_source_scale.z /= eval_obj_source_parent_mat.z
 
-        # @NOTE I think we want to skip inversion here. It doesn't make sense to output negative scale in Y by default for exporting to UE?
-        #vector_to_bake = eval_obj_source_scale * signed_axis
-        vector_to_bake = eval_obj_source_scale
+        # I think we want to skip inversion here. It doesn't make sense to output negative scale in Y by default for exporting to UE?
+        vector_to_bake = eval_obj_source_scale # * signed_axis
         if settings.unit_axis_order != "XYZ":
             vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 

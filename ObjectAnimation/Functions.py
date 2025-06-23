@@ -142,12 +142,15 @@ def add_bake_report(prop_name: str, prop_value: float|int|str):
     """
     setattr(bpy.context.scene.OATBakerReport, prop_name, prop_value)
 
-def add_bake_texture_report(texture: object, img: bpy.types.Image) -> object:
+def add_bake_texture_report(texture: object, img: bpy.types.Image, buffer_ranges_offsets: list, buffer_ranges: list, buffer_ranges_valid: list) -> object:
     """
     Create a new texture in the bake report
 
     :param texture: texture to generate report for
     :param img: image generated for baking
+    :param buffer_ranges_offsets: min value. One value per RGBA channel
+    :param buffer_ranges: range is describe as (max value - min value). One value per RGBA channel
+    :param buffer_ranges_valid: true if range is valid, aka (max - min) is not null. One value per RGBA channel
     :return: the report texture object created
     :rtype: object
     """
@@ -158,6 +161,19 @@ def add_bake_texture_report(texture: object, img: bpy.types.Image) -> object:
     report_texture.exported = False
     report_texture.path = ""
     report_texture.img = img
+
+    report_texture.R_range_offset = buffer_ranges_offsets[0]
+    report_texture.R_range = buffer_ranges[0]
+    report_texture.R_range_valid = buffer_ranges_valid[0]
+    report_texture.G_range_offset = buffer_ranges_offsets[1]
+    report_texture.G_range = buffer_ranges[1]
+    report_texture.G_range_valid = buffer_ranges_valid[0]
+    report_texture.B_range_offset = buffer_ranges_offsets[2]
+    report_texture.B_range = buffer_ranges[2]
+    report_texture.B_range_valid = buffer_ranges_valid[0]
+    report_texture.A_range_offset = buffer_ranges_offsets[3]
+    report_texture.A_range = buffer_ranges[3]
+    report_texture.A_range_valid = buffer_ranges_valid[0]
 
     # copy all texture attributes
     if hasattr(texture, "__annotations__"):
@@ -237,7 +253,7 @@ def clear_bake_texture_report(texture: object) -> bool:
 
     return True
 
-def add_bake_report_anim(name: str, frame_start: int, frame_end: int, frame_start_time: float, frame_end_time: float):
+def add_bake_report_anim(name: str, frame_start: int, frame_end: int):
     """
     Set values in the bake report to describe an animation clip
 
@@ -258,9 +274,7 @@ def add_bake_report_anim(name: str, frame_start: int, frame_end: int, frame_star
     report_anim = report.anims.add()
     report_anim.name = name
     report_anim.start_frame = frame_start
-    report_anim.start_time = frame_start_time
     report_anim.end_frame = frame_end
-    report_anim.end_time = frame_end_time
 
 def export_bake_report(context: bpy.types.Context) -> tuple[bool, str, str]:
     """
@@ -422,7 +436,7 @@ def get_bake_selection(context):
     objs_to_bake = context.selected_objects
 
     # check UVMap can be edited/created
-    mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.BAT"
+    mesh_uvmap_name = settings.mesh_uvmap_name if settings.mesh_uvmap_name != "" else "UVMap.BakedData.OAT"
     uvmaps = []
     # ensure objects can safely be merged without creating UVMap conflicts
     for obj_to_bake in objs_to_bake:
@@ -706,15 +720,14 @@ def get_bake_frames(context, objs_to_bake):
             """
             3. report NLA strip start/end frames/time
             """
+            ref_pad_offset = 1 if settings.frame_ref_padding else 0
             for nla_strip in nla_strips:
                 start_index, end_index = get_nla_strip_start_end_indices(nla_strip, frames_to_bake)
 
                 # 0-based indices are converted to the actual 1-based frame count
-                start_frame = start_index + 1
-                end_frame = end_index + 1
-                start_time = (start_frame - 1) / num_frames
-                end_time = end_frame / num_frames
-                add_bake_report_anim(nla_strip.name, start_frame, end_frame, start_time, end_time)
+                start_frame = start_index + 1 + ref_pad_offset
+                end_frame = end_index + 1 + ref_pad_offset
+                add_bake_report_anim(nla_strip.name, start_frame, end_frame)
 
             """
             4. convert frame buffer to int buffer
@@ -739,6 +752,12 @@ def get_bake_frames(context, objs_to_bake):
 
             add_bake_report("frame_ref_mode", settings.frame_ref_mode)
             add_bake_report("frame_ref", ref_frame)
+
+            if settings.frame_ref_padding:
+                frames_to_bake.insert(0, end_frame) # insert last frame before first frame
+            frames_to_bake.insert(0, ref_frame) # insert ref frame
+            if settings.frame_ref_padding:
+                frames_to_bake.append(start_frame) # insert first frame after last frame
 
             return (True, "", (frames_to_bake, start_frame, end_frame, ref_frame))
         else:
@@ -787,9 +806,7 @@ def get_bake_frames(context, objs_to_bake):
                         # clamp start/end frames
                         start_frame = min(frame_end, max(frame_start, start))
                         end_frame = min(frame_end, max(frame_start, end))
-                        start_time = (start_frame - 1) / num_frames
-                        end_time = end_frame / num_frames
-                        add_bake_report_anim(nla_strip.name, start_frame, end_frame, start_time, end_time)
+                        add_bake_report_anim(nla_strip.name, start_frame, end_frame)
 
             frames_to_bake.append((frame, frame_nla_strips))
 
@@ -897,13 +914,13 @@ def bake(context):
 
     ###########
     # BUFFERS #
-    success, msg, buffers, bounds_info = get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, textures, tex_width, tex_height)
+    success, msg, buffers, buffers_info, bounds_info = get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, textures, tex_width, tex_height)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
         return (False, 'ERROR', msg)
 
-    success, msg = get_texture_buffers(context, bake_name, buffers, textures, tex_width, tex_height)
+    success, msg = get_texture_buffers(context, bake_name, buffers, buffers_info, textures, tex_width, tex_height)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1023,7 +1040,7 @@ def get_texture_channel_allow_remap(texture_channel: object) -> bool:
     if texture_channel.channel_mode == "HIERARCHY": # indices must not be remapped!
         return False
     
-    if texture_channel.channel_mode == "QUATERNION" and texture_channel.quat == "XYZW": # bit-packed quaternions don't allow remapping
+    if texture_channel.channel_mode == "ROTATION" and texture_channel.rot_mode == "QUAT" and texture_channel.quat == "XYZW": # bit-packed quaternions don't allow remapping
         return False
     return True
 
@@ -1032,8 +1049,8 @@ def get_inverted_buffer(buffer: list, tex_width: int, tex_height: int) -> tuple[
     Re-order buffer so that pixel buffer is flipped in V (aka invert image). Append line of pixels after line in reverse order.
 
     :param buffer: buffer
-    :param tex_width: BAT texture(s) width
-    :param tex_height: BAT texture(s) height
+    :param tex_width: OAT texture(s) width
+    :param tex_height: OAT texture(s) height
     :return: processed offset buffer, processed normal buffer
     :rtype: tuple
     """
@@ -1066,8 +1083,12 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
     """
     buffer_length = frame_width * frame_height * 4 # RGBA
     buffers = []
+    buffers_min = []
+    buffers_max = []
     for texture in settings.textures:
         buffers.append([0.0] * buffer_length)
+        buffers_min.extend([float('inf'), float('inf'), float('inf'), float('inf')])
+        buffers_max.extend([float('-inf'), float('-inf'), float('-inf'), float('-inf')])
 
     context.scene.frame_set(bake_ref_frame)
     dgraph = context.evaluated_depsgraph_get()
@@ -1211,11 +1232,12 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                                 else: # RADIANS
                                     data_to_bake = angle
                     elif buffer_channel.channel_mode == "SCALE":
+                        eval_obj_source_mat = eval_obj_source_mat.to_3x3()
                         sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
                                                         (-1 if settings.unit_invert_y else 1),
-                                                        (-1 if settings.unit_invert_z else 1), 1))
+                                                        (-1 if settings.unit_invert_z else 1)))
                         eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
-                        vector_to_bake = eval_obj_source_mat.to_3x3().to_scale()
+                        vector_to_bake = eval_obj_source_mat.to_scale()
                         
                         if settings.unit_axis_order != "XYZ":
                             vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
@@ -1229,14 +1251,15 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                         else:
                             data_to_bake = 0.0
                     elif buffer_channel.channel_mode == "AXIS":
+                        eval_obj_source_mat = eval_obj_source_mat.to_3x3()
                         sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
                                                                 (-1 if settings.unit_invert_y else 1),
                                                                 (-1 if settings.unit_invert_z else 1)))
                         eval_obj_source_mat = sign_matrix @ eval_obj_source_mat @ sign_matrix
 
-                        if data_to_bake.axis == "X":
+                        if buffer_channel.axis == "X":
                             vector_to_bake = eval_obj_source_mat @ mathutils.Vector((1.0, 0.0, 0.0))
-                        elif data_to_bake.axis == "Y":
+                        elif buffer_channel.axis == "Y":
                             vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 1.0, 0.0))
                         else: # Z
                             vector_to_bake = eval_obj_source_mat @ mathutils.Vector((0.0, 0.0, 1.0))
@@ -1244,14 +1267,14 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                         if settings.unit_axis_order != "XYZ":
                             vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
-                        if not data_to_bake.axis_scaled:
+                        if not buffer_channel.axis_scaled:
                             vector_to_bake.normalize()
 
-                        if data_to_bake.component == "X":
+                        if buffer_channel.component == "X":
                             data_to_bake = vector_to_bake.x
-                        elif data_to_bake.component == "Y":
+                        elif buffer_channel.component == "Y":
                             data_to_bake = vector_to_bake.y
-                        elif data_to_bake.component == "Z":
+                        elif buffer_channel.component == "Z":
                             data_to_bake = vector_to_bake.z
                         else:
                             data_to_bake = 0.0
@@ -1263,10 +1286,37 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                     else:
                         continue
 
+                    buffers_min[texture_index * 4 + buffer_channel_index] = min(data_to_bake, buffers_min[texture_index * 4 + buffer_channel_index])
+                    buffers_max[texture_index * 4 + buffer_channel_index] = max(data_to_bake, buffers_max[texture_index * 4 + buffer_channel_index])
+
                     try:
                         buffers[texture_index][(obj_to_bake_index * 4) + buffer_frame_offset + buffer_channel_index] = data_to_bake
                     except:
                         pass
+
+    buffer_ranges_offsets = [0.0] * len(textures) * 4
+    buffer_ranges = [1.0] * len(textures) * 4
+    buffer_ranges_valid = [False] * len(textures) * 4
+
+    for texture_index, texture in enumerate(textures):
+        channels = [texture.R, texture.G, texture.B, texture.A]
+        for buffer_channel_index, buffer_channel in enumerate(channels):
+            if get_texture_channel_allow_remap(buffer_channel):
+                    buffer_min = buffers_min[texture_index * 4 + buffer_channel_index]
+                    buffer_max = buffers_max[texture_index * 4 + buffer_channel_index]
+                    if abs(buffer_max - buffer_min) < 0.0001:
+                        buffer_range = 1.0
+                    else:
+                        buffer_range = buffer_max - buffer_min
+                        buffer_ranges_valid[texture_index * 4 + buffer_channel_index] = True
+                    buffer_offset = buffer_min
+
+                    buffer_ranges_offsets[texture_index * 4 + buffer_channel_index] = buffer_offset
+                    buffer_ranges[texture_index * 4 + buffer_channel_index] = buffer_range
+
+                    if buffer_channel.remapping:
+                        for i in range(buffer_channel_index, frame_width * frame_height * 4, 4):
+                            buffers[texture_index][i] = (buffers[texture_index][i] - buffer_min) / buffer_range
 
     min_bounds_offset = (min_bounds - ref_min_bounds)
     min_bounds_offset.x = min(0, min_bounds_offset.x)
@@ -1283,12 +1333,13 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
     context.scene.frame_set(bake_ref_frame)
     dgraph = context.evaluated_depsgraph_get()
 
-    return (True, "", buffers, (ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset))
+    return (True, "", buffers, (buffer_ranges, buffer_ranges_offsets, buffer_ranges_valid), (ref_min_bounds, ref_max_bounds, min_bounds, max_bounds, min_bounds_offset, max_bounds_offset))
 
-def get_texture_buffers(context, bake_name: str, buffers, textures, frame_width: int, frame_height: int):
+def get_texture_buffers(context, bake_name: str, buffers, buffers_info, textures, frame_width: int, frame_height: int):
     """"""
     settings = context.scene.OATBakerSettings
 
+    buffer_range, buffer_range_offset, buffer_range_valid = buffers_info
     buffer_length = frame_width * frame_height * 4 # RGBA
 
     # interleave [R,R,R,...], [G,G,G,...], [B,B,B,...], [A,A,A,...] buffers
@@ -1304,7 +1355,20 @@ def get_texture_buffers(context, bake_name: str, buffers, textures, frame_width:
         success, msg, tex = generate_texture(texture.name, bake_name, settings.export_tex_file_name, pixels, frame_width, frame_height)
         if not success:
             return (False, msg)
-        report_texture = add_bake_texture_report(texture, tex)
+
+        report_texture = add_bake_texture_report(texture, tex,
+                                                 [buffer_range_offset[texture_index * 4 + 0],
+                                                  buffer_range_offset[texture_index * 4 + 1],
+                                                  buffer_range_offset[texture_index * 4 + 2],
+                                                  buffer_range_offset[texture_index * 4 + 3]],
+                                                 [buffer_range[texture_index * 4 + 0],
+                                                  buffer_range[texture_index * 4 + 1],
+                                                  buffer_range[texture_index * 4 + 2],
+                                                  buffer_range[texture_index * 4 + 3]],
+                                                 [buffer_range_valid[texture_index * 4 + 0],
+                                                  buffer_range_valid[texture_index * 4 + 1],
+                                                  buffer_range_valid[texture_index * 4 + 2],
+                                                  buffer_range_valid[texture_index * 4 + 3]])
 
         tex_path = ""
         if settings.export_tex and bpy.data.is_saved:
@@ -1325,11 +1389,11 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     :param context: Blender current execution context
     :param bake_name: Bake operation's 'name'
     :param objs_to_bake: List of objects to bake
-    :param tex_width: BAT texture(s) width
-    :param tex_height: BAT texture(s) height
+    :param tex_width: OAT texture(s) width
+    :param tex_height: OAT texture(s) height
     :param no_uv: skip generating UVs because skinning is exclusively baked into vcol
     :param bake_frame_ref: Frame considered as the 'reference frame', or 'base pos'
-    :return: success, message, generated object, UVMap used to map the BAT texture(s)
+    :return: success, message, generated object, UVMap used to map the OAT texture(s)
     :rtype: tuple
     """
 
@@ -1414,7 +1478,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     """
     Create a new mesh and object to 'merge' all duplicated meshes
     """
-    name = bake_name if bake_name != "" else "BakedMesh.BAT"
+    name = bake_name if bake_name != "" else "BakedMesh.OAT"
     mesh = bpy.data.meshes.new(name)
     if settings.mesh_materials and materials:
         for material in materials:
@@ -1434,6 +1498,19 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
 
     obj = bpy.data.objects.new(name, mesh)
     context.scene.collection.objects.link(obj)
+    
+    # make new object relative to custom world origin, if needed
+    if settings.origin_obj:
+        """ 
+        # I prefer not carrying over the world matrix to highlight the fact that the baked data may
+        # only be usable if that custom world origin is indeed treated as the world origin. That
+        # means the object should have a zero transform and its vertices inverse transformed. The
+        # new mesh can be simply 'brought back to its rest pose' by copy/pasting the custom world
+        # origin's transform manually.
+
+        obj.matrix_world = settings.origin_obj.matrix_world
+        """
+        mesh.transform(settings.origin_obj.matrix_world.inverted())
 
     context.view_layer.objects.active = obj
     obj.select_set(True) # for export
@@ -1442,14 +1519,14 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
 
 def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset: int) -> tuple[bool, str, int]:
     """
-    Configure the mesh UVs so that one vertex is located on one unique texel in the BAT texture(s)
+    Configure the mesh UVs so that one vertex is located on one unique texel in the OAT texture(s)
 
     :param context: Blender current execution context
     :param mesh: mesh to edit
-    :param tex_width: BAT texture(s) width
-    :param tex_height: BAT texture(s) height
+    :param tex_width: OAT texture(s) width
+    :param tex_height: OAT texture(s) height
     :param vertex_index_offset: Used to uniquely process a selection of meshes
-    :return: the function's success, potential error message, index of UVMap used to map the BAT texture(s)
+    :return: the function's success, potential error message, index of UVMap used to map the OAT texture(s)
     :rtype: tuple
     """
 
@@ -1514,7 +1591,7 @@ def export_mesh_selection(context: bpy.types.Context, bake_name: str):
 def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     """
     Quaternion packing using the three smallest component method (from quat to 32bits float)
-    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    @NOTE X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
     problematic, though it technically shouldn't
 
     :param quat: WXYZ quaternion to pack
