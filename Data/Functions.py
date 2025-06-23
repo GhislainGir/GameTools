@@ -461,7 +461,7 @@ def get_packed_ab_vector_legacy(unit_vector: mathutils.Vector, a_component: floa
 def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     """
     Quaternion packing using the three smallest component method (from quat to 32bits float)
-    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    @NOTE X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
     problematic, though it technically shouldn't
 
     :param quat: WXYZ quaternion to pack
@@ -1575,7 +1575,7 @@ def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
                     data_to_bake = data_to_pack.x
 
                 if one_minus:
-                    data_to_bake = 1.0 - data_to_bake # @NOTE do one minus even for bitpacked data?!
+                    data_to_bake = 1.0 - data_to_bake # @NOTE this screws up bit-packed data but is required for UE because of the hardcoded (1-x) upon mesh import
 
                 eval_mesh.uv_layers[data_layer_uv.uv_index].data[loop_id.index].uv[uv_index] = data_to_bake
 

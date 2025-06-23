@@ -386,7 +386,7 @@ def export_bake_report(context: bpy.types.Context) -> tuple[bool, str, str]:
 def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     """
     Quaternion packing using the three smallest component method (from quat to 32bits float)
-    @TODO X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
+    @NOTE X component precision was reduced from 10 to 9 bits to avoid writing NaNs which IS
     problematic, though it technically shouldn't
 
     :param quat: WXYZ quaternion to pack
