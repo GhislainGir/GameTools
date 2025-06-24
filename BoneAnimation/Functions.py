@@ -2817,7 +2817,8 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     image = bpy.data.images.get(image_name, None)
     if image is not None and bpy.data.is_saved:
         if image.packed_file and bpy.data.is_saved:
-            image.unpack()
+            #image.unpack() # this isn't necessary and causes images to be saved on disk with wrong path
+            pass
         bpy.data.images.remove(image) # remove image if it exists
 
     image = bpy.data.images.new(name=image_name, width=tex_width, height=tex_height, alpha=True, float_buffer=True)

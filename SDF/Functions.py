@@ -3223,7 +3223,7 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     image = bpy.data.images.get(image_name, None)
     if image is not None:
         if image.packed_file and bpy.data.is_saved:
-            #image.unpack() # this isn't necessary and causes images to saved on disk with wrong path
+            #image.unpack() # this isn't necessary and causes images to be saved on disk with wrong path
             pass
         bpy.data.images.remove(image) # remove image if it exists
 
