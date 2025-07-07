@@ -26,6 +26,9 @@ class FFTOCEANBAKER_PG_Settings(PropertyGroup):
 
     # scene 
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale factor for the baked offsets/positions. This compensates for Blender's default unit (1 meter) and aligns with the target application's unit system. A default factor of 100 is used to convert from meters to centimeters, Unreal's default unit")
+    unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
+    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
+    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     unit_invert_u: BoolProperty(name="Invert U", default=False, description="Flip each frame left to right")
     unit_invert_v: BoolProperty(name="Invert V", default=True, description="Flip each frame upside down. Typically True for exporting to Unreal Engine or DirectX apps, False for Unity or OpenGL apps. This only affect each frame individually and doesn't affect the way they are sorted if compacted into a flipbook")
     unit_axis_orders = [
@@ -73,7 +76,7 @@ class FFTOCEANBAKER_PG_Settings(PropertyGroup):
     frame_size_custom: IntProperty(name="Size", default=128, min=1, description="Custom frame size, in pixels")
 
     # ocean
-    ocean_time: FloatProperty(name="Wave Speed", default=5, description="Animation speed")
+    ocean_time: FloatProperty(name="Duration", default=5, description="Animation speed")
     ocean_size: FloatProperty(name="Size", default=0.5, description="Surface scale factor (does not affect the height of the waves)")
     ocean_spatial_size: IntProperty(name="Spatial Size", default=25, description="Size of the simulation domain (in meters)")
     ocean_depth: FloatProperty(name="Depth", default=1.5, description="Depth of the solid ground below the water surface")
@@ -85,7 +88,7 @@ class FFTOCEANBAKER_PG_Settings(PropertyGroup):
     ocean_alignment: FloatProperty(name="Alignment", default=0, min=0, max=1, description="How much the waves are aligned to each other")
     ocean_direction: FloatProperty(name="Direction", default=0, description="Main direction of the waves when they are (partially) aligned")
     ocean_damping: FloatProperty(name="Damping", default=0.5, description="Damp reflected waves going in opposite direction of the wind")
-    ocean_clear: BoolProperty(name="Clear Object", default=True, description="Remove the generate ocean mesh from the scene once bake is complete")
+    ocean_clear: BoolProperty(name="Clear Object", default=True, description="Remove the generated ocean mesh from the scene once bake is complete")
     ocean_from_active: BoolProperty(name="From Active", default=True, description="Inherit settings from the active object's ocean modifier")
 
     # mesh
@@ -122,7 +125,11 @@ class FFTOCEANBAKER_PG_Settings(PropertyGroup):
     normal_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_Normal", description="Name for the vertex normal texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
     crest_tex: BoolProperty(name="Crest", default=True, description="Enable to bake the crest texture")
     crest_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_Crest", description="Name for the crest texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    crest_threshold: FloatProperty(name="Threshold", default=-0.5, description="How much waves need to be compressed to register as a peak")
+    crest_threshold: FloatProperty(name="Threshold", default=0.0, description="How much waves need to be compressed to register as a peak")
+    splash_tex: BoolProperty(name="Splash", default=True, description="Enable to bake the splash texture")
+    splash_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_Splash", description="Name for the slpash texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
+    splash_threshold: FloatProperty(name="Threshold", default=0.2, description="@TODO")
+    splash_num: IntProperty(name="Candidates", min=2, max=4096, default=128, description="@TODO")
 
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion. Only available if the Blender file is saved")
     export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
@@ -142,6 +149,9 @@ class FFTOCEANBAKER_PG_Report(PropertyGroup):
     unit_unit: StringProperty(name="Unit", default="", description="")
     unit_length: FloatProperty(name="Length", default=0.0, description="")
     unit_scale: FloatProperty(name="Scale", default=0.0, description="")
+    unit_invert_x: BoolProperty(name="Invert X", default=False, description="Invert the world X axis (set to False for Unreal Engine compatibility)")
+    unit_invert_y: BoolProperty(name="Invert Y", default=True, description="Invert the world Y axis (set to True for Unreal Engine compatibility)")
+    unit_invert_z: BoolProperty(name="Invert Z", default=False, description="Invert the world Z axis (set to False for Unreal Engine compatibility)")
     unit_invert_u: BoolProperty(name="Invert U", default=False, description="")
     unit_invert_v: BoolProperty(name="Invert V", default=False, description="")
     unit_axis_orders = [
@@ -166,7 +176,7 @@ class FFTOCEANBAKER_PG_Report(PropertyGroup):
     frame_padding: IntProperty(name="Pixels", default=4, description="")
     
     subd: IntProperty(name="Subdivisions", default=5, description="")
-    ocean_time: FloatProperty(name="Wave Speed", default=5, description="")
+    ocean_time: FloatProperty(name="Duration", default=5, description="")
     ocean_size: FloatProperty(name="Size", default=0.5, description="")
     ocean_spatial_size: IntProperty(name="Spatial Size", default=25, description="")
     ocean_depth: FloatProperty(name="Depth", default=1.5, description="")
@@ -205,14 +215,17 @@ class FFTOCEANBAKER_PG_Report(PropertyGroup):
     tex_crest_export: BoolProperty(name="Normal", default=False, description="")
     tex_crest_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
     tex_crest_threshold: FloatProperty(name="Threshold", default=0, description="")
+    tex_splash: PointerProperty(type=bpy.types.Image)
+    tex_splash_export: BoolProperty(name="Normal", default=False, description="")
+    tex_splash_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
 
     xml: BoolProperty(name="XML", default=False, description="")
     xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
 
 def register():
-    bpy.types.Scene.FFTOceanBakerSettings = PointerProperty(type=FFTOCEANBAKER_PG_Settings)
-    bpy.types.Scene.FFTOCEANBAKERReport = PointerProperty(type=FFTOCEANBAKER_PG_Report)
+    bpy.types.Scene.OceanBakerSettings = PointerProperty(type=FFTOCEANBAKER_PG_Settings)
+    bpy.types.Scene.OceanBakerReport = PointerProperty(type=FFTOCEANBAKER_PG_Report)
 
 def unregister():
-    del bpy.types.Scene.FFTOceanBakerSettings
-    del bpy.types.Scene.FFTOCEANBAKERReport
+    del bpy.types.Scene.OceanBakerSettings
+    del bpy.types.Scene.OceanBakerReport

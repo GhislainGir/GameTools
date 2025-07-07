@@ -49,7 +49,7 @@ class FFTOCEANBAKER_OT_FFTOceanBaker_AddPreset(AddPresetBase, bpy.types.Operator
     bl_label = 'Add preset'
     preset_menu = 'FFTOCEANBAKER_MT_FFTOceanBaker_Presets'
 
-    preset_defines = [ 'settings = bpy.context.scene.FFTOceanBakerSettings' ]
+    preset_defines = [ 'settings = bpy.context.scene.OceanBakerSettings' ]
 
     preset_values = [
         'settings.unit_scale',
@@ -123,7 +123,7 @@ class FFTOCEANBAKER_OT_ExportReport(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.FFTOCEANBAKERReport.baked
+        return context.scene.OceanBakerReport.baked
 
     def execute(self, context):
         success, msg, path = export_bake_report(context)
@@ -142,7 +142,7 @@ class FFTOCEANBAKER_OT_ClearReport(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.FFTOCEANBAKERReport.baked
+        return context.scene.OceanBakerReport.baked
 
     def execute(self, context):
         reset_bake_report()

@@ -53,15 +53,11 @@ class FFTOCEANBAKER_PT_FFTOceanBaker(bpy.types.Panel):
     def draw_header_preset(self, _context):
         FFTOCEANBAKER_PT_FFTOceanBaker_Preset.draw_panel_header(self.layout)
 
-    @classmethod
-    def poll(cls, context):
-        return False # @TODO disabled for now
-    
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
-        report = scene.FFTOCEANBAKERReport
+        settings = scene.OceanBakerSettings
+        report = scene.OceanBakerReport
 
         row = layout.row()
         row.operator("gametools.fftoceanbaker_bakefftocean")
@@ -83,7 +79,7 @@ class FFTOCEANBAKER_PT_OceanPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         row = layout.row()
         row.prop(settings, "subd")
@@ -157,7 +153,7 @@ class FFTOCEANBAKER_PT_FramesPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         row = layout.row()
         row.prop(settings, "frame_range_mode")
@@ -188,7 +184,7 @@ class FFTOCEANBAKER_PT_MeshPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         row = layout.row()
         row.prop(settings, "mesh_name")
@@ -210,7 +206,7 @@ class FFTOCEANBAKER_PT_MeshExportPanel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.prop(settings, "export_mesh", text="")
         layout.enabled = bpy.data.is_saved
@@ -218,7 +214,7 @@ class FFTOCEANBAKER_PT_MeshExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.enabled = settings.export_mesh and bpy.data.is_saved
 
@@ -242,7 +238,7 @@ class FFTOCEANBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         row = layout.row()
         row.prop(settings, "export_mesh_file_override")
@@ -263,7 +259,7 @@ class FFTOCEANBAKER_PT_TexMainPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         row = layout.row()
         row.prop(settings, "tex_mode")
@@ -328,14 +324,14 @@ class FFTOCEANBAKER_PT_TexOffsetPanel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.prop(settings, "offset_tex", text="")
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.enabled = settings.offset_tex
 
@@ -362,14 +358,14 @@ class FFTOCEANBAKER_PT_TexNormalPanel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.prop(settings, "normal_tex", text="")
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.enabled = settings.normal_tex
     
@@ -393,14 +389,14 @@ class FFTOCEANBAKER_PT_TexCrestPanel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.prop(settings, "crest_tex", text="")
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.enabled = settings.crest_tex
     
@@ -409,6 +405,41 @@ class FFTOCEANBAKER_PT_TexCrestPanel(bpy.types.Panel):
 
         row = layout.row()
         row.prop(settings, "crest_threshold")
+
+class FFTOCEANBAKER_PT_TexSplashPanel(bpy.types.Panel):
+    bl_idname = "FFTOCEANBAKER_PT_texsplashpanel"
+    bl_parent_id = "FFTOCEANBAKER_PT_texmainpanel"
+    bl_label = "Splashes"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Game Tools"
+    bl_order = 1
+    
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OceanBakerSettings
+
+        layout.prop(settings, "splash_tex", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        settings = scene.OceanBakerSettings
+
+        layout.enabled = settings.splash_tex
+    
+        row = layout.row()
+        row.prop(settings, "splash_tex_file_name")
+
+        row = layout.row()
+        row.prop(settings, "splash_num")
+
+        row = layout.row()
+        row.prop(settings, "splash_threshold")
+
 
 class FFTOCEANBAKER_PT_TexExportPanel(bpy.types.Panel):
     bl_idname = "FFTOCEANBAKER_PT_texexportpanel"
@@ -424,7 +455,7 @@ class FFTOCEANBAKER_PT_TexExportPanel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.prop(settings, "export_tex", text="")
         layout.enabled = bpy.data.is_saved
@@ -432,7 +463,7 @@ class FFTOCEANBAKER_PT_TexExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
         
         layout.enabled = settings.export_tex and bpy.data.is_saved
     
@@ -453,7 +484,7 @@ class FFTOCEANBAKER_PT_TexAdvExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
     
         row = layout.row()
         row.prop(settings, "export_tex_override")
@@ -474,7 +505,7 @@ class FFTOCEANBAKER_PT_XMLPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
 class FFTOCEANBAKER_PT_XMLExportPanel(bpy.types.Panel):
     bl_idname = "FFTOCEANBAKER_PT_xmlexportpanel"
@@ -490,7 +521,7 @@ class FFTOCEANBAKER_PT_XMLExportPanel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         layout.prop(settings, "export_xml", text="")
         layout.enabled = bpy.data.is_saved
@@ -498,7 +529,7 @@ class FFTOCEANBAKER_PT_XMLExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.FFTOceanBakerSettings
+        settings = scene.OceanBakerSettings
 
         row = layout.row()
         row.prop(settings, "export_xml_mode")
@@ -529,12 +560,12 @@ class FFTOCEANBAKER_PT_ReportPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.FFTOCEANBAKERReport.baked
+        return context.scene.OceanBakerReport.baked
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.FFTOCEANBAKERReport
+        report = scene.OceanBakerReport
 
         if report.baked:
             row = layout.row()
@@ -568,7 +599,7 @@ class FFTOCEANBAKER_PT_ReportTexPanel(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
-        report = context.scene.FFTOCEANBAKERReport
+        report = context.scene.OceanBakerReport
         row = self.layout.row(align=True)
         if report.tex_offset or report.tex_normal:
             row.label(text="", icon="CHECKMARK")
@@ -578,7 +609,7 @@ class FFTOCEANBAKER_PT_ReportTexPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.FFTOCEANBAKERReport
+        report = scene.OceanBakerReport
 
         row = layout.row()
         col = row.split()
@@ -668,7 +699,7 @@ class FFTOCEANBAKER_PT_ReportMeshPanel(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
-        report = context.scene.FFTOCEANBAKERReport
+        report = context.scene.OceanBakerReport
         row = self.layout.row(align=True)
         if report.mesh:
             row.label(text="", icon="CHECKMARK")
@@ -678,7 +709,7 @@ class FFTOCEANBAKER_PT_ReportMeshPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.FFTOCEANBAKERReport
+        report = scene.OceanBakerReport
 
         if report.mesh:
             row = layout.row()
@@ -690,6 +721,9 @@ class FFTOCEANBAKER_PT_ReportMeshPanel(bpy.types.Panel):
                 row.label(text="File: " + report.mesh_path, icon="FILE")
             else:
                 row.label(text="Not exported", icon="X")
+
+            row = layout.row()
+            row.label(text=str(report.ocean_size * report.ocean_spatial_size * report.unit_scale))
 
             layout.separator()
 
@@ -732,7 +766,7 @@ class FFTOCEANBAKER_PT_ReportOceanPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.FFTOCEANBAKERReport
+        report = scene.OceanBakerReport
     
         row = layout.row()
         row.label(text="Subdivisions: " + str(report.subd))
@@ -785,7 +819,7 @@ class FFTOCEANBAKER_PT_ReportUnitPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.FFTOCEANBAKERReport
+        report = scene.OceanBakerReport
 
         row = layout.row()
         row.label(text="System: " + report.unit_system)
