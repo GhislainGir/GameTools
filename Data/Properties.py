@@ -53,8 +53,10 @@ class DATABAKER_PG_SettingsDataLayer(PropertyGroup):
 
     packing_modes = [
         ("UV", "UV", "Bake the data into a UV map"),
-        ("XY", "U - XY", "Bake the data into the V channel map of a UV map , along with the target data layer using 16- and 15-bit precision. Expect some precision loss. !!PACKING IN THE V CHANNEL IS DANGEROUS!!"),
-        ("XYZ", "U - XYZ", "Bake the data into the V channel of a UV map, along with another layer and the target data layer using 11-, 10- and 10-bit precision. Expect moderate precision loss. !!PACKING IN THE V CHANNEL IS DANGEROUS!!"),
+        ("XY_BIT", "Bitwise XY", "Bake the data preferably into the U channel of a UV map, along with the target data layer using 16- and 15-bit precision. Expect some precision loss. !!PACKING IN THE V CHANNEL IS DANGEROUS!!"),
+        ("XY_NUM", "Numeric XY", "Bake the data into the U or V channel of a UV map, along with the target data layer using numeric packing. Expect moderate precision loss. Packing in the V channel is safe"),
+        ("XYZ_BIT", "Bitwise XYZ", "Bake the data preferably into the U channel of a UV map, along with another layer and the target data layer using 11-, 10- and 10-bit precision. Expect moderate precision loss. !!PACKING IN THE V CHANNEL IS DANGEROUS!!"),
+        ("XYZ_NUM", "Numeric XYZ", "Bake the data into the V channel of a UV map, along with the target data layer using numeric packing. Expect high precision loss. Packing in the V channel is safe"),
         ("FRACTION", "UV - Fraction", "Bake the data into the fractional part of a UV map, along with the target data which will be floored"),
         ("VCOL", "Vertex Color", "Bake data into vertex colors"),
         ("NORMAL", "Normal", "Bake data in mesh normals"),

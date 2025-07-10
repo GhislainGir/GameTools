@@ -129,7 +129,7 @@ def add_bake_layer_report(data_layer, packing, pack_range = None):
     for layer_packed_index, layer_packed in enumerate(packing):
         if layer_packed:
             packed_mode = layer_packed.packing_mode
-            if layer_packed.packing_mode == "FRACTION" or layer_packed.packing_mode == "XY" or layer_packed.packing_mode == "XYZ":
+            if layer_packed.packing_mode == "FRACTION" or layer_packed.packing_mode == "XY_BIT" or layer_packed.packing_mode == "XY_NUM" or layer_packed.packing_mode == "XYZ_BIT" or layer_packed.packing_mode == "XYZ_NUM":
                 high_precision = True
 
             if layer_packed == data_layer:
@@ -145,7 +145,7 @@ def add_bake_layer_report(data_layer, packing, pack_range = None):
                         pass
 
     report_data_layer.packed_mode = packed_mode
-    report_data_layer.range_high_precision = packed_mode == "FRACTION" or packed_mode == "XY" or packed_mode == "XYZ" or (data_layer.data == "QUATERNION" and data_layer.quat == "XYZW")
+    report_data_layer.range_high_precision = packed_mode == "FRACTION" or packed_mode == "XY_BIT" or packed_mode == "XY_NUM" or packed_mode == "XYZ_BIT" or packed_mode == "XYZ_NUM" or (data_layer.data == "QUATERNION" and data_layer.quat == "XYZW")
 
 def clear_bake_layer_report(data_layer) -> bool:
     """
@@ -345,6 +345,66 @@ def get_packed_frac(x: float, y: float, y_offset: float, y_range: float) -> floa
     """
     y = (y - y_offset) / y_range # remap frac from [min:max] to [0:<1]
     return  math.floor(x) + y
+
+def get_pack_2(x: float, x_offset: float, x_range: float, y: float, y_offset: float, y_range: float) -> float:
+    """ 
+    Algorithm to pack two floats into one, using numeric packing
+
+    Range is assumed to be non-zero!
+
+    :param x: first float to pack
+    :param x_offset: 
+    :param x_range: 
+    :param y: second float to pack
+    :param y_offset: 
+    :param y_range: 
+    :return: numerically packed float
+    :rtype: float
+    """
+    margin = 1.0 / 256.0
+    scale = 1.0 / (1.0 - 2.0 * margin)
+    adjusted_x_range = x_range * scale
+    adjusted_x_offset = x_offset - x_range * (scale - 1.0) / 2.0
+
+    a = min(1.0, max(0.0, (x - adjusted_x_offset) / adjusted_x_range))
+    
+    adjusted_y_range = y_range * scale
+    adjusted_y_offset = y_offset - y_range * (scale - 1.0) / 2.0
+
+    b = min(1.0, max(0.0, (y - adjusted_y_offset) / adjusted_y_range))
+   
+    aq = int(a * 65535.0 + 0.5)
+    bq = int(b * 65535.0 + 0.5)
+
+    return aq / 65536.0 + bq / (65536.0 * 65536.0)
+
+def get_pack_3(x: float, x_offset: float, x_range: float, y: float, y_offset: float, y_range: float, z: float, z_offset: float, z_range: float) -> float:
+    """ 
+    Algorithm to pack three floats into one, using numeric packing
+
+    Range is assumed to be non-zero!
+
+    :param x: first float to pack
+    :param x_offset: 
+    :param x_range: 
+    :param y: second float to pack
+    :param y_offset: 
+    :param y_range: 
+    :param z: third float to pack
+    :param z_offset: 
+    :param z_range: 
+    :return: numerically float
+    :rtype: float
+    """
+    a = min(1.0, max(0.0, (x - x_offset) / x_range))
+    b = min(1.0, max(0.0, (y - y_offset) / y_range))
+    c = min(1.0, max(0.0, (z - z_offset) / z_range))
+
+    aq = int(a * 250.0 + 0.5)
+    bq = int(b * 255.0 + 0.5)
+    cq = int(c * 255.0 + 0.5)
+
+    return aq / 256.0 + bq / (256.0 * 256.0) + cq / (256.0 * 256.0 * 256.0)
 
 def get_normalized(x: float, x_min: float, x_max: float, threshold: float = 0.0001) -> float:
     """
@@ -978,7 +1038,7 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
 
     #################################################
     # DATA LAYER MIGHT BE PACKED INTO ANOTHER LAYER #
-    targeting = data_layer.packing_mode == "FRACTION" or data_layer.packing_mode == "XY" or data_layer.packing_mode == "XYZ"
+    targeting = data_layer.packing_mode == "FRACTION" or data_layer.packing_mode == "XY_BIT" or data_layer.packing_mode == "XY_NUM" or data_layer.packing_mode == "XYZ_BIT" or data_layer.packing_mode == "XYZ_NUM"
     if targeting:
         success, msg, data_layer_target = get_data_layer_targeting_info(data_layer, data_layers)
         if not success:
@@ -993,7 +1053,7 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
             return (False, err_base_msg + "error searching target layer's index", None)
 
         # gather sibling(s) (aka, all layers that have the same target than us, including us)
-        layers_sharing_target = [layer for layer in data_layers if layer.ptr == target_index and (layer.packing_mode == "XY" or layer.packing_mode == "XYZ" or layer.packing_mode == "FRACTION")]
+        layers_sharing_target = [layer for layer in data_layers if layer.ptr == target_index and (layer.packing_mode == "XY_BIT" or layer.packing_mode == "XY_NUM" or layer.packing_mode == "XYZ_BIT" or layer.packing_mode == "XYZ_NUM" or layer.packing_mode == "FRACTION")]
         if layers_sharing_target:
             # check sibling(s) and build packing info
             success, msg, packing_mode, packing_info = get_data_layer_packing_info(data_layer_target, layers_sharing_target)
@@ -1019,7 +1079,7 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
             return (False, err_base_msg + "error searching layer's index", None)
 
         # gather child(s) (aka, all layers that *may* target us)
-        layers_targeting_self = [layer for layer in data_layers if layer.ptr == self_index and (layer.packing_mode == "XY" or layer.packing_mode == "XYZ" or layer.packing_mode == "FRACTION")]
+        layers_targeting_self = [layer for layer in data_layers if layer.ptr == self_index and (layer.packing_mode == "XY_BIT" or layer.packing_mode == "XY_NUM" or layer.packing_mode == "XYZ_BIT" or layer.packing_mode == "XYZ_NUM" or layer.packing_mode == "FRACTION")]
         if layers_targeting_self:
             # check childs(s) and build packing info
             success, msg, packing_mode, packing_info = get_data_layer_packing_info(data_layer, layers_targeting_self)
@@ -1071,7 +1131,7 @@ def get_data_layer_targeting_info(data_layer: object, data_layers: list) -> tupl
             return (False, "targeting itself (Layer)", None)
         # make sure target's storage mode allow bit-packing
         mode = data_layer_target.packing_mode
-        if mode == "FRACTION" or mode == "XY" or mode == "XYZ" or mode == "VCOL" or mode == "NORMAL":
+        if mode == "FRACTION" or mode == "XY_BIT" or mode == "XY_NUM" or mode == "XYZ_BIT" or mode == "XYZ_NUM" or mode == "VCOL" or mode == "NORMAL":
             return (False, "is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
         elif data_layer_target.data == "QUATERNION" and data_layer_target.quat == "XYZW":
             return (False, "is targeted by " + get_data_layer_name(data_layer) + " but don't allow bit-packing", None)
@@ -1149,17 +1209,17 @@ def get_data_layer_packing_info(data_layer_target, data_layers_to_pack: list) ->
         elif packing_mode != data_layer_to_pack.packing_mode:
             return (False, "divergent packing mode", "", None)
 
-        if packing_mode == "FRACTION" or (packing_mode == "XY" and data_layer_to_pack.pack_xy == "X") or (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "X"):
+        if packing_mode == "FRACTION" or ((packing_mode == "XY_BIT" or packing_mode == "XY_NUM") and data_layer_to_pack.pack_xy == "X") or ((packing_mode == "XYZ_BIT" or packing_mode == "XYZ_NUM") and data_layer_to_pack.pack_xyz == "X"):
             if len(layers_packed_in_y) > 0:
                 return (False, "multiple layers targeting component X", "", None)
             else:
                 layers_packed_in_y.append(data_layer_to_pack)
-        elif (packing_mode == "XY" and data_layer_to_pack.pack_xy == "Y") or (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "Y"):
+        elif ((packing_mode == "XY_BIT" or packing_mode == "XY_NUM") and data_layer_to_pack.pack_xy == "Y") or ((packing_mode == "XYZ_BIT" or packing_mode == "XYZ_NUM") and data_layer_to_pack.pack_xyz == "Y"):
             if len(layers_packed_in_y) > 0:
                 return (False, "multiple layers targeting component Y", "", None)
             else:
                 layers_packed_in_y.append(data_layer_to_pack)
-        elif (packing_mode == "XYZ" and data_layer_to_pack.pack_xyz == "Z"):
+        elif ((packing_mode == "XYZ_BIT" or packing_mode == "XYZ_NUM") and data_layer_to_pack.pack_xyz == "Z"):
             if len(layers_packed_in_z) > 0:
                 return (False, "multiple layers targeting component Z", "", None)
             else:
@@ -1322,9 +1382,9 @@ def get_data_layer_icon(data_layer: object, details: bool = False) -> str:
                 # if data_layer.ptr < 0:
                 #     return (False, "QUESTION")
 
-                if data_layer.packing_mode == "XY":
+                if data_layer.packing_mode == "XY_BIT" or data_layer.packing_mode == "XY_NUM":
                     return (False, "OVERLAY")
-                elif data_layer.packing_mode == "XYZ":
+                elif data_layer.packing_mode == "XYZ_BIT" or data_layer.packing_mode == "XYZ_NUM":
                     return (False, "THREE_DOTS")
                 elif data_layer.packing_mode == "FRACTION":
                     return (False, "PIVOT_ACTIVE")
@@ -1470,6 +1530,15 @@ def bake_data_layers(context, layers_info, eval_objs_to_bake) -> tuple[bool, str
 
         data_layer_range_offset = [0.0, 0.0, 0.0]
         data_layer_range = [0.0, 0.0, 0.0]
+        safe_remap_range = False
+
+        # numerically packed values must be within (0:1) range within a safety limit and the layer that is targeted by the other layer(s)
+        # isn't itself using such packing_mode (UV instead) so we must iterate all ahead of time to see if the layer being targeted need
+        # to report a modify range/offset to account for the safety precision offset as well
+        for layer_packed_index, layer_packed in enumerate(packing):
+            if layer_packed:
+                if layer_packed.packing_mode == "XY_NUM" or layer_packed.packing_mode == "XYZ_NUM":
+                    safe_remap_range = True
 
         for layer_packed_index, layer_packed in enumerate(packing):
             if layer_packed:
@@ -1481,6 +1550,15 @@ def bake_data_layers(context, layers_info, eval_objs_to_bake) -> tuple[bool, str
                 data_layer_range_offset[layer_packed_index] = bake_offset
                 if layer_packed.packing_mode == "FRACTION":
                     data_layer_range[layer_packed_index] = bake_range / min(0.99999, max(0.00001, settings.packing_precision))
+                elif safe_remap_range:
+                    # XY_NUM, XYZ_NUM can't have values equal to 0 or 1 once remapped to the range [0:1]
+                    margin = 1.0 / 256.0
+                    scale = 1.0 / (1.0 - 2.0 * margin)
+                    adjusted_range = bake_range * scale
+                    adjusted_offset = bake_offset - bake_range * (scale - 1.0) / 2.0
+
+                    data_layer_range_offset[layer_packed_index] = adjusted_offset
+                    data_layer_range[layer_packed_index] = adjusted_range
                 else:
                     data_layer_range[layer_packed_index] = bake_range
 
@@ -1552,7 +1630,11 @@ def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
                         get_bake_layer_report_range_valid(layer_packed),
                         get_bake_layer_report_range_offset(layer_packed),
                         get_bake_layer_report_range(layer_packed))
-
+                    
+            for layer_range_index, layer_range in enumerate(layers_range):
+                if layer_range is None:
+                    layers_range[layer_range_index] = (False, 0, 1)
+                    
             """ 3. bake """
             for loop_id in eval_mesh.loops:
                 index = loop_id.index
@@ -1562,13 +1644,20 @@ def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
                     datas[1][index] if datas[1] is not None else 0.0,
                     datas[2][index] if datas[2] is not None else 0.0))
 
-                if packing_mode == "XYZ":
+                if packing_mode == "XYZ_BIT":
                     data_to_bake = get_packed_11_10_10_xyz(data_to_pack.x, layers_range[0][1], layers_range[0][2],
                                                             data_to_pack.y, layers_range[1][1], layers_range[1][2],
                                                             data_to_pack.z, layers_range[2][1], layers_range[2][2])
-                elif packing_mode == "XY":
+                elif packing_mode == "XYZ_NUM":
+                    data_to_bake = get_pack_3(data_to_pack.x, layers_range[0][1], layers_range[0][2],
+                                                            data_to_pack.y, layers_range[1][1], layers_range[1][2],
+                                                            data_to_pack.z, layers_range[2][1], layers_range[2][2])
+                elif packing_mode == "XY_BIT":
                     data_to_bake = get_packed_16_15_xy(data_to_pack.x, layers_range[0][1], layers_range[0][2],
                                                         data_to_pack.y, layers_range[1][1], layers_range[1][2])
+                elif packing_mode == "XY_NUM":
+                    data_to_bake = get_pack_2(data_to_pack.x, layers_range[0][1], layers_range[0][2],
+                                                data_to_pack.y, layers_range[1][1], layers_range[1][2])
                 elif packing_mode == "FRACTION":
                     data_to_bake = get_packed_frac(data_to_pack.x, data_to_pack.y, layers_range[1][1], layers_range[1][2])
                 else:

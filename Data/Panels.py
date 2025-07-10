@@ -32,7 +32,7 @@ class DATABAKER_UL_DataList(bpy.types.UIList):
                 emphasis = False
                 try:
                     selected_data_layer = settings.data_layers[settings.data_layers_selected_index]
-                    if selected_data_layer.packing_mode == "XY" or selected_data_layer.packing_mode == "XYZ" or selected_data_layer.packing_mode == "FRACTION":
+                    if selected_data_layer.packing_mode == "XY_BIT" or selected_data_layer.packing_mode == "XY_NUM" or selected_data_layer.packing_mode == "XYZ_BIT" or selected_data_layer.packing_mode == "XYZ_NUM" or selected_data_layer.packing_mode == "FRACTION":
                         for data_layer_index, data_layer in enumerate(settings.data_layers):
                             if data_layer == item:
                                 if selected_data_layer.ptr == data_layer_index:
@@ -132,7 +132,7 @@ class DATABAKER_PT_DataBaker(bpy.types.Panel):
 
         try:
             selected_data_layer = settings.data_layers[settings.data_layers_selected_index]
-            if selected_data_layer.packing_mode == "XY" or selected_data_layer.packing_mode == "XYZ" or selected_data_layer.packing_mode == "FRACTION":
+            if selected_data_layer.packing_mode == "XY_BIT" or selected_data_layer.packing_mode == "XY_NUM" or selected_data_layer.packing_mode == "XYZ_BIT" or selected_data_layer.packing_mode == "XYZ_NUM" or selected_data_layer.packing_mode == "FRACTION":
                 col.separator()
 
                 ope = col.operator("databaker_target.change_ptr", icon="AREA_JOIN_UP", text="")
@@ -300,10 +300,10 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
                         row = panel_body.row()
                         row.prop(data, "normal_xyz")
                     else:
-                        if data.packing_mode == "XY":
+                        if data.packing_mode == "XY_BIT" or data.packing_mode == "XY_NUM":
                             row = panel_body.row()
                             row.prop(data, "pack_xy", text="")
-                        elif data.packing_mode == "XYZ":
+                        elif data.packing_mode == "XYZ_BIT" or data.packing_mode == "XYZ_NUM":
                             row = panel_body.row()
                             row.prop(data, "pack_xyz", text="")
                         elif data.packing_mode == "FRACTION":
@@ -651,11 +651,11 @@ class DATABAKER_PT_ReportLayerPanel(bpy.types.Panel):
 
                         layer_remapped = False
 
-                        if packed_data_layer.packing_mode == "FRACTION" or packed_data_layer.packing_mode == "XY" or packed_data_layer.packing_mode == "XYZ":
+                        if packed_data_layer.packing_mode == "FRACTION" or packed_data_layer.packing_mode == "XY_NUM" or packed_data_layer.packing_mode == "XY_BIT" or packed_data_layer.packing_mode == "XYZ_NUM" or packed_data_layer.packing_mode == "XYZ_BIT":
                             layer_remapped = True
                         elif packed_data_layer.packing_mode == "NORMAL" or packed_data_layer.packing_mode == "VCOL": # @NOTE unsure about this. Should it be data_layer.packed_mode?!
                             layer_remapped = not data_layer.range_unit_vector
-                        elif data_layer.packed_mode == "FRACTION" or data_layer.packed_mode == "XY" or data_layer.packed_mode == "XYZ":
+                        elif data_layer.packed_mode == "FRACTION" or data_layer.packed_mode == "XY_BIT" or data_layer.packed_mode == "XY_NUM" or data_layer.packed_mode == "XYZ_BIT" or data_layer.packed_mode == "XYZ_NUM":
                             layer_remapped = True
 
                         row = layout.row()
