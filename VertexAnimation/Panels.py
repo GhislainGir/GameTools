@@ -340,6 +340,10 @@ class VATBAKER_PT_TexMainPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(settings, "tex_packing_mode")
 
+        row = layout.row()
+        row.prop(settings, "tex_packing_stack_mode")
+        row.enabled = settings.tex_packing_mode == "STACK"
+
 class VATBAKER_PT_TexOffsetPanel(bpy.types.Panel):
     bl_idname = "VATBAKER_PT_texnoffsetpanel"
     bl_parent_id = "VATBAKER_PT_texmainpanel"
@@ -917,6 +921,11 @@ class VATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(report, "tex_sampling_mode")
         row.enabled = False
+
+        if report.tex_sampling_mode == "STACK":
+            row = layout.row()
+            row.prop(report, "tex_packing_stack_mode")
+            row.enabled = False
 
         layout.separator()
 

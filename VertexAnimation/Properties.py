@@ -132,7 +132,6 @@ class VATBAKER_PG_Settings(PropertyGroup):
         ('CONTINUOUS', 'Continuous (Experimental)', "Store subsequent frame data directly after the previous frame in the texture, ensuring tight packing but requiring a more complex playback algorithm (frame data may start at arbitrary locations and span multiple lines)"),
         ('STACK', 'Stack', 'Skip remaining pixels and place the next frame on the next line (stack), simplifying playback but reducing packing efficiency and limiting texture space for vertex data')
     ]
-
     tex_packing_mode: EnumProperty(name="Mode", items=tex_packing_modes, default=1, description="Control how frames are arranged in the texture when there’s extra space (underflow) or not enough space (overflow). \n\nUnderflow occurs when the number of vertices per frame is less than the image width, causing gaps at the end of the line ('Power of Two' might cause this). \n\nOverflow happens when there are too many vertices for a single line, and the data is spread across multiple lines, possibly leaving gaps. \n\nThis setting determines how to handle these empty spaces")
     
     # Underflow - CONTINUOUS
@@ -155,6 +154,12 @@ class VATBAKER_PG_Settings(PropertyGroup):
     # f2 f2 f2 f2
     # f1 00 00 00
     # f1 f1 f1 f1
+
+    tex_packing_stack_modes = [
+        ('ADJACENT', 'Adjacent', 'Rows are stacked on top of each other, which simplifies playback in the vertex shader but prevents the use of pixel interpolation for frame interpolation'),
+        ('OFFSET', 'Offset', 'Rows are offset by the full animation length, making playback in the vertex shader more complex but allowing pixel interpolation to be used for frame interpolation'),
+    ]
+    tex_packing_stack_mode: EnumProperty(name="Stack Mode", items=tex_packing_stack_modes, default="ADJACENT", description="Select the stack method")
 
 ##############
 ### REPORT ###
@@ -249,6 +254,7 @@ class VATBAKER_PG_Report(PropertyGroup):
     tex_normal_range_offset: FloatVectorProperty(name="Offset")
     tex_normal_range: FloatVectorProperty(name="Range")
     tex_sampling_mode: StringProperty(name="Sampling", default="", description="")
+    tex_packing_stack_mode: StringProperty(name="Stack Mode", default="", description="")
 
     xml: BoolProperty(name="XML", default=False, description="")
     xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')

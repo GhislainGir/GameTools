@@ -121,6 +121,7 @@ def reset_bake_report():
     report.tex_normal_range_offset = mathutils.Vector((1.0, 1.0, 1.0))
     report.tex_normal_range = mathutils.Vector((1.0, 1.0, 1.0))
     report.tex_sampling_mode = "STACK_SINGLE"
+    report.tex_packing_stack_mode = "ADJACENT"
 
     report.xml = False
     report.xml_path = ""
@@ -1092,7 +1093,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     ########
     # MESH #
 
-    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_ref_frame)
+    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_ref_frame, num_frames)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1143,7 +1144,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
 
 ##############
 ### MESHES ###
-def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref: int) -> tuple[bool, str, bpy.types.Object, int]:
+def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref: int, num_frames: int) -> tuple[bool, str, bpy.types.Object, int]:
     """
     Generate the mesh object to export
 
@@ -1205,7 +1206,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
             eval_mesh.transform(eval_obj.matrix_world)
             eval_meshes[obj_index] = eval_mesh
 
-            success, msg, last_eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, eval_meshes_vertices)
+            success, msg, last_eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, eval_meshes_vertices, num_frames)
             if success:
                 if obj_index == 0:
                     eval_mesh_uvmap_index = last_eval_mesh_uvmap_index
@@ -1289,7 +1290,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
 
     return (True, "", obj, eval_mesh_uvmap_index)
 
-def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset: int) -> tuple[bool, str, int]:
+def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset: int, num_frames: int) -> tuple[bool, str, int]:
     """
     Configure the mesh UVs so that one vertex is located on one unique texel in the VAT texture(s)
 
@@ -1325,15 +1326,26 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
         uvmap = mesh.uv_layers[uvmap_index]
         uvmap.name = mesh_uvmap_name
 
-    # set UV
-    for loop in mesh.loops:
-        vertex_index = loop.vertex_index + vertex_index_offset
-        u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
-        v = (0.5 / float(tex_height)) + (vertex_index // float(tex_width)) / float(tex_height)
-        if settings.unit_invert_v:
-            v = 1.0 - v
+    if (settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "ADJACENT") or settings.tex_packing_mode == "CONTINUOUS":
+        # set UV
+        for loop in mesh.loops:
+            vertex_index = loop.vertex_index + vertex_index_offset
+            u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
+            v = (0.5 / float(tex_height)) + (vertex_index // float(tex_width)) / float(tex_height)
+            if settings.unit_invert_v:
+                v = 1.0 - v
 
-        uvmap.data[loop.index].uv = (u,v)
+            uvmap.data[loop.index].uv = (u,v)
+    else: # STACK & OFFSET
+        # set UV
+        for loop in mesh.loops:
+            vertex_index = loop.vertex_index + vertex_index_offset
+            u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
+            v = (0.5 / float(tex_height)) + ((vertex_index // float(tex_width)) * num_frames) / float(tex_height)
+            if settings.unit_invert_v:
+                v = 1.0 - v
+
+            uvmap.data[loop.index].uv = (u,v)
 
     return (True, "", uvmap_index)
 
@@ -3800,10 +3812,20 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
             if eval_mesh_vertex_count != ref_eval_mesh_vertex_count:
                 return (False, "Vertex count mismatch in frame " + str(frame_to_bake) + " for object " + obj_to_bake.name + ". It likely has a modifier that changes its topology during animation (i.e. a split edge modifier that suddenly splits an edge due to an increase angle).", [], [], None)
 
-            buffer_frame_offset = ((tex_width * bake_frame_height) if settings.tex_packing_mode == 'STACK' else num_vertices) * frame_index * 4
+            if settings.tex_packing_mode == 'STACK':
+                if settings.tex_packing_stack_mode == 'ADJACENT':
+                    buffer_frame_offset = tex_width * bake_frame_height * frame_index * 4
+                else:
+                    buffer_frame_offset = tex_width * frame_index * 4
+            else:
+                buffer_frame_offset = num_vertices * frame_index * 4
+
             if mappings:
                 for mapping_index, mapping in enumerate(mappings):
-                    buffer_vertex_index = buffer_object_offset + buffer_frame_offset + (mapping_index * 4)
+                    if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
+                        buffer_vertex_index = buffer_frame_offset + ((((buffer_object_offset // 4) + mapping_index) % tex_width) * 4) + ((((buffer_object_offset // 4) + mapping_index) // tex_width) * len(frames_to_bake) * tex_width * 4)
+                    else:
+                        buffer_vertex_index = buffer_object_offset + buffer_frame_offset + (mapping_index * 4)
 
                     tri_offset, tri_pos, tri_index, tri_barycoords = mapping
                     # compute posed surface position & normal from mapped face index and barycentric coords
@@ -3842,14 +3864,17 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
                     #vertices_normals[buffer_vertex_index + 3] = 1.0
             else: # no mappings
                 # for each vertex
-                for VertexIndex, Vertex in enumerate(eval_posed_mesh.vertices):
-                    buffer_vertex_index = buffer_object_offset + buffer_frame_offset + (VertexIndex * 4)
+                for vertex_index, vertex in enumerate(eval_posed_mesh.vertices):
+                    if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
+                        buffer_vertex_index = buffer_frame_offset + ((((buffer_object_offset // 4) + vertex_index) % tex_width) * 4) + ((((buffer_object_offset // 4) + vertex_index) // tex_width) * len(frames_to_bake) * tex_width * 4)
+                    else:
+                        buffer_vertex_index = buffer_object_offset + buffer_frame_offset + (vertex_index * 4)
 
                     # offset
                     if settings.offset_tex_mode == "OFFSET":
-                        offset = (Vertex.co - ref_eval_mesh_vertices_pos[Vertex.index]) # delta with base position
+                        offset = (vertex.co - ref_eval_mesh_vertices_pos[vertex.index]) # delta with base position
                     else: # settings.offset_tex_mode == "POSITION"
-                        offset = Vertex.co
+                        offset = vertex.co
 
                     vector_to_bake = offset * signed_scale
                     if settings.unit_axis_order != "XYZ":
@@ -3861,7 +3886,7 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
                     #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
                     # normal
-                    vector_to_bake = (Vertex.normal * signed_axis).normalized()
+                    vector_to_bake = (vertex.normal * signed_axis).normalized()
                     if settings.unit_axis_order != "XYZ":
                         vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
                     x, y, z = vector_to_bake
@@ -3981,7 +4006,14 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
         if eval_mesh_vertex_count != ref_eval_mesh_vertex_count:
             return (False, "Vertex count mismatch in frame " + str(frame_to_bake) + " for object " + objs_to_bake[0].name + ". It likely has a modifier that changes its topology during animation (i.e. a split edge modifier that suddenly splits an edge due to an increase angle).", [], [], None, None)
 
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.tex_packing_mode == 'STACK' else num_vertices) * frame_index * 4
+        if settings.tex_packing_mode == 'STACK':
+            if settings.tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = (tex_width * bake_frame_height) * frame_index * 4
+            else:
+                buffer_frame_offset = (tex_width * bake_frame_height) * frame_index * len(frames_to_bake) * 4
+        else:
+            buffer_frame_offset = num_vertices * frame_index * 4
+
         for vertex_index, vertex in enumerate(eval_mesh.vertices):
             buffer_vertex_index = buffer_frame_offset + (vertex_index * 4)
 
@@ -4356,6 +4388,7 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
             sampling = "STACK_MULT"
 
     add_bake_report("tex_sampling_mode", sampling)
+    add_bake_report("tex_packing_stack_mode", settings.tex_packing_stack_mode)
 
     return (True, "", tex_width, tex_height, bake_frame_height, bake_frame_width)
 
@@ -4393,6 +4426,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
     # frame
     frame_el = ET.SubElement(root, "Frames",
                              sampling=report.tex_sampling_mode,
+                             stack_mode=report.tex_packing_stack_mode,
                              count=str(report.num_frames),
                              padded=str(report.num_frames_padded),
                              padding=str(report.padding),

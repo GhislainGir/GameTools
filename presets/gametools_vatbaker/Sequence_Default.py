@@ -51,3 +51,4 @@ settings.export_tex_max_height = 4096
 settings.tex_force_power_of_two = False
 settings.tex_force_power_of_two_square = False
 settings.tex_packing_mode = 'STACK'
+settings.tex_packing_stack_mode = 'ADJACENT'
