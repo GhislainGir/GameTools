@@ -1228,7 +1228,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
         eval_obj.to_mesh_clear()
         eval_mesh.transform(eval_obj.matrix_world)
 
-        success, msg, eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, 0)
+        success, msg, eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, 0, num_frames)
         if not success:
             if eval_mesh.users == 0:
                 bpy.data.meshes.remove(eval_mesh)
