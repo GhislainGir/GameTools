@@ -4008,14 +4008,17 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
 
         if settings.tex_packing_mode == 'STACK':
             if settings.tex_packing_stack_mode == 'ADJACENT':
-                buffer_frame_offset = (tex_width * bake_frame_height) * frame_index * 4
+                buffer_frame_offset = tex_width * bake_frame_height * frame_index * 4
             else:
-                buffer_frame_offset = (tex_width * bake_frame_height) * frame_index * len(frames_to_bake) * 4
+                buffer_frame_offset = tex_width * frame_index * 4
         else:
             buffer_frame_offset = num_vertices * frame_index * 4
 
         for vertex_index, vertex in enumerate(eval_mesh.vertices):
-            buffer_vertex_index = buffer_frame_offset + (vertex_index * 4)
+            if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
+                buffer_vertex_index = buffer_frame_offset + (((vertex_index) % tex_width) * 4) + (((vertex_index) // tex_width) * len(frames_to_bake) * tex_width * 4)
+            else:
+                buffer_vertex_index = buffer_frame_offset + (vertex_index * 4)
 
             # offset
             if settings.offset_tex_mode == "OFFSET":
