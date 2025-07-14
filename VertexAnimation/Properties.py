@@ -159,7 +159,7 @@ class VATBAKER_PG_Settings(PropertyGroup):
         ('ADJACENT', 'Adjacent', 'Rows are stacked on top of each other, which simplifies playback in the vertex shader but prevents the use of pixel interpolation for frame interpolation'),
         ('OFFSET', 'Offset', 'Rows are offset by the full animation length, making playback in the vertex shader more complex but allowing pixel interpolation to be used for frame interpolation'),
     ]
-    tex_packing_stack_mode: EnumProperty(name="Stack Mode", items=tex_packing_stack_modes, default="ADJACENT", description="Select the stack method")
+    tex_packing_stack_mode: EnumProperty(name="Stack Mode", items=tex_packing_stack_modes, default="OFFSET", description="Select the stack method")
 
 ##############
 ### REPORT ###
