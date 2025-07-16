@@ -3746,7 +3746,14 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
             for vertex_index, vertex in enumerate(target_eval_mesh.vertices):
                 closest_face_pos, closest_face_nor, closest_face_index, closest_face_dist = BVH.find_nearest(vertex.co) # closest position on SOURCE mesh from TARGET vert
                 closest_face_vertices_pos = [ref_eval_mesh.vertices[v].co for v in ref_eval_mesh.polygons[closest_face_index].vertices]
-                closest_face_vertices_nor = [ref_eval_mesh.vertices[v].normal for v in ref_eval_mesh.polygons[closest_face_index].vertices]
+                closest_face_vertices_nor = []
+                if ref_eval_mesh.has_custom_normals:
+                    poly = ref_eval_mesh.polygons[closest_face_index]
+                    for loop_index in range(poly.loop_start, poly.loop_start + poly.loop_total):
+                        closest_face_vertices_nor.append(ref_eval_mesh.loops[loop_index].normal)
+                else:
+                    closest_face_vertices_nor = [ref_eval_mesh.vertices[v].normal for v in ref_eval_mesh.polygons[closest_face_index].vertices]
+                
                 closest_face_barycoords = mathutils.interpolate.poly_3d_calc(closest_face_vertices_pos, closest_face_pos) # compute barycoords of closest position on closest face
 
                 # confirm robustness of method
@@ -3863,6 +3870,25 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
                     vertices_normals[buffer_vertex_index + 2] = z
                     #vertices_normals[buffer_vertex_index + 3] = 1.0
             else: # no mappings
+                # custom normals require iterating loops
+                if eval_posed_mesh.has_custom_normals:
+                    for loop in eval_posed_mesh.loops:
+                        vector_to_bake = loop.normal
+                        vertex_index = loop.vertex_index
+
+                        if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
+                            buffer_vertex_index = buffer_frame_offset + ((vertex_index % tex_width) * 4) + ((vertex_index // tex_width) * len(frames_to_bake) * tex_width * 4)
+                        else:
+                            buffer_vertex_index = buffer_frame_offset + (vertex_index * 4)
+
+                        if settings.unit_axis_order != "XYZ":
+                            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
+                        x, y, z = vector_to_bake
+                        vertices_normals[buffer_vertex_index + 0] = x
+                        vertices_normals[buffer_vertex_index + 1] = y
+                        vertices_normals[buffer_vertex_index + 2] = z
+                        #vertices_normals[buffer_vertex_index + 3] = 1.0
+
                 # for each vertex
                 for vertex_index, vertex in enumerate(eval_posed_mesh.vertices):
                     if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
@@ -3885,15 +3911,16 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
                     vertices_offsets[buffer_vertex_index + 2] = z
                     #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
-                    # normal
-                    vector_to_bake = (vertex.normal * signed_axis).normalized()
-                    if settings.unit_axis_order != "XYZ":
-                        vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
-                    x, y, z = vector_to_bake
-                    vertices_normals[buffer_vertex_index + 0] = x
-                    vertices_normals[buffer_vertex_index + 1] = y
-                    vertices_normals[buffer_vertex_index + 2] = z
-                    #vertices_normals[buffer_vertex_index + 3] = 1.0
+                    # normal (bypass if using custom normals)
+                    if not eval_posed_mesh.has_custom_normals:
+                        vector_to_bake = (vertex.normal * signed_axis).normalized()
+                        if settings.unit_axis_order != "XYZ":
+                            vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
+                        x, y, z = vector_to_bake
+                        vertices_normals[buffer_vertex_index + 0] = x
+                        vertices_normals[buffer_vertex_index + 1] = y
+                        vertices_normals[buffer_vertex_index + 2] = z
+                        #vertices_normals[buffer_vertex_index + 3] = 1.0
 
             eval_posed_obj.to_mesh_clear()
 
@@ -4014,6 +4041,24 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
         else:
             buffer_frame_offset = num_vertices * frame_index * 4
 
+        if eval_mesh.has_custom_normals:
+            for loop in eval_mesh.loops:
+                normal = loop.normal
+                vertex_index = loop.vertex_index
+
+                if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
+                    buffer_vertex_index = buffer_frame_offset + (((vertex_index) % tex_width) * 4) + (((vertex_index) // tex_width) * len(frames_to_bake) * tex_width * 4)
+                else:
+                    buffer_vertex_index = buffer_frame_offset + (vertex_index * 4)
+
+                if settings.unit_axis_order != "XYZ":
+                    vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
+                x, y, z = vector_to_bake
+                vertices_normals[buffer_vertex_index + 0] = x
+                vertices_normals[buffer_vertex_index + 1] = y
+                vertices_normals[buffer_vertex_index + 2] = z
+                #vertices_normals[buffer_vertex_index + 3] = 1.0
+
         for vertex_index, vertex in enumerate(eval_mesh.vertices):
             if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
                 buffer_vertex_index = buffer_frame_offset + (((vertex_index) % tex_width) * 4) + (((vertex_index) // tex_width) * len(frames_to_bake) * tex_width * 4)
@@ -4036,7 +4081,9 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
             #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
             # normal
-            vector_to_bake = (vertex.normal * signed_axis).normalized()
+            if not eval_mesh.has_custom_normals:
+                vector_to_bake = (vertex.normal * signed_axis).normalized()
+
             if settings.unit_axis_order != "XYZ":
                 vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
             x, y, z = vector_to_bake
