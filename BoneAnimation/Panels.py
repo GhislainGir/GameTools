@@ -507,6 +507,10 @@ class BATBAKER_PT_AnimationTexturesPanel(bpy.types.Panel):
         row.prop(settings, "animation_tex_packing_mode")
 
         row = layout.row()
+        row.prop(settings, "animation_tex_packing_stack_mode")
+        row.enabled = settings.animation_tex_packing_mode == "STACK"
+
+        row = layout.row()
         row.template_list("BATBAKER_UL_AnimationTextureList", "", settings, "animation_textures", settings, "animation_textures_selected_index", rows=5)
 
         col = row.column(align=True)
@@ -1208,6 +1212,11 @@ class BATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(report, "animation_tex_sampling_mode")
         row.enabled = False
+        
+        if report.animation_tex_sampling_mode == "STACK":
+            row = layout.row()
+            row.prop(report, "animation_tex_packing_stack_mode")
+            row.enabled = False
 
         layout.separator()
 

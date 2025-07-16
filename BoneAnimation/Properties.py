@@ -264,6 +264,12 @@ class BATBAKER_PG_Settings(PropertyGroup):
     # f1 00 00 00
     # f1 f1 f1 f1
 
+    animation_tex_packing_stack_modes = [
+        ('ADJACENT', 'Adjacent', 'Rows are stacked on top of each other, which simplifies playback in the vertex shader but prevents the use of pixel interpolation for frame interpolation'),
+        ('OFFSET', 'Offset', 'Rows are offset by the full animation length, making playback in the vertex shader more complex but allowing pixel interpolation to be used for frame interpolation'),
+    ]
+    animation_tex_packing_stack_mode: EnumProperty(name="Stack Mode", items=animation_tex_packing_stack_modes, default="OFFSET", description="Select the stack method")
+
 ##############
 ### REPORT ###
 class BATBAKER_PG_ReportSkinningTexChannel(PropertyGroup):
@@ -463,6 +469,7 @@ class BATBAKER_PG_Report(PropertyGroup):
     animation_tex_underflow: BoolProperty(name="Underflow", default=False, description="")
     animation_tex_overflow: BoolProperty(name="Overflow", default=False, description="")
     animation_tex_sampling_mode: StringProperty(name="Sampling", default="", description="")
+    animation_tex_packing_stack_mode: StringProperty(name="Stack Mode", default="", description="")
 
     xml: BoolProperty(name="XML", default=False, description="")
     xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')

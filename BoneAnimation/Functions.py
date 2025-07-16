@@ -113,6 +113,7 @@ def reset_bake_report():
     report.animation_tex_underflow = False
     report.animation_tex_overflow = False
     report.animation_tex_sampling_mode = ""
+    report.animation_tex_packing_stack_mode = "ADJACENT"
 
     report.skinning_textures.clear()
     report.skinning_textures_selected_index = 0
@@ -2438,8 +2439,22 @@ def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.
     pos_buffer = [0.0] * buffer_length
     bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
+
+        if settings.animation_tex_packing_mode == 'STACK':
+            if settings.animation_tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = tex_width * bake_frame_height * bone_frame_index
+            else:
+                buffer_frame_offset = tex_width * bone_frame_index
+        else:
+            buffer_frame_offset = num_bones * bone_frame_index
+
         for bone_index, bone_matrix in enumerate(bone_frame_data):
+
+            if settings.animation_tex_packing_mode == "STACK" and settings.animation_tex_packing_stack_mode == "OFFSET":
+                buffer_bone_index = buffer_frame_offset + (bone_index % tex_width) + ((bone_index // tex_width) * len(animation_data) * tex_width)
+            else:
+                buffer_bone_index = buffer_frame_offset + bone_index
+
             pose_mat = bone_matrix
             ref_mat = bone_ref_matrices[bone_index]
 
@@ -2459,7 +2474,7 @@ def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.
                 data_to_bake = 0.0
 
             try:
-                pos_buffer[bone_index + buffer_frame_offset] = data_to_bake
+                pos_buffer[buffer_bone_index] = data_to_bake
             except:
                 pass
 
@@ -2481,8 +2496,22 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
     rot_buffer = [0.0] * buffer_length
     bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
+        
+        if settings.animation_tex_packing_mode == 'STACK':
+            if settings.animation_tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = tex_width * bake_frame_height * bone_frame_index
+            else:
+                buffer_frame_offset = tex_width * bone_frame_index
+        else:
+            buffer_frame_offset = num_bones * bone_frame_index
+
         for bone_index, bone_matrix in enumerate(bone_frame_data):
+
+            if settings.animation_tex_packing_mode == "STACK" and settings.animation_tex_packing_stack_mode == "OFFSET":
+                buffer_bone_index = buffer_frame_offset + (bone_index % tex_width) + ((bone_index // tex_width) * len(animation_data) * tex_width)
+            else:
+                buffer_bone_index = buffer_frame_offset + bone_index
+
             pose_mat = bone_matrix
             ref_mat = bone_ref_matrices[bone_index]
 
@@ -2529,7 +2558,7 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
                         data_to_bake = angle
 
             try:
-                rot_buffer[bone_index + buffer_frame_offset] = data_to_bake
+                rot_buffer[buffer_bone_index] = data_to_bake
             except:
                 pass
 
@@ -2550,8 +2579,22 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
 
     scale_buffer = [0.0] * buffer_length
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
+        
+        if settings.animation_tex_packing_mode == 'STACK':
+            if settings.animation_tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = tex_width * bake_frame_height * bone_frame_index
+            else:
+                buffer_frame_offset = tex_width * bone_frame_index
+        else:
+            buffer_frame_offset = num_bones * bone_frame_index
+
         for bone_index, bone_matrix in enumerate(bone_frame_data):
+            
+            if settings.animation_tex_packing_mode == "STACK" and settings.animation_tex_packing_stack_mode == "OFFSET":
+                buffer_bone_index = buffer_frame_offset + (bone_index % tex_width) + ((bone_index // tex_width) * len(animation_data) * tex_width)
+            else:
+                buffer_bone_index = buffer_frame_offset + bone_index
+
             pose_mat = bone_matrix
 
             sign_matrix = mathutils.Matrix.Diagonal(((-1 if settings.unit_invert_x else 1),
@@ -2572,7 +2615,7 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
                 data_to_bake = 0.0
 
             try:
-                scale_buffer[bone_index + buffer_frame_offset] = data_to_bake
+                scale_buffer[buffer_bone_index] = data_to_bake
             except:
                 pass
 
@@ -2594,8 +2637,22 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
     rot_buffer = [0.0] * buffer_length
     bone_ref_matrices = animation_data[0]
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
+        
+        if settings.animation_tex_packing_mode == 'STACK':
+            if settings.animation_tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = tex_width * bake_frame_height * bone_frame_index
+            else:
+                buffer_frame_offset = tex_width * bone_frame_index
+        else:
+            buffer_frame_offset = num_bones * bone_frame_index
+
         for bone_index, bone_matrix in enumerate(bone_frame_data):
+            
+            if settings.animation_tex_packing_mode == "STACK" and settings.animation_tex_packing_stack_mode == "OFFSET":
+                buffer_bone_index = buffer_frame_offset + (bone_index % tex_width) + ((bone_index // tex_width) * len(animation_data) * tex_width)
+            else:
+                buffer_bone_index = buffer_frame_offset + bone_index
+
             pose_mat = bone_matrix
             ref_mat = bone_ref_matrices[bone_index]
 
@@ -2632,7 +2689,7 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
                 data_to_bake = 0.0
 
             try:
-                rot_buffer[bone_index + buffer_frame_offset] = data_to_bake
+                rot_buffer[buffer_bone_index] = data_to_bake
             except:
                 pass
 
@@ -2685,12 +2742,26 @@ def animation_texture_buffer_custom_prop(context: bpy.types.Context, armature: b
     """
     custom_prop_buffer = [0.0] * buffer_length
     for bone_frame_index, bone_frame_data in enumerate(animation_data):
-        buffer_frame_offset = ((tex_width * bake_frame_height) if settings.animation_tex_packing_mode == 'STACK' else num_bones) * bone_frame_index
+        
+        if settings.animation_tex_packing_mode == 'STACK':
+            if settings.animation_tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = tex_width * bake_frame_height * bone_frame_index
+            else:
+                buffer_frame_offset = tex_width * bone_frame_index
+        else:
+            buffer_frame_offset = num_bones * bone_frame_index
+
         for bone_index, bone_custom_prop in enumerate(bone_frame_data):
+
+            if settings.animation_tex_packing_mode == "STACK" and settings.animation_tex_packing_stack_mode == "OFFSET":
+                buffer_bone_index = buffer_frame_offset + (bone_index % tex_width) + ((bone_index // tex_width) * len(animation_data) * tex_width)
+            else:
+                buffer_bone_index = buffer_frame_offset + bone_index
+
             data_to_bake = bone_custom_prop
 
             try:
-                custom_prop_buffer[bone_index + buffer_frame_offset] = data_to_bake
+                custom_prop_buffer[buffer_bone_index] = data_to_bake
             except:
                 pass
 
@@ -3048,6 +3119,7 @@ def get_best_animation_texture_resolution(context: bpy.types.Context, num_frames
             sampling = "STACK_MULT"
 
     add_bake_report("animation_tex_sampling_mode", sampling)
+    add_bake_report("animation_tex_packing_stack_mode", settings.animation_tex_packing_stack_mode)
 
     return (True, "", tex_width, tex_height, bake_frame_height, bake_frame_width)
 
