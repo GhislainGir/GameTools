@@ -236,6 +236,12 @@ class OATBAKER_PG_Settings(PropertyGroup):
 
     tex_packing_mode: EnumProperty(name="Mode", items=tex_packing_modes, default=1, description="Control how frames are arranged in the texture when there’s extra space (underflow) or not enough space (overflow). \n\nUnderflow occurs when the number of vertices per frame is less than the image width, causing gaps at the end of the line ('Power of Two' might cause this). \n\nOverflow happens when there are too many vertices for a single line, and the data is spread across multiple lines, possibly leaving gaps. \n\nThis setting determines how to handle these empty spaces")
     
+    tex_packing_stack_modes = [
+        ('ADJACENT', 'Adjacent', 'Rows are stacked on top of each other, which simplifies playback in the vertex shader but prevents the use of pixel interpolation for frame interpolation'),
+        ('OFFSET', 'Offset', 'Rows are offset by the full animation length, making playback in the vertex shader more complex but allowing pixel interpolation to be used for frame interpolation'),
+    ]
+    tex_packing_stack_mode: EnumProperty(name="Stack Mode", items=tex_packing_stack_modes, default="OFFSET", description="Select the stack method")
+
 ##############
 ### REPORT ###
 class OATBAKER_PG_ReportAnim(PropertyGroup):
@@ -331,6 +337,7 @@ class OATBAKER_PG_Report(PropertyGroup):
     tex_underflow: BoolProperty(name="Underflow", default=False, description="")
     tex_overflow: BoolProperty(name="Overflow", default=False, description="")
     tex_sampling_mode: StringProperty(name="Sampling", default="", description="")
+    tex_packing_stack_mode: StringProperty(name="Stack Mode", default="", description="")
 
     xml: BoolProperty(name="XML", default=False, description="")
     xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')

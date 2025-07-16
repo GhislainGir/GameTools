@@ -127,6 +127,7 @@ def reset_bake_report():
     report.tex_normal_range_offset = mathutils.Vector((1.0, 1.0, 1.0))
     report.tex_normal_range = mathutils.Vector((1.0, 1.0, 1.0))
     report.tex_sampling_mode = "STACK_SINGLE"
+    report.tex_sampling_stack_mode = "ADJACENT"
 
     report.xml = False
     report.xml_path = ""
@@ -929,7 +930,7 @@ def bake(context):
     ########
     # MESH #
 
-    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_ref_frame)
+    success, msg, obj_to_export, bake_uvmap_index = generate_mesh(context, bake_name, objs_to_bake, tex_width, tex_height, bake_ref_frame, num_frames)
     if not success:
         add_bake_report("success", False)
         add_bake_report("msg", msg)
@@ -1135,9 +1136,22 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
         bake_progress += bake_progress_step
         context.window_manager.progress_update(bake_progress)
 
-        buffer_frame_offset = (frame_index * len(objs_to_bake) * 4) if settings.tex_packing_mode == "CONTINUOUS" else (frame_index * tex_width * bake_frame_height * 4)
-        print(bake_frame_height)
+        if settings.tex_packing_mode == 'STACK':
+            if settings.tex_packing_stack_mode == 'ADJACENT':
+                buffer_frame_offset = frame_index * tex_width * bake_frame_height
+            else:
+                buffer_frame_offset = tex_width * frame_index
+        else:
+            buffer_frame_offset = frame_index * len(objs_to_bake)
+        buffer_frame_offset *= 4
+
         for obj_to_bake_index, obj_to_bake in enumerate(objs_to_bake):
+
+            if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
+                buffer_object_index = buffer_frame_offset + ((obj_to_bake_index % tex_width) * 4) + ((obj_to_bake_index // tex_width) * len(frames_to_bake) * tex_width * 4)
+            else:
+                buffer_object_index = (obj_to_bake_index * 4) + buffer_frame_offset
+
             for texture_index, texture in enumerate(textures):
                 channels = [texture.R, texture.G, texture.B, texture.A]
                 for buffer_channel_index, buffer_channel in enumerate(channels):
@@ -1291,7 +1305,7 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
                     buffers_max[texture_index * 4 + buffer_channel_index] = max(data_to_bake, buffers_max[texture_index * 4 + buffer_channel_index])
 
                     try:
-                        buffers[texture_index][(obj_to_bake_index * 4) + buffer_frame_offset + buffer_channel_index] = data_to_bake
+                        buffers[texture_index][buffer_object_index + buffer_channel_index] = data_to_bake
                     except:
                         pass
 
@@ -1381,7 +1395,7 @@ def get_texture_buffers(context, bake_name: str, buffers, buffers_info, textures
 
 ##############
 ### MESHES ###
-def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref: int) -> tuple[bool, str, bpy.types.Object, int]:
+def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list, tex_width: int, tex_height: int, bake_frame_ref: int, num_frames: int) -> tuple[bool, str, bpy.types.Object, int]:
     """
     Generate the mesh object to export
 
@@ -1434,7 +1448,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
         eval_mesh.transform(eval_obj.matrix_world)
         eval_meshes[obj_index] = eval_mesh
 
-        success, msg, last_eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, obj_index)
+        success, msg, last_eval_mesh_uvmap_index = generate_mesh_uvs(context, eval_mesh, tex_width, tex_height, obj_index, num_frames)
         if success:
             if obj_index == 0:
                 eval_mesh_uvmap_index = last_eval_mesh_uvmap_index
@@ -1516,7 +1530,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
 
     return (True, "", obj, eval_mesh_uvmap_index)
 
-def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset: int) -> tuple[bool, str, int]:
+def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_width: int, tex_height: int, vertex_index_offset: int, num_frames: int) -> tuple[bool, str, int]:
     """
     Configure the mesh UVs so that one vertex is located on one unique texel in the OAT texture(s)
 
@@ -1552,15 +1566,26 @@ def generate_mesh_uvs(context: bpy.types.Context, mesh: bpy.types.Mesh, tex_widt
         uvmap = mesh.uv_layers[uvmap_index]
         uvmap.name = mesh_uvmap_name
 
-    # set UV
-    for loop in mesh.loops:
-        vertex_index = vertex_index_offset
-        u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
-        v = (0.5 / float(tex_height)) + (vertex_index // float(tex_width)) / float(tex_height)
-        if settings.unit_invert_v:
-            v = 1.0 - v
+    if (settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "ADJACENT") or settings.tex_packing_mode == "CONTINUOUS":
+        # set UV
+        for loop in mesh.loops:
+            vertex_index = vertex_index_offset
+            u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
+            v = (0.5 / float(tex_height)) + (vertex_index // float(tex_width)) / float(tex_height)
+            if settings.unit_invert_v:
+                v = 1.0 - v
 
-        uvmap.data[loop.index].uv = (u,v)
+            uvmap.data[loop.index].uv = (u,v)
+    else: # STACK & OFFSET
+        # set UV
+        for loop in mesh.loops:
+            vertex_index = vertex_index_offset
+            u = (0.5 / float(tex_width)) + (vertex_index % tex_width) / float(tex_width)
+            v = (0.5 / float(tex_height)) + ((vertex_index // float(tex_width)) * num_frames) / float(tex_height)
+            if settings.unit_invert_v:
+                v = 1.0 - v
+
+            uvmap.data[loop.index].uv = (u,v)
 
     return (True, "", uvmap_index)
 
@@ -1914,6 +1939,7 @@ def get_best_texture_resolution(context: bpy.types.Context, num_frames: int, num
             sampling = "STACK_MULT"
 
     add_bake_report("tex_sampling_mode", sampling)
+    add_bake_report("tex_packing_stack_mode", settings.tex_packing_stack_mode)
 
     return (True, "", tex_width, tex_height, bake_frame_height, bake_frame_width)
 
@@ -1947,6 +1973,16 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
                             unit_invert_z=str(report.unit_invert_z),
                             unit_invert_v=str(report.unit_invert_v),
                             unit_axis_order=report.unit_axis_order)
+
+    # frame
+    frame_el = ET.SubElement(root, "Frames",
+                             sampling=report.tex_sampling_mode,
+                             stack_mode=report.tex_packing_stack_mode,
+                             count=str(report.num_frames),
+                             padded=str(report.num_frames_padded),
+                             padding=str(report.padding),
+                             rate=str(report.frame_rate),
+                             ref=str(report.frame_ref))
 
     # textures
     tex_el = ET.SubElement(root, "Textures",

@@ -238,6 +238,10 @@ class OATBAKER_PT_TexturesPanel(bpy.types.Panel):
         row.prop(settings, "tex_packing_mode")
 
         row = layout.row()
+        row.prop(settings, "tex_packing_stack_mode")
+        row.enabled = settings.tex_packing_mode == "STACK"
+
+        row = layout.row()
         row.template_list("OATBAKER_UL_TextureList", "", settings, "textures", settings, "textures_selected_index", rows=5)
 
         col = row.column(align=True)
@@ -934,6 +938,11 @@ class OATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(report, "tex_sampling_mode")
         row.enabled = False
+
+        if report.tex_sampling_mode == "STACK":
+            row = layout.row()
+            row.prop(report, "tex_packing_stack_mode")
+            row.enabled = False
 
         layout.separator()
 
