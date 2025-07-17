@@ -77,7 +77,7 @@ class OBJECTATTRIBUTES_OT_ObjectAttributes_AddPreset(AddPresetBase, bpy.types.Op
 ### MAIN ###
 class OBJECTATTRIBUTES_OT_BakeData(bpy.types.Operator):
     """Bakes various object attributes, such as position, axis, hierarchy, into texture(s)."""
-    bl_idname = "gametools.databaker_bakeoa"
+    bl_idname = "gametools.oabaker_bakeoa"
     bl_label = "Bake"
     bl_category = "Game Tools"
     bl_options = {'REGISTER', 'UNDO'}

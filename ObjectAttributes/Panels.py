@@ -82,7 +82,7 @@ class OBJECTATTRIBUTES_PT_MainPanel(bpy.types.Panel):
 
         row = layout.row()
         row.scale_y = 2.0 # bigger button
-        row.operator("gametools.databaker_bakeoa")
+        row.operator("gametools.oabaker_bakeoa")
         row.enabled = len(settings.textures) > 0
 
         row = layout.row()
