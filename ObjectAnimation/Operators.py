@@ -87,7 +87,7 @@ class OATBAKER_OT_ObjectAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
 class OATBAKER_OT_Bake(bpy.types.Operator):
     """ Bake the objects animation into texture(s) """
     bl_label = "Bake"
-    bl_idname = "gametools.oatbaker_bake"
+    bl_idname = "gametools.oatbaker_bakeoat"
     bl_category = "Game Tools"
     bl_options = {'REGISTER', 'UNDO'}
 

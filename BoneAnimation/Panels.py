@@ -62,7 +62,7 @@ class BATBAKER_PT_MainPanel(bpy.types.Panel):
         settings = scene.BATBakerSettings
 
         row = layout.row()
-        row.operator("gametools.batbaker_bake")
+        row.operator("gametools.batbaker_bakebat")
         row.scale_y = 2.0
 
 #############

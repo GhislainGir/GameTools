@@ -92,7 +92,7 @@ class BATBAKER_OT_BoneAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
 ### MAIN ###
 class BATBAKER_OT_Bake(bpy.types.Operator):
     """ Bakes skeletal animations of the active mesh into textures, storing positional & normal data per bone. """
-    bl_idname = "gametools.batbaker_bake"
+    bl_idname = "gametools.batbaker_bakebat"
     bl_label = "Bake"
     bl_category = "Game Tools"
     bl_description = "Bake animations into bone animation textures"

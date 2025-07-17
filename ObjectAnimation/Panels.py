@@ -61,7 +61,7 @@ class OATBAKER_PT_MainPanel(bpy.types.Panel):
         settings = scene.OATBakerSettings
 
         row = layout.row()
-        row.operator("gametools.oatbaker_bake")
+        row.operator("gametools.oatbaker_bakeoat")
         row.scale_y = 2.0
 
 ##############
