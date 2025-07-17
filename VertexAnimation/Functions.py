@@ -1079,7 +1079,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
         add_bake_report("tex_normal", image_nor)
 
         image_nor_path = ""
-        if settings.export_tex:
+        if settings.export_tex and bpy.data.is_saved:
             success, msg, image_nor_path = export_texture(context, image_nor, settings.export_tex_file_path, settings.normal_tex_file_name, bake_name, settings.export_tex_override)
             if not success:
                 add_bake_report("success", False)
