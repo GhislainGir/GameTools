@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "blender_game_tools"
-version = "0.3.0"
+version = "0.3.1"
 name = "Game Tools"
 tagline = "Game Tools"
 maintainer = "Ghislain GIRARDOT <ghislaingir@outlook.com>"
