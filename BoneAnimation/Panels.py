@@ -1220,7 +1220,7 @@ class BATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
 
         layout.separator()
 
-        icon = "CHECKMARK" if report.padded else "ERROR" if (scene.BATBakerSettings.frame_padding > 0 and not report.padded) else "X"
+        icon = "CHECKMARK" if report.padded else "ERROR" if (report.padding > 0 and not report.padded) else "X"
         row = layout.row()
         row.label(text="Padding: " + str(report.padding), icon=icon)
 

@@ -1029,7 +1029,7 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
 
             add_bake_report("padded", padding_apply)
-            add_bake_report("padding", settings.frame_padding if padding_apply else 0)
+            add_bake_report("padding", settings.frame_padding)
             add_bake_report("padding_mode", settings.frame_padding_mode)
 
             for nla_strip in nla_strips:
