@@ -34,7 +34,8 @@ auto_load.init()
 def register():
     auto_load.register()
 
-    if register_preset_path := getattr(bpy.utils, "register_preset_path", None): # @TODO check
+    if register_preset_path := getattr(bpy.utils, "register_preset_path", None):
+        print(os.path.dirname(__file__))
         register_preset_path(os.path.join(os.path.dirname(__file__)))
 
 def unregister():

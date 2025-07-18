@@ -22,6 +22,20 @@ from .Functions import get_data_layer_name, get_data_layer_icon, get_data_layer_
 ###################################### PANELS ######################################
 ####################################################################################
 
+###############
+### PRESETS ###
+class DATABAKER_MT_MainPanel_Presets(bpy.types.Menu):
+    bl_label = 'DATA Baker Presets'
+    preset_subdir = 'operator/gametools_databaker'
+    preset_operator = 'script.execute_preset'
+    draw = bpy.types.Menu.draw_preset
+
+class DATABAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
+    bl_label = 'DATA Baker Presets'
+    preset_subdir = 'operator/gametools_databaker'
+    preset_operator = 'script.execute_preset'
+    preset_add_operator = 'gametools.databaker_addpreset'
+
 ############
 ### MAIN ###
 class DATABAKER_UL_DataList(bpy.types.UIList):
@@ -311,20 +325,6 @@ class DATABAKER_PT_LayerPanel(bpy.types.Panel):
                             row.prop(settings, "packing_precision")
                         else:
                             pass
-
-###############
-### PRESETS ###
-class DATABAKER_MT_MainPanel_Presets(bpy.types.Menu):
-    bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/gametools_databaker'
-    preset_operator = 'script.execute_preset'
-    draw = bpy.types.Menu.draw_preset
-
-class DATABAKER_PT_DataBaker_Preset(PresetPanel, bpy.types.Panel):
-    bl_label = 'DATA Baker Presets'
-    preset_subdir = 'operator/gametools_databaker'
-    preset_operator = 'script.execute_preset'
-    preset_add_operator = 'gametools.databaker_addpreset'
 
 ##############
 ### MESHES ###
