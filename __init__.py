@@ -14,7 +14,7 @@
 bl_info = {
     "name": "Data Baker",
     "author": "Ghislain GIRARDOT, Joshua BOGART, George VOGIATZIS (Gvgeo)",
-    "version": (0, 3, 1),
+    "version": (0, 3, 2),
     "blender": (4, 3, 2),
     "location": "View 3D -> Game Tools",
     "description": "Toolset for baking animations and mesh data into textures using customizable layouts, UV maps, vertex colors, and normals",

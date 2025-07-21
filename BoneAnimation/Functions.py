@@ -2673,7 +2673,7 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
             else: # Z
                 vector_to_bake = basis_matrix @ mathutils.Vector((0.0, 0.0, 1.0))
 
-            if settings.unit_axis_order != "XYZ":
+            if texture_channel.unit_axis_order != "XYZ":
                 vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
 
             if not texture_channel.axis_scaled:
