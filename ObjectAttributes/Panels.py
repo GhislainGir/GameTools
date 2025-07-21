@@ -97,6 +97,16 @@ class OBJECTATTRIBUTES_PT_MainPanel(bpy.types.Panel):
         col.operator("objectattributes_item.move_item", text="", icon="TRIA_UP").direction = "UP"
         col.operator("objectattributes_item.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
 
+        if settings.textures:
+            try:
+                texture = settings.textures[settings.textures_selected_index]
+            except:
+                texture = None
+
+            if texture:
+                row = layout.row()
+                row.prop(texture, "name", text="Name")
+
 class OBJECTATTRIBUTES_PT_ChannelsPanel(bpy.types.Panel):
     bl_idname = "OBJECTATTRIBUTES_PT_channelspanel"
     bl_parent_id = "OBJECTATTRIBUTES_PT_mainpanel"
