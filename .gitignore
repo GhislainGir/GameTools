@@ -172,3 +172,12 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+*.md
+.idea/encodings.xml
+.idea/indexLayout.xml
+.idea/vcs.xml
+.claude/settings.local.json
+blender_game_tools-0.3.2.zip
+blender_game_tools-0.3.1.zip
+tests/*

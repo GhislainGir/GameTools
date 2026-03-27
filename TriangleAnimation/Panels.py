@@ -22,23 +22,23 @@ from bl_ui.utils import PresetPanel
 
 ###############
 ### PRESETS ###
-class TATBAKER_MT_VertexAnimation_Presets(bpy.types.Menu):
-    bl_label = 'VAT Baker Presets'
-    preset_subdir = 'operator/gametools_TATBAKER'
+class TATBAKER_MT_TriangleAnimation_Presets(bpy.types.Menu):
+    bl_label = 'TAT Baker Presets'
+    preset_subdir = 'operator/gametools_tatbaker'
     preset_operator = 'script.execute_preset'
     draw = bpy.types.Menu.draw_preset
 
-class TATBAKER_PT_VertexAnimation_Preset(PresetPanel, bpy.types.Panel):
-    bl_label = 'VAT Baker Presets'
-    preset_subdir = 'operator/gametools_TATBAKER'
+class TATBAKER_PT_TriangleAnimation_Preset(PresetPanel, bpy.types.Panel):
+    bl_label = 'TAT Baker Presets'
+    preset_subdir = 'operator/gametools_tatbaker'
     preset_operator = 'script.execute_preset'
-    preset_add_operator = 'gametools.TATBAKER_addpreset'
+    preset_add_operator = 'gametools.tatbaker_addpreset'
 
 ############
 ### MAIN ###
-class TATBAKER_PT_VertexAnimation(bpy.types.Panel):
+class TATBAKER_PT_TriangleAnimation(bpy.types.Panel):
     bl_idname = "TATBAKER_PT_mainpanel"
-    bl_label = "VAT Baker"
+    bl_label = "TAT Baker"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
@@ -51,21 +51,21 @@ class TATBAKER_PT_VertexAnimation(bpy.types.Panel):
         return context.view_layer.objects.active and context.view_layer.objects.active.type == "MESH"
 
     def draw_header_preset(self, _context):
-        TATBAKER_PT_VertexAnimation_Preset.draw_panel_header(self.layout)
+        TATBAKER_PT_TriangleAnimation_Preset.draw_panel_header(self.layout)
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
-        report = scene.TATBAKERReport
+        settings = scene.TATBakerSettings
+        report = scene.TATBakerReport
 
         row = layout.row()
         row.prop(settings, "bake_mode")
 
         row = layout.row()
-        row.operator("gametools.TATBAKER_bakevat")
+        row.operator("gametools.tatbaker_baketat")
         row.scale_y = 2.0
-        row.enabled = settings.offset_tex or settings.normal_tex
+        row.enabled = settings.position_tex or settings.normal_tex
 
 #############
 ### SCENE ###
@@ -82,13 +82,13 @@ class TATBAKER_PT_FramePanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        settings = context.scene.TATBAKERSettings
+        settings = context.scene.TATBakerSettings
         return settings.bake_mode == 'ANIMATION'
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         row = layout.row()
         row.prop(settings, "frame_range_mode", text="")
@@ -101,13 +101,6 @@ class TATBAKER_PT_FramePanel(bpy.types.Panel):
                 row = layout.row()
                 row.prop(settings, "frame_range_custom_step_mode")
 
-            row = layout.row()
-            row.prop(settings, "frame_padding")
-
-            row = layout.row()
-            row.prop(settings, "frame_padding_mode")
-            row.enabled = settings.frame_padding > 0
- 
         elif (settings.frame_range_mode == "SCENE"):
             row = layout.row()
             row.label(text="Frame Range:")
@@ -129,12 +122,6 @@ class TATBAKER_PT_FramePanel(bpy.types.Panel):
             row = layout.row()
             row.prop(settings, "frame_range_custom_step", text="Step:")
 
-        row = layout.row()
-        row.prop(settings, "frame_ref_mode", text="Ref")
-        if settings.frame_ref_mode == "CUSTOM":
-            row = layout.row()
-            row.prop(settings, "frame_ref_custom", text="Frame")
-
 class TATBAKER_PT_FrameAdvPanel(bpy.types.Panel):
     bl_idname = "TATBAKER_PT_frameadvpanel"
     bl_parent_id = "TATBAKER_PT_framepanel"
@@ -148,12 +135,12 @@ class TATBAKER_PT_FrameAdvPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.TATBAKERSettings.frame_range_mode == "NLA"
-    
+        return context.scene.TATBakerSettings.frame_range_mode == "NLA"
+
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         row = layout.row()
         row.label(text="NLA clips to exclude:")
@@ -162,13 +149,13 @@ class TATBAKER_PT_FrameAdvPanel(bpy.types.Panel):
         row.template_list("TATBAKER_UL_NLAExclusionList", "", settings, "frame_range_nla_exclusion", settings, "frame_range_nla_exclusion_selected_index", rows=4)
 
         col = row.column(align=True)
-        col.operator("frame_range_nla_exclusion.new_item", text="", icon="ADD")
-        col.operator("frame_range_nla_exclusion.delete_item", text="", icon="REMOVE")
+        col.operator("tat_frame_range_nla_exclusion.new_item", text="", icon="ADD")
+        col.operator("tat_frame_range_nla_exclusion.delete_item", text="", icon="REMOVE")
 
         col.separator()
 
-        col.operator("frame_range_nla_exclusion.move_item", text="", icon="TRIA_UP").direction = "UP"
-        col.operator("frame_range_nla_exclusion.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
+        col.operator("tat_frame_range_nla_exclusion.move_item", text="", icon="TRIA_UP").direction = "UP"
+        col.operator("tat_frame_range_nla_exclusion.move_item", text="", icon="TRIA_DOWN").direction = "DOWN"
 
         row = layout.row()
         row.prop(settings, "frame_range_nla_exclusion_selected")
@@ -191,14 +178,14 @@ class TATBAKER_PT_MeshMainPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 1
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
-        
+        settings = scene.TATBakerSettings
+
         row = layout.row()
         row.prop(settings, "unit_scale")
 
@@ -214,23 +201,12 @@ class TATBAKER_PT_MeshMainPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(settings, "mesh_name")
 
-        row = layout.row()
-        row.prop(settings, "mesh_materials")
-
-        if settings.bake_mode == "ANIMATION":
-            row = layout.row()
-            row.prop(settings, "mesh_target_prop")
-
-        panel_header, panel_body = layout.panel("vat_mesh_previz")
+        panel_header, panel_body = layout.panel("tat_mesh_previz")
         if panel_header:
             panel_header.label(text="Previz")
         if panel_body:
             row = panel_body.row()
-            col = row.split()
-            col.prop(settings, "previz_result", text="Anim")
-            col.enabled = False
-            col = row.split()
-            col.prop(settings, "previz_bounds", text="Bounds")
+            row.prop(settings, "previz_bounds", text="Bounds")
 
 
 class TATBAKER_PT_MeshUVPanel(bpy.types.Panel):
@@ -241,13 +217,13 @@ class TATBAKER_PT_MeshUVPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 2
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         row = layout.row()
         row.prop(settings, "mesh_uvmap_name", text="Name")
@@ -263,13 +239,13 @@ class TATBAKER_PT_MeshExportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 3
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         layout.prop(settings, "export_mesh", text="")
         layout.enabled = bpy.data.is_saved
@@ -277,7 +253,7 @@ class TATBAKER_PT_MeshExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         layout.enabled = settings.export_mesh and bpy.data.is_saved
 
@@ -295,13 +271,13 @@ class TATBAKER_PT_MeshAdvExportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 3
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         row = layout.row()
         row.prop(settings, "export_mesh_file_override")
@@ -316,20 +292,20 @@ class TATBAKER_PT_TexMainPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 3
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         row = layout.row()
         row.prop(settings, "export_tex_max_width")
-        
+
         row = layout.row()
         row.prop(settings, "export_tex_max_height")
-        
+
         row = layout.row()
         col = row.split()
         col.prop(settings, "tex_force_power_of_two")
@@ -337,46 +313,36 @@ class TATBAKER_PT_TexMainPanel(bpy.types.Panel):
         col.prop(settings, "tex_force_power_of_two_square")
         col.enabled = settings.tex_force_power_of_two
 
-        row = layout.row()
-        row.prop(settings, "tex_packing_mode")
-
-        row = layout.row()
-        row.prop(settings, "tex_packing_stack_mode")
-        row.enabled = settings.tex_packing_mode == "STACK"
-
-class TATBAKER_PT_TexOffsetPanel(bpy.types.Panel):
-    bl_idname = "TATBAKER_PT_texnoffsetpanel"
+class TATBAKER_PT_TexPositionPanel(bpy.types.Panel):
+    bl_idname = "TATBAKER_PT_texpositionpanel"
     bl_parent_id = "TATBAKER_PT_texmainpanel"
-    bl_label = "Offsets"
+    bl_label = "Positions"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 0
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
-        layout.prop(settings, "offset_tex", text="")
+        layout.prop(settings, "position_tex", text="")
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
-        
-        layout.enabled = settings.offset_tex
+        settings = scene.TATBakerSettings
+
+        layout.enabled = settings.position_tex
 
         row = layout.row()
-        row.prop(settings, "offset_tex_mode")    
+        row.prop(settings, "position_tex_file_name")
 
         row = layout.row()
-        row.prop(settings, "offset_tex_file_name")
-
-        row = layout.row()
-        row.prop(settings, "offset_tex_remap")
+        row.prop(settings, "position_tex_remap")
 
 class TATBAKER_PT_TexNormalPanel(bpy.types.Panel):
     bl_idname = "TATBAKER_PT_texnormalpanel"
@@ -386,23 +352,23 @@ class TATBAKER_PT_TexNormalPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 1
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         layout.prop(settings, "normal_tex", text="")
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         layout.enabled = settings.normal_tex
-    
+
         row = layout.row()
         row.prop(settings, "normal_tex_file_name")
 
@@ -419,13 +385,13 @@ class TATBAKER_PT_TexExportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 2
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         layout.prop(settings, "export_tex", text="")
         layout.enabled = bpy.data.is_saved
@@ -433,10 +399,10 @@ class TATBAKER_PT_TexExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
-        
+        settings = scene.TATBakerSettings
+
         layout.enabled = settings.export_tex and bpy.data.is_saved
-    
+
         row = layout.row()
         row.prop(settings, "export_tex_file_path")
 
@@ -448,14 +414,14 @@ class TATBAKER_PT_TexAdvExportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 2
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
-    
+        settings = scene.TATBakerSettings
+
         row = layout.row()
         row.prop(settings, "export_tex_override")
 
@@ -469,13 +435,13 @@ class TATBAKER_PT_XMLPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 10
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
 class TATBAKER_PT_XMLExportPanel(bpy.types.Panel):
     bl_idname = "TATBAKER_PT_xmlexportpanel"
@@ -485,13 +451,13 @@ class TATBAKER_PT_XMLExportPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Game Tools"
     bl_order = 1
-    
+
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         layout.prop(settings, "export_xml", text="")
         layout.enabled = bpy.data.is_saved
@@ -499,7 +465,7 @@ class TATBAKER_PT_XMLExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        settings = scene.TATBAKERSettings
+        settings = scene.TATBakerSettings
 
         row = layout.row()
         row.prop(settings, "export_xml_mode")
@@ -530,28 +496,20 @@ class TATBAKER_PT_ReportPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.TATBAKERReport.baked
-
-    # def draw_header(self, context):
-    #     report = context.scene.TATBAKERReport
-    #     row = self.layout.row(align=True)
-    #     if report.success:
-    #         row.label(text="", icon="CHECKMARK")
-    #     else:
-    #         row.label(text="", icon="ERROR")
+        return context.scene.TATBakerReport.baked
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
+        report = scene.TATBakerReport
 
         if report.baked:
             row = layout.row()
             row.scale_y = 2.0
             col = row.split()
-            col.operator("gametools.TATBAKER_export_report")
+            col.operator("gametools.tatbaker_export_report")
             col = row.split()
-            col.operator("gametools.TATBAKER_clear_report")
+            col.operator("gametools.tatbaker_clear_report")
 
         row = layout.row()
         if report.success:
@@ -576,14 +534,10 @@ class TATBAKER_PT_ReportTexPanel(bpy.types.Panel):
 
     bl_options = {'DEFAULT_CLOSED'}
 
-    # @classmethod
-    # def poll(cls, context):
-    #     return context.scene.TATBAKERReport.success
-    
     def draw_header(self, context):
-        report = context.scene.TATBAKERReport
+        report = context.scene.TATBakerReport
         row = self.layout.row(align=True)
-        if report.tex_offset or report.tex_normal:
+        if report.tex_position or report.tex_normal:
             row.label(text="", icon="CHECKMARK")
         else:
             row.label(text="", icon="ERROR")
@@ -591,69 +545,56 @@ class TATBAKER_PT_ReportTexPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
+        report = scene.TATBakerReport
 
         row = layout.row()
         col = row.split()
         col.label(text="Width: " + str(report.tex_width))
         col.label(text="Height: " + str(report.tex_height))
 
-        # row = layout.row()
-        # row.label(text="Underflow: " + str(report.tex_underflow))
-
-        # row = layout.row()
-        # row.label(text="Overflow: " + str(report.tex_overflow))
-
         layout.separator()
 
         row = layout.row()
-        row.label(text="Offset")
+        row.label(text="Position")
 
-        if report.tex_offset:
+        if report.tex_position:
             row = layout.row()
-            row.prop(report, "tex_offset", text="")
+            row.prop(report, "tex_position", text="")
             row.enabled = False
 
             row = layout.row()
-            if report.tex_offset_export:
-                row.label(text="File: " + report.tex_offset_path, icon="FILE")
+            if report.tex_position_export:
+                row.label(text="File: " + report.tex_position_path, icon="FILE")
             else:
                 row.label(text="Not exported", icon="X")
 
-            icon = "CHECKMARK" if report.tex_offset_remapped else "X"
+            icon = "CHECKMARK" if report.tex_position_remapped else "X"
             row = layout.row()
-            row.label(text="Remapped: " + str(report.tex_offset_remapped), icon=icon)
-            row.enabled = report.tex_offset_remapped
+            row.label(text="Remapped: " + str(report.tex_position_remapped), icon=icon)
+            row.enabled = report.tex_position_remapped
 
-            if report.tex_offset_remapped:
+            if report.tex_position_remapped:
                 row = layout.row()
                 row.label(text="Offset")
-                
+
                 row = layout.row()
-                row.label(text="X: " + str(report.tex_offset_range_offset[0]), icon="DOT")
+                row.label(text="X: " + str(report.tex_position_range_offset[0]), icon="DOT")
                 row = layout.row()
-                row.label(text="Y: " + str(report.tex_offset_range_offset[1]), icon="DOT")
+                row.label(text="Y: " + str(report.tex_position_range_offset[1]), icon="DOT")
                 row = layout.row()
-                row.label(text="Z: " + str(report.tex_offset_range_offset[2]), icon="DOT")
+                row.label(text="Z: " + str(report.tex_position_range_offset[2]), icon="DOT")
 
                 row.separator()
 
                 row = layout.row()
                 row.label(text="Range")
-                
-                row = layout.row()
-                row.label(text="X: " + str(report.tex_offset_range[0]), icon="DOT")
-                row = layout.row()
-                row.label(text="Y: " + str(report.tex_offset_range[1]), icon="DOT")
-                row = layout.row()
-                row.label(text="Z: " + str(report.tex_offset_range[2]), icon="DOT")
 
-            row = layout.row()
-            if report.tex_offset_mode == "OFFSET":
-                row.label(text="Mode: " + report.tex_offset_mode, icon="X")
-                row.enabled = False
-            else:
-                row.label(text="Mode: " + report.tex_offset_mode, icon="INFO")
+                row = layout.row()
+                row.label(text="X: " + str(report.tex_position_range[0]), icon="DOT")
+                row = layout.row()
+                row.label(text="Y: " + str(report.tex_position_range[1]), icon="DOT")
+                row = layout.row()
+                row.label(text="Z: " + str(report.tex_position_range[2]), icon="DOT")
         else:
             row.label(text="None generated", icon="X")
 
@@ -673,7 +614,7 @@ class TATBAKER_PT_ReportTexPanel(bpy.types.Panel):
             else:
                 row.label(text="Not exported", icon="X")
 
-            icon = "CHECKMARK" if report.tex_offset_remapped else "X"
+            icon = "CHECKMARK" if report.tex_normal_remapped else "X"
             row = layout.row()
             row.label(text="Remapped: " + str(report.tex_normal_remapped), icon=icon)
             row.enabled = report.tex_normal_remapped
@@ -681,7 +622,7 @@ class TATBAKER_PT_ReportTexPanel(bpy.types.Panel):
             if report.tex_normal_remapped:
                 row = layout.row()
                 row.label(text="Offset")
-                
+
                 row = layout.row()
                 row.label(text="X: " + str(report.tex_normal_range_offset[0]), icon="DOT")
                 row = layout.row()
@@ -693,7 +634,7 @@ class TATBAKER_PT_ReportTexPanel(bpy.types.Panel):
 
                 row = layout.row()
                 row.label(text="Range")
-                
+
                 row = layout.row()
                 row.label(text="X: " + str(report.tex_normal_range[0]), icon="DOT")
                 row = layout.row()
@@ -716,7 +657,7 @@ class TATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
-        report = context.scene.TATBAKERReport
+        report = context.scene.TATBakerReport
         row = self.layout.row(align=True)
         if report.mesh:
             row.label(text="", icon="CHECKMARK")
@@ -726,7 +667,7 @@ class TATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
+        report = scene.TATBakerReport
 
         if report.mesh:
             row = layout.row()
@@ -738,12 +679,12 @@ class TATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
                 row.label(text="File: " + report.mesh_path, icon="FILE")
             else:
                 row.label(text="Not exported", icon="X")
-            
+
             row = layout.row()
-            row.label(text="Verts: " + str(report.num_verts))
+            row.label(text="Triangles: " + str(report.num_triangles))
 
             layout.separator()
-            
+
             row = layout.row()
             row.label(text="UVMap")
             icon = "QUESTION" if report.mesh_uvmap_index == 0 else "DOT"
@@ -780,7 +721,7 @@ class TATBAKER_PT_ReportMeshPanel(bpy.types.Panel):
             row.label(text="Z: " + str(report.mesh_max_bounds_offset[2]), icon="DOT")
         else:
             row = layout.row()
-            row.label(text="Verts: " + str(report.num_verts))
+            row.label(text="Triangles: " + str(report.num_triangles))
 
             row = layout.row()
             row.label(text="None generated")
@@ -797,7 +738,7 @@ class TATBAKER_PT_ReportXMLPanel(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
-        report = context.scene.TATBAKERReport
+        report = context.scene.TATBakerReport
         row = self.layout.row(align=True)
         if report.xml:
             row.label(text="", icon="CHECKMARK")
@@ -807,7 +748,7 @@ class TATBAKER_PT_ReportXMLPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
+        report = scene.TATBakerReport
 
         row = layout.row()
         if report.xml:
@@ -826,14 +767,10 @@ class TATBAKER_PT_ReportAnimsPanel(bpy.types.Panel):
 
     bl_options = {'DEFAULT_CLOSED'}
 
-    # @classmethod
-    # def poll(cls, context):
-    #     return context.scene.TATBAKERReport.success
-
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
+        report = scene.TATBakerReport
 
         layout.template_list("TATBAKER_UL_ReportAnimsList", "", report, "anims", report, "selected_anim", rows=3)
         if report.anims:
@@ -865,20 +802,6 @@ class TATBAKER_PT_ReportAnimsPanel(bpy.types.Panel):
 
                 if len(anim.objs) > 0:
                     layout.template_list("TATBAKER_UL_ReportAnimsObjsList", "", anim, "objs", anim, "selected_obj", rows=2)
-                    if anim.objs:
-                        anim_obj = anim.objs[anim.selected_obj]
-                        if anim_obj:
-                            if anim_obj.target_obj:
-                                row = layout.row()
-                                row.label(text="Target: ", icon="CHECKMARK")
-
-                                row = layout.row()
-                                row.prop(anim_obj, "target_obj", text="")
-                                row.enabled = False
-                            else:
-                                row = layout.row()
-                                row.label(text="No target", icon="X")
-                                row.enabled = False
 
 class TATBAKER_UL_ReportAnimsList(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
@@ -916,29 +839,7 @@ class TATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
-
-        row = layout.row()
-        row.prop(report, "tex_sampling_mode")
-        row.enabled = False
-
-        if report.tex_sampling_mode == "STACK":
-            row = layout.row()
-            row.prop(report, "tex_packing_stack_mode")
-            row.enabled = False
-
-        layout.separator()
-
-        icon = "CHECKMARK" if report.padded else "ERROR" if (scene.TATBAKERSettings.frame_padding > 0 and not report.padded) else "X"
-        row = layout.row()
-        row.label(text="Padding: " + str(report.padding), icon=icon)
-
-        if report.padded:
-            row = layout.row()
-            row.prop(report, "padding_mode", text="")
-            row.enabled = False
-
-        layout.separator()
+        report = scene.TATBakerReport
 
         row = layout.row()
         col = row.split()
@@ -956,12 +857,8 @@ class TATBAKER_PT_ReportFramesPanel(bpy.types.Panel):
         col.enabled = report.frame_rate != 24.0
 
         row = layout.row()
-        if report.tex_sampling_mode == 'CONTINUOUS':
-            row.label(text="Width: " + str(report.frame_width))
-            row.enabled = report.tex_underflow or report.tex_overflow
-        else:
-            row.label(text="Height: " + str(report.frame_height))
-            row.enabled = report.tex_overflow
+        row.label(text="Height: " + str(report.frame_height))
+        row.enabled = report.tex_overflow
 
 class TATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
     bl_idname = "TATBAKER_PT_reportunitpanel"
@@ -977,7 +874,7 @@ class TATBAKER_PT_ReportUnitPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        report = scene.TATBAKERReport
+        report = scene.TATBakerReport
 
         row = layout.row()
         row.label(text="System: " + report.unit_system)

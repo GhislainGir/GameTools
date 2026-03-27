@@ -533,11 +533,12 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     max_abs_quat_component_index = 0
 
     # re-order quat components... Blender is WXYZ ordered
+    # Use float() to ensure Python float64 precision for bit-packing arithmetic
     quat_components = [
-        quat.x,
-        quat.y,
-        quat.z,
-        quat.w
+        float(quat.x),
+        float(quat.y),
+        float(quat.z),
+        float(quat.w)
     ]
 
     # get quat's largest absolute component
@@ -556,33 +557,33 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     quat_components[2] *= quat_largest_component_sign
     quat_components[3] *= quat_largest_component_sign
 
-    packed_quat = mathutils.Vector((0.0,0.0,0.0))
     # pack the smallest 3 components - fourth can be later reconstructed due to quaternions' property
+    # Use plain floats instead of mathutils.Vector to preserve float64 precision
     if max_abs_quat_component_index == 0: # X component is largest!!
-        packed_quat = mathutils.Vector((quat_components[1], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[1], quat_components[2], quat_components[3]]
         bitstring_index = "00"
     elif max_abs_quat_component_index == 1: # Y component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[2], quat_components[3]]
         bitstring_index = "01"
     elif max_abs_quat_component_index == 2: # Z component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[3]]
         bitstring_index = "10"
     else: # W component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[2]]
         bitstring_index = "11"
 
     # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it can be remapped to increase accuracy
     quat_normalization_offset = 0.707106781
     quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
 
-    packed_quat.x = min(1.0, max(0.0, (packed_quat.x + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[0] = min(1.0, max(0.0, (packed_quat[0] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[1] = min(1.0, max(0.0, (packed_quat[1] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[2] = min(1.0, max(0.0, (packed_quat[2] + quat_normalization_offset) / quat_normalization_scale))
 
     # XYZ component converted into [0:1023] integer range to be packed into 10 bits
-    int_packed_quat_x = math.floor(packed_quat.x * 511)
-    int_packed_quat_y = math.floor(packed_quat.y * 1023)
-    int_packed_quat_z = math.floor(packed_quat.z * 1023)
+    int_packed_quat_x = math.floor(packed_quat[0] * 511)
+    int_packed_quat_y = math.floor(packed_quat[1] * 1023)
+    int_packed_quat_z = math.floor(packed_quat[2] * 1023)
 
     bitstring_x = str(bin(int_packed_quat_x))
     bitstring_x = bitstring_x[2:] # get rid of 0b
@@ -1049,7 +1050,7 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
                 if other_data_layer == data_layer_target:
                     target_index = other_data_layer_index
                     break
-        except:
+        except (IndexError, ValueError):
             return (False, err_base_msg + "error searching target layer's index", None)
 
         # gather sibling(s) (aka, all layers that have the same target than us, including us)
@@ -1075,7 +1076,7 @@ def get_data_layer_info(data_layer: object, data_layers: list) -> tuple[bool, st
                 if other_data_layer == data_layer:
                     self_index = other_data_layer_index
                     break
-        except:
+        except (IndexError, ValueError):
             return (False, err_base_msg + "error searching layer's index", None)
 
         # gather child(s) (aka, all layers that *may* target us)
@@ -1104,7 +1105,7 @@ def get_data_layer_targeting_info(data_layer: object, data_layers: list) -> tupl
             if other_data_layer == data_layer:
                 self_index = other_data_layer_index
                 break
-    except:
+    except (IndexError, ValueError):
         return (False, "error searching for self in layers list", None)
 
     # check that we're not asking to be packed into another layer while other layers are asking us to pack them
@@ -1122,7 +1123,7 @@ def get_data_layer_targeting_info(data_layer: object, data_layers: list) -> tupl
     # gather target(s)
     try:
         data_layer_target = data_layers[data_layer.ptr]
-    except:
+    except (IndexError, KeyError):
         return (False, "couldn't find data layer target in layers list", None)
 
     if data_layer_target:
@@ -1639,29 +1640,29 @@ def bake_data_layer_uv(context, eval_objs_to_bake, data_layers_uvs):
             for loop_id in eval_mesh.loops:
                 index = loop_id.index
 
-                data_to_pack = mathutils.Vector((
-                    datas[0][index] if datas[0] is not None else 0.0,
-                    datas[1][index] if datas[1] is not None else 0.0,
-                    datas[2][index] if datas[2] is not None else 0.0))
+                # Use plain floats to preserve float64 precision for bit-packing arithmetic
+                data_to_pack_x = float(datas[0][index]) if datas[0] is not None else 0.0
+                data_to_pack_y = float(datas[1][index]) if datas[1] is not None else 0.0
+                data_to_pack_z = float(datas[2][index]) if datas[2] is not None else 0.0
 
                 if packing_mode == "XYZ_BIT":
-                    data_to_bake = get_packed_11_10_10_xyz(data_to_pack.x, layers_range[0][1], layers_range[0][2],
-                                                            data_to_pack.y, layers_range[1][1], layers_range[1][2],
-                                                            data_to_pack.z, layers_range[2][1], layers_range[2][2])
+                    data_to_bake = get_packed_11_10_10_xyz(data_to_pack_x, layers_range[0][1], layers_range[0][2],
+                                                            data_to_pack_y, layers_range[1][1], layers_range[1][2],
+                                                            data_to_pack_z, layers_range[2][1], layers_range[2][2])
                 elif packing_mode == "XYZ_NUM":
-                    data_to_bake = get_pack_3(data_to_pack.x, layers_range[0][1], layers_range[0][2],
-                                                            data_to_pack.y, layers_range[1][1], layers_range[1][2],
-                                                            data_to_pack.z, layers_range[2][1], layers_range[2][2])
+                    data_to_bake = get_pack_3(data_to_pack_x, layers_range[0][1], layers_range[0][2],
+                                                            data_to_pack_y, layers_range[1][1], layers_range[1][2],
+                                                            data_to_pack_z, layers_range[2][1], layers_range[2][2])
                 elif packing_mode == "XY_BIT":
-                    data_to_bake = get_packed_16_15_xy(data_to_pack.x, layers_range[0][1], layers_range[0][2],
-                                                        data_to_pack.y, layers_range[1][1], layers_range[1][2])
+                    data_to_bake = get_packed_16_15_xy(data_to_pack_x, layers_range[0][1], layers_range[0][2],
+                                                        data_to_pack_y, layers_range[1][1], layers_range[1][2])
                 elif packing_mode == "XY_NUM":
-                    data_to_bake = get_pack_2(data_to_pack.x, layers_range[0][1], layers_range[0][2],
-                                                data_to_pack.y, layers_range[1][1], layers_range[1][2])
+                    data_to_bake = get_pack_2(data_to_pack_x, layers_range[0][1], layers_range[0][2],
+                                                data_to_pack_y, layers_range[1][1], layers_range[1][2])
                 elif packing_mode == "FRACTION":
-                    data_to_bake = get_packed_frac(data_to_pack.x, data_to_pack.y, layers_range[1][1], layers_range[1][2])
+                    data_to_bake = get_packed_frac(data_to_pack_x, data_to_pack_y, layers_range[1][1], layers_range[1][2])
                 else:
-                    data_to_bake = data_to_pack.x
+                    data_to_bake = data_to_pack_x
 
                 if one_minus:
                     data_to_bake = 1.0 - data_to_bake # @NOTE this screws up bit-packed data but is required for UE because of the hardcoded (1-x) upon mesh import
@@ -2626,7 +2627,7 @@ def pre_bake_random_float(context: bpy.types.Context, dgraph: bpy.types.Depsgrap
                 col_index = -1
                 try:
                     col_index = cols.index(target.users_collection[0])
-                except:
+                except (ValueError, IndexError):
                     pass
                 
                 if col_index >= 0:
@@ -3323,15 +3324,15 @@ def generate_mesh_material_indices(eval_objs_to_bake: list) -> tuple[bool, str, 
         for poly in eval_obj_to_bake.data.polygons:
             try:
                 material_source = eval_obj_to_bake.data.materials[poly.material_index]
-            except:
+            except (IndexError, KeyError):
                 poly.material_index = 0
-            
+
             try:
                 material_index_source = poly.material_index
                 material_index_merged = materials.index(material_source)
                 if material_index_source != material_index_merged:
                     poly.material_index = material_index_merged
-            except:
+            except (IndexError, ValueError):
                 poly.material_index = 0
 
     return (True, "", materials)

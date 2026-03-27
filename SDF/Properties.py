@@ -61,7 +61,7 @@ class SDFBAKER_PG_Settings(PropertyGroup):
     gen_debug_mesh: BoolProperty(name="Create Debug Mesh", default=False, description="Generate a mesh with a vertex for each sample point (useful for debugging)")
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the SDF bounds to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH')
+    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved, or absolute otherwise", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
 
     unit_scale: FloatProperty(name="Scale", min=0.001, default=100.0, description="Scale applied during baking (e.g. meters to centimeters)")
@@ -78,13 +78,13 @@ class SDFBAKER_PG_Settings(PropertyGroup):
     ]
     export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
     export_xml_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported XML file (without the .xml extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
+    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
     # textures
     tex_file_name: StringProperty(name="Filename", default="T_<BakeName>", description="Name for the sdf texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated texture to an EXR file upon bake completion. Only available if the Blender file is saved")
-    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file", subtype='FILE_PATH')
+    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
 
 ##############

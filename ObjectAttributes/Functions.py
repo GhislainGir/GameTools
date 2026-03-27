@@ -280,11 +280,12 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     max_abs_quat_component_index = 0
 
     # re-order quat components... Blender is WXYZ ordered
+    # Use float() to ensure Python float64 precision for bit-packing arithmetic
     quat_components = [
-        quat.x,
-        quat.y,
-        quat.z,
-        quat.w
+        float(quat.x),
+        float(quat.y),
+        float(quat.z),
+        float(quat.w)
     ]
 
     # get quat's largest absolute component
@@ -303,33 +304,33 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     quat_components[2] *= quat_largest_component_sign
     quat_components[3] *= quat_largest_component_sign
 
-    packed_quat = mathutils.Vector((0.0,0.0,0.0))
     # pack the smallest 3 components - fourth can be later reconstructed due to quaternions' property
+    # Use plain floats instead of mathutils.Vector to preserve float64 precision
     if max_abs_quat_component_index == 0: # X component is largest!!
-        packed_quat = mathutils.Vector((quat_components[1], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[1], quat_components[2], quat_components[3]]
         bitstring_index = "00"
     elif max_abs_quat_component_index == 1: # Y component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[2], quat_components[3]]
         bitstring_index = "01"
     elif max_abs_quat_component_index == 2: # Z component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[3]]
         bitstring_index = "10"
     else: # W component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[2]]
         bitstring_index = "11"
 
     # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it can be remapped to increase accuracy
     quat_normalization_offset = 0.707106781
     quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
 
-    packed_quat.x = min(1.0, max(0.0, (packed_quat.x + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[0] = min(1.0, max(0.0, (packed_quat[0] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[1] = min(1.0, max(0.0, (packed_quat[1] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[2] = min(1.0, max(0.0, (packed_quat[2] + quat_normalization_offset) / quat_normalization_scale))
 
     # XYZ component converted into [0:1023] integer range to be packed into 10 bits
-    int_packed_quat_x = math.floor(packed_quat.x * 511)
-    int_packed_quat_y = math.floor(packed_quat.y * 1023)
-    int_packed_quat_z = math.floor(packed_quat.z * 1023)
+    int_packed_quat_x = math.floor(packed_quat[0] * 511)
+    int_packed_quat_y = math.floor(packed_quat[1] * 1023)
+    int_packed_quat_z = math.floor(packed_quat[2] * 1023)
 
     bitstring_x = str(bin(int_packed_quat_x))
     bitstring_x = bitstring_x[2:] # get rid of 0b
@@ -946,7 +947,7 @@ def get_texture_buffer(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, 
             for attr_index in range(len(obj_attr_buffer)):
                 try:
                     buffer[(attr_index * 4) + texture_channel_index] = obj_attr_buffer[attr_index]
-                except:
+                except IndexError:
                     break
 
     return (buffer, buffer_ranges_offsets, buffer_ranges, buffer_ranges_valid)
@@ -1100,7 +1101,7 @@ def texture_buffer_position(context: bpy.types.Context, dgraph: bpy.types.Depsgr
 
         try:
             obj_attr_buffer[index] = data_to_bake
-        except:
+        except IndexError:
             pass
 
     return obj_attr_buffer
@@ -1167,9 +1168,9 @@ def texture_buffer_axis(context: bpy.types.Context, dgraph: bpy.types.Depsgraph,
 
         try:
             obj_attr_buffer[index] = data_to_bake
-        except:
+        except IndexError:
             pass
-    
+
     return obj_attr_buffer
 
 def texture_buffer_scale(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
@@ -1231,9 +1232,9 @@ def texture_buffer_scale(context: bpy.types.Context, dgraph: bpy.types.Depsgraph
 
         try:
             obj_attr_buffer[index] = data_to_bake
-        except:
+        except IndexError:
             pass
-    
+
     return obj_attr_buffer
 
 def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, texture_channel: object, eval_objs_to_bake: list, attr_buffer_length: int) -> list:
@@ -1293,7 +1294,7 @@ def texture_buffer_extents(context: bpy.types.Context, dgraph: bpy.types.Depsgra
 
         try:
             obj_attr_buffer[index] = data_to_bake
-        except:
+        except IndexError:
             pass
 
     return obj_attr_buffer
@@ -1349,7 +1350,7 @@ def texture_buffer_hierarchy(context: bpy.types.Context, dgraph: bpy.types.Depsg
 
         try:
             obj_attr_buffer[index] = parent_hierarchy_index
-        except:
+        except IndexError:
             pass
 
     return obj_attr_buffer
@@ -1402,7 +1403,7 @@ def texture_buffer_custom_prop(context: bpy.types.Context, dgraph: bpy.types.Dep
 
         try:
             obj_attr_buffer[index] = data_to_bake
-        except:
+        except IndexError:
             pass
 
     return obj_attr_buffer
@@ -1467,7 +1468,7 @@ def texture_buffer_quaternion(context: bpy.types.Context, dgraph: bpy.types.Deps
 
         try:
             obj_attr_buffer[index] = data_to_bake
-        except:
+        except IndexError:
             pass
 
     return obj_attr_buffer
@@ -1704,7 +1705,7 @@ def generate_mesh_material_indices(eval_objs_to_bake: list) -> tuple[bool, str, 
                 material_index_merged = materials.index(material_source)
                 if material_index_source != material_index_merged:
                     poly.material_index = material_index_merged
-            except:
+            except (IndexError, ValueError):
                 poly.material_index = 0
 
     return (True, "", materials)
@@ -1733,7 +1734,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     tags = { "TextureName": texture_name, "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
     if image_name == "":
-        return (True, "Invalid image name", None)
+        return (False, "Invalid image name", None)
 
     image_name += ".exr"
 
@@ -1748,7 +1749,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     image.colorspace_settings.name = 'Non-Color'
     image.file_format = 'OPEN_EXR'
     image.use_half_precision = False
-    image.pixels = buffer
+    image.pixels.foreach_set(buffer)
     image.use_fake_user = True
     if bpy.data.is_saved:
         image.pack()
@@ -1779,18 +1780,19 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, file_path
         FileFormat = context.scene.render.image_settings.file_format
         ColorDepth = context.scene.render.image_settings.color_depth
         EXRCodec = context.scene.render.image_settings.exr_codec
-        
-        # override scene render image settings
-        context.scene.render.image_settings.file_format = 'OPEN_EXR'
-        context.scene.render.image_settings.color_depth = '32'
-        context.scene.render.image_settings.exr_codec = 'NONE'
 
-        image.save_render(filepath=tex_path)
+        try:
+            # override scene render image settings
+            context.scene.render.image_settings.file_format = 'OPEN_EXR'
+            context.scene.render.image_settings.color_depth = '32'
+            context.scene.render.image_settings.exr_codec = 'NONE'
 
-         # restore scene render image settings
-        context.scene.render.image_settings.file_format = FileFormat
-        context.scene.render.image_settings.color_depth = ColorDepth
-        context.scene.render.image_settings.exr_codec = EXRCodec
+            image.save_render(filepath=tex_path)
+        finally:
+            # restore scene render image settings
+            context.scene.render.image_settings.file_format = FileFormat
+            context.scene.render.image_settings.color_depth = ColorDepth
+            context.scene.render.image_settings.exr_codec = EXRCodec
 
         return (True, "", tex_path)
     else:

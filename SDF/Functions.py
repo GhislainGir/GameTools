@@ -449,7 +449,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
     :return: success, message verbose, message
     :rtype: tuple
     """
-    bpy.ops.object.mode_set(mode="OBJECT") # @NOTE necessary? it fails when there's no active selection anyway
+    #bpy.ops.object.mode_set(mode="OBJECT") # @NOTE unnecessary, it fails when there's no active selection anyway
 
     settings = context.scene.SDFBakerSettings
     new_bake_report(context)
@@ -3231,7 +3231,7 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     image.colorspace_settings.name = 'Non-Color'
     image.file_format = 'OPEN_EXR'
     image.use_half_precision = False
-    image.pixels = buffer
+    image.pixels.foreach_set(buffer)
     image.use_fake_user = True
     if bpy.data.is_saved:
         image.pack()
@@ -3262,17 +3262,18 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str
         ColorDepth = context.scene.render.image_settings.color_depth
         EXRCodec = context.scene.render.image_settings.exr_codec
 
-        # override scene render image settings
-        context.scene.render.image_settings.file_format = 'OPEN_EXR'
-        context.scene.render.image_settings.color_depth = '32'
-        context.scene.render.image_settings.exr_codec = 'NONE'
+        try:
+            # override scene render image settings
+            context.scene.render.image_settings.file_format = 'OPEN_EXR'
+            context.scene.render.image_settings.color_depth = '32'
+            context.scene.render.image_settings.exr_codec = 'NONE'
 
-        image.save_render(filepath=tex_path)
-
-         # restore scene render image settings
-        context.scene.render.image_settings.file_format = FileFormat
-        context.scene.render.image_settings.color_depth = ColorDepth
-        context.scene.render.image_settings.exr_codec = EXRCodec
+            image.save_render(filepath=tex_path)
+        finally:
+            # restore scene render image settings
+            context.scene.render.image_settings.file_format = FileFormat
+            context.scene.render.image_settings.color_depth = ColorDepth
+            context.scene.render.image_settings.exr_codec = EXRCodec
 
         return (True, "", tex_path)
     else:

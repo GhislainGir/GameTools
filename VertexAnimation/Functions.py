@@ -606,7 +606,7 @@ def get_nla_strip_suffix_padding_info(frames_to_bake: list, start_index: int, en
             frame, frame_nla_clips = frames_to_bake[end_index]
             if next_frame < frame:
                 return None
-    except:
+    except (IndexError, KeyError):
         pass
 
     padding_value = frames_to_bake[start_index][0]
@@ -638,7 +638,7 @@ def get_nla_strip_prefix_padding_info(frames_to_bake: list, start_index: int, en
             frame, frame_nla_clips = frames_to_bake[start_index]
             if previous_frame > frame:
                 return None
-    except:
+    except (IndexError, KeyError):
         pass
 
     padding_value = frames_to_bake[end_index][0]
@@ -696,8 +696,8 @@ def get_bake_frames_animation(context: bpy.types.Context, objs_to_bake: list) ->
             2. padding
             """
             padding_apply = get_bake_apply_padding(context, objs_to_bake)
-            padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
-            padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
+            padding_prefix = padding_apply and (settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
+            padding_suffix = padding_apply and (settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
 
             add_bake_report("padded", padding_apply)
             add_bake_report("padding", settings.frame_padding if padding_apply else 0)
@@ -1258,7 +1258,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
                     material_index_merged = materials.index(material_source)
                     if material_index_source != material_index_merged:
                         poly.material_index = material_index_merged
-                except:
+                except (IndexError, ValueError):
                     poly.material_index = 0
 
     """
@@ -4043,7 +4043,7 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
 
         if eval_mesh.has_custom_normals:
             for loop in eval_mesh.loops:
-                normal = loop.normal
+                vector_to_bake = loop.normal
                 vertex_index = loop.vertex_index
 
                 if settings.tex_packing_mode == "STACK" and settings.tex_packing_stack_mode == "OFFSET":
@@ -4080,17 +4080,16 @@ def get_sequence_vertices_buffers(context: bpy.types.Context, objs_to_bake: list
             vertices_offsets[buffer_vertex_index + 2] = z
             #vertices_offsets[buffer_vertex_index + 3] = 1.0
 
-            # normal
+            # normal (bypass if using custom normals)
             if not eval_mesh.has_custom_normals:
                 vector_to_bake = (vertex.normal * signed_axis).normalized()
-
-            if settings.unit_axis_order != "XYZ":
-                vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
-            x, y, z = vector_to_bake
-            vertices_normals[buffer_vertex_index + 0] = x
-            vertices_normals[buffer_vertex_index + 1] = y
-            vertices_normals[buffer_vertex_index + 2] = z
-            #vertices_normals[buffer_vertex_index + 3] = 1.0
+                if settings.unit_axis_order != "XYZ":
+                    vector_to_bake = mathutils.Vector([getattr(vector_to_bake, axis.lower()) for axis in settings.unit_axis_order])
+                x, y, z = vector_to_bake
+                vertices_normals[buffer_vertex_index + 0] = x
+                vertices_normals[buffer_vertex_index + 1] = y
+                vertices_normals[buffer_vertex_index + 2] = z
+                #vertices_normals[buffer_vertex_index + 3] = 1.0
 
         eval_obj.to_mesh_clear()
 
@@ -4213,7 +4212,7 @@ def display_bounds(context: bpy.types.Context, bake_name: str, bounds_info: tupl
     :rtype: tuple
     """
 
-    settings = context.scene.BATBakerSettings
+    settings = context.scene.VATBakerSettings
     signed_axis = mathutils.Vector((-1.0 if settings.unit_invert_x else 1.0,
                                     -1.0 if settings.unit_invert_y else 1.0,
                                     -1.0 if settings.unit_invert_z else 1.0))
@@ -4297,7 +4296,7 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     tags = { "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
     if image_name == "":
-        return (True, "Invalid image name", None)
+        return (False, "Invalid image name", None)
     
     image_name += ".exr"
 
@@ -4312,7 +4311,7 @@ def generate_texture(bake_name: str, filename: str, buffer: list, tex_width: int
     image.colorspace_settings.name = 'Non-Color'
     image.file_format = 'OPEN_EXR'
     image.use_half_precision = False
-    image.pixels = buffer
+    image.pixels.foreach_set(buffer)
     image.use_fake_user = True
     if bpy.data.is_saved:
         image.pack()
@@ -4342,18 +4341,19 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, path: str
         FileFormat = context.scene.render.image_settings.file_format
         ColorDepth = context.scene.render.image_settings.color_depth
         EXRCodec = context.scene.render.image_settings.exr_codec
-        
-        # override scene render image settings
-        context.scene.render.image_settings.file_format = 'OPEN_EXR'
-        context.scene.render.image_settings.color_depth = '32'
-        context.scene.render.image_settings.exr_codec = 'NONE'
 
-        image.save_render(filepath=tex_path)
+        try:
+            # override scene render image settings
+            context.scene.render.image_settings.file_format = 'OPEN_EXR'
+            context.scene.render.image_settings.color_depth = '32'
+            context.scene.render.image_settings.exr_codec = 'NONE'
 
-         # restore scene render image settings
-        context.scene.render.image_settings.file_format = FileFormat
-        context.scene.render.image_settings.color_depth = ColorDepth
-        context.scene.render.image_settings.exr_codec = EXRCodec
+            image.save_render(filepath=tex_path)
+        finally:
+            # restore scene render image settings
+            context.scene.render.image_settings.file_format = FileFormat
+            context.scene.render.image_settings.color_depth = ColorDepth
+            context.scene.render.image_settings.exr_codec = EXRCodec
 
         return (True, "", tex_path)
     else:

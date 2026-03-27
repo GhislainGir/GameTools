@@ -26,16 +26,16 @@ from .Functions import bake, reset_bake_report, export_bake_report
 ############
 ### MAIN ###
 class TATBAKER_OT_Bake(bpy.types.Operator):
-    """ Bakes object & skeletal animations of the active mesh into textures, storing positional & normal data per vertex. """
-    bl_idname = "gametools.TATBAKER_bakevat"
+    """ Bakes triangle animation data of the active mesh into textures, storing positional & normal data per triangle. """
+    bl_idname = "gametools.tatbaker_baketat"
     bl_label = "Bake"
     bl_category = "Game Tools"
-    bl_description = "Bake animations into vertex animation textures"
+    bl_description = "Bake animations into triangle animation textures"
     bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
     @classmethod
     def poll(cls, context):
-        settings = context.scene.TATBAKERSettings
+        settings = context.scene.TATBakerSettings
 
         Object = context.active_object
         if Object:
@@ -43,7 +43,7 @@ class TATBAKER_OT_Bake(bpy.types.Operator):
                 return True
             elif Object.type == "MESH":
                 return len(context.selected_objects) > 1
-        
+
         return False
 
     def execute(self, context):
@@ -57,12 +57,12 @@ class TATBAKER_OT_Bake(bpy.types.Operator):
 
 ##############
 ### PRESET ###
-class TATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
-    bl_idname = 'gametools.TATBAKER_addpreset'
+class TATBAKER_OT_TriangleAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
+    bl_idname = 'gametools.tatbaker_addpreset'
     bl_label = 'Add preset'
-    preset_menu = 'TATBAKER_MT_VertexAnimation_Presets'
+    preset_menu = 'TATBAKER_MT_TriangleAnimation_Presets'
 
-    preset_defines = [ 'settings = bpy.context.scene.TATBAKERSettings' ]
+    preset_defines = [ 'settings = bpy.context.scene.TATBakerSettings' ]
 
     preset_values = [
         'settings.bake_mode',
@@ -74,14 +74,10 @@ class TATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.unit_axis_order',
         'settings.mesh_uvmap_name',
         'settings.mesh_name',
-        'settings.mesh_target_prop',
-        'settings.mesh_materials',
         'settings.export_mesh',
         'settings.export_mesh_file_name',
         'settings.export_mesh_file_path',
         'settings.export_mesh_file_override',
-        'settings.require_triangulation',
-        'settings.previz_result',
         'settings.previz_bounds',
         'settings.export_xml',
         'settings.export_xml_mode',
@@ -96,13 +92,9 @@ class TATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.frame_range_custom_end',
         'settings.frame_range_custom_step',
         'settings.frame_range_custom_step_mode',
-        'settings.frame_padding_mode',
-        'settings.frame_padding',
-        'settings.frame_ref_mode',
-        'settings.frame_ref_custom',
-        'settings.offset_tex',
-        'settings.offset_tex_remap',
-        'settings.offset_tex_file_name',
+        'settings.position_tex',
+        'settings.position_tex_remap',
+        'settings.position_tex_file_name',
         'settings.normal_tex',
         'settings.normal_tex_remap',
         'settings.normal_tex_remap_biasscale',
@@ -114,25 +106,24 @@ class TATBAKER_OT_VertexAnimation_AddPreset(AddPresetBase, bpy.types.Operator):
         'settings.export_tex_max_height',
         'settings.tex_force_power_of_two',
         'settings.tex_force_power_of_two_square',
-        'settings.tex_packing_mode'
     ]
 
-    preset_subdir = 'operator/gametools_TATBAKER'
+    preset_subdir = 'operator/gametools_tatbaker'
 
 #####################
 ### NLA EXCLUSION ###
 class TATBAKER_OT_NLAExclusion_NewItem(bpy.types.Operator):
     """Add a new item to the list."""
-    bl_idname = "frame_range_nla_exclusion.new_item"
+    bl_idname = "tat_frame_range_nla_exclusion.new_item"
     bl_label = "Add a new item"
-    
+
     @classmethod
     def poll(cls, context):
-        settings = context.scene.TATBAKERSettings
+        settings = context.scene.TATBakerSettings
         return settings.frame_range_nla_exclusion_selected != "" and settings.frame_range_nla_exclusion_selected not in [nla.name for nla in settings.frame_range_nla_exclusion]
-    
+
     def execute(self, context):
-        settings = context.scene.TATBAKERSettings
+        settings = context.scene.TATBakerSettings
         settings.frame_range_nla_exclusion.add()
         last_index = len(settings.frame_range_nla_exclusion) - 1
         if last_index >= 0:
@@ -143,22 +134,22 @@ class TATBAKER_OT_NLAExclusion_NewItem(bpy.types.Operator):
 
 class TATBAKER_OT_NLAExclusion_DeleteItem(bpy.types.Operator):
     """Delete the selected item from the list."""
-    bl_idname = "frame_range_nla_exclusion.delete_item"
+    bl_idname = "tat_frame_range_nla_exclusion.delete_item"
     bl_label = "Deletes an item"
 
     @classmethod
     def poll(cls, context):
-        return context.scene.TATBAKERSettings.frame_range_nla_exclusion
+        return context.scene.TATBakerSettings.frame_range_nla_exclusion
 
     def execute(self, context):
-        settings = context.scene.TATBAKERSettings
+        settings = context.scene.TATBakerSettings
         settings.frame_range_nla_exclusion.remove(settings.frame_range_nla_exclusion_selected_index)
         settings.frame_range_nla_exclusion_selected_index = min(max(0, settings.frame_range_nla_exclusion_selected_index), len(settings.frame_range_nla_exclusion) - 1)
         return{'FINISHED'}
 
 class TATBAKER_OT_NLAExclusion_MoveItem(bpy.types.Operator):
     """Move an item in the list."""
-    bl_idname = "frame_range_nla_exclusion.move_item"
+    bl_idname = "tat_frame_range_nla_exclusion.move_item"
     bl_label = "Move an item in the list"
 
     direction: bpy.props.EnumProperty(items=(
@@ -168,10 +159,10 @@ class TATBAKER_OT_NLAExclusion_MoveItem(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.TATBAKERSettings.frame_range_nla_exclusion
-    
+        return context.scene.TATBakerSettings.frame_range_nla_exclusion
+
     def execute(self, context):
-        settings = context.scene.TATBAKERSettings
+        settings = context.scene.TATBakerSettings
         index_offset = -1 if self.direction == 'UP' else 1
         settings.frame_range_nla_exclusion.move(settings.frame_range_nla_exclusion_selected_index + index_offset, settings.frame_range_nla_exclusion_selected_index)
         settings.frame_range_nla_exclusion_selected_index = max(0, min(settings.frame_range_nla_exclusion_selected_index + index_offset, len(settings.frame_range_nla_exclusion) - 1))
@@ -182,7 +173,7 @@ class TATBAKER_OT_NLAExclusion_MoveItem(bpy.types.Operator):
 ### REPORT ###
 class TATBAKER_OT_ExportReport(bpy.types.Operator):
     """ """
-    bl_idname = "gametools.TATBAKER_export_report"
+    bl_idname = "gametools.tatbaker_export_report"
     bl_label = "Export"
     bl_category = "Game Tools"
     bl_description = "Export last report"
@@ -190,7 +181,7 @@ class TATBAKER_OT_ExportReport(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.TATBAKERReport.baked
+        return context.scene.TATBakerReport.baked
 
     def execute(self, context):
         success, msg, path = export_bake_report(context)
@@ -201,7 +192,7 @@ class TATBAKER_OT_ExportReport(bpy.types.Operator):
 
 class TATBAKER_OT_ClearReport(bpy.types.Operator):
     """ """
-    bl_idname = "gametools.TATBAKER_clear_report"
+    bl_idname = "gametools.tatbaker_clear_report"
     bl_label = "Clear"
     bl_category = "Game Tools"
     bl_description = "Clear last report"
@@ -209,7 +200,7 @@ class TATBAKER_OT_ClearReport(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.TATBAKERReport.baked
+        return context.scene.TATBakerReport.baked
 
     def execute(self, context):
         reset_bake_report()

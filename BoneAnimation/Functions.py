@@ -399,11 +399,12 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     max_abs_quat_component_index = 0
 
     # re-order quat components... Blender is WXYZ ordered
+    # Use float() to ensure Python float64 precision for bit-packing arithmetic
     quat_components = [
-        quat.x,
-        quat.y,
-        quat.z,
-        quat.w
+        float(quat.x),
+        float(quat.y),
+        float(quat.z),
+        float(quat.w)
     ]
 
     # get quat's largest absolute component
@@ -422,33 +423,33 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     quat_components[2] *= quat_largest_component_sign
     quat_components[3] *= quat_largest_component_sign
 
-    packed_quat = mathutils.Vector((0.0,0.0,0.0))
     # pack the smallest 3 components - fourth can be later reconstructed due to quaternions' property
+    # Use plain floats instead of mathutils.Vector to preserve float64 precision
     if max_abs_quat_component_index == 0: # X component is largest!!
-        packed_quat = mathutils.Vector((quat_components[1], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[1], quat_components[2], quat_components[3]]
         bitstring_index = "00"
     elif max_abs_quat_component_index == 1: # Y component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[2], quat_components[3]]
         bitstring_index = "01"
     elif max_abs_quat_component_index == 2: # Z component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[3]]
         bitstring_index = "10"
     else: # W component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[2]]
         bitstring_index = "11"
 
     # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it can be remapped to increase accuracy
     quat_normalization_offset = 0.707106781
     quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
 
-    packed_quat.x = min(1.0, max(0.0, (packed_quat.x + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[0] = min(1.0, max(0.0, (packed_quat[0] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[1] = min(1.0, max(0.0, (packed_quat[1] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[2] = min(1.0, max(0.0, (packed_quat[2] + quat_normalization_offset) / quat_normalization_scale))
 
     # XYZ component converted into [0:1023] integer range to be packed into 10 bits
-    int_packed_quat_x = math.floor(packed_quat.x * 511)
-    int_packed_quat_y = math.floor(packed_quat.y * 1023)
-    int_packed_quat_z = math.floor(packed_quat.z * 1023)
+    int_packed_quat_x = math.floor(packed_quat[0] * 511)
+    int_packed_quat_y = math.floor(packed_quat[1] * 1023)
+    int_packed_quat_z = math.floor(packed_quat[2] * 1023)
 
     bitstring_x = str(bin(int_packed_quat_x))
     bitstring_x = bitstring_x[2:] # get rid of 0b
@@ -570,13 +571,13 @@ def get_bake_skinning_textures(context: bpy.types.Context) -> tuple[bool, str, l
         if influence_index != None:
             try:
                 bones_indices.pop(bones_indices.index(influence_index))
-            except:
+            except ValueError:
                 pass
-        
+
         if influence_weight != None:
             try:
                 bones_weights.pop(bones_weights.index(influence_weight))
-            except:
+            except ValueError:
                 pass
 
     if len(bones_indices) > 0:
@@ -926,7 +927,7 @@ def get_nla_strip_suffix_padding_info(frames_to_bake: list, start_index: int, en
             frame, frame_nla_clips = frames_to_bake[end_index]
             if next_frame < frame:
                 return None
-    except:
+    except (IndexError, KeyError):
         pass
 
     padding_value = frames_to_bake[start_index][0]
@@ -958,7 +959,7 @@ def get_nla_strip_prefix_padding_info(frames_to_bake: list, start_index: int, en
             frame, frame_nla_clips = frames_to_bake[start_index]
             if previous_frame > frame:
                 return None
-    except:
+    except (IndexError, KeyError):
         pass
 
     padding_value = frames_to_bake[end_index][0]
@@ -1025,8 +1026,8 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
             2. padding
             """
             padding_apply = (settings.frame_range_mode == "NLA") and (settings.frame_padding > 0) #and (settings.animation_tex_packing_mode == "STACK")
-            padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
-            padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
+            padding_prefix = padding_apply and (settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
+            padding_suffix = padding_apply and (settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
 
             add_bake_report("padded", padding_apply)
             add_bake_report("padding", settings.frame_padding)
@@ -1146,20 +1147,20 @@ def get_bake_frames(context: bpy.types.Context, objs_to_bake: list, armature: bp
 
                             # start/end frames are actually the frame indices!
                             start_index = start_frame
-                            while True:
+                            while start_frame >= frames_to_bake_indices[0]:
                                 try:
                                     start_index = frames_to_bake_indices.index(start_frame)
                                     break
-                                except:
+                                except ValueError:
                                     start_frame -= 1
                             start_frame = start_index + 2 # extra offset for reference frame & 0-based index
 
                             end_index = end_frame
-                            while True:
+                            while end_frame >= frames_to_bake_indices[0]:
                                 try:
                                     end_index = frames_to_bake_indices.index(end_frame)
                                     break
-                                except:
+                                except ValueError:
                                     end_frame -= 1
                             end_frame = end_index + 2 # extra offset for reference frame & 0-based index
 
@@ -1434,7 +1435,7 @@ def bake(context: bpy.types.Context) -> tuple[bool, str, str]:
             add_bake_report("msg", msg)
             return (False, 'ERROR', msg)
         generate_mesh_vcol(context, skinning_texture, obj_to_export, buffer)
-        report_texture = add_bake_skinning_texture_report(skinning_texture, tex)
+        report_texture = add_bake_skinning_texture_report(skinning_texture, None)
         break # there should only be one texture targeting vertex color
 
     if settings.export_mesh and bpy.data.is_saved:
@@ -1574,7 +1575,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
                     material_index_merged = materials.index(material_source)
                     if material_index_source != material_index_merged:
                         poly.material_index = material_index_merged
-                except:
+                except (IndexError, ValueError):
                     poly.material_index = 0
 
     """
@@ -1672,7 +1673,7 @@ def generate_mesh_vcol(context: bpy.types.Context, texture: object, obj_to_bake:
 
     try:
         texture_row = texture.rows[0] # vcol texture has only one 'row'
-    except:
+    except (IndexError, KeyError):
         texture_row = None
 
     if texture_row:
@@ -1967,7 +1968,7 @@ def get_skinning_data(context: bpy.types.Context, objs_to_bake: list, armature: 
                         for v in vertex_groups:
                             if ref_eval_obj.vertex_groups[v.group].name == vertex_group_name:
                                 vertex_groups_to_skip.append(v)
-                                bone_weight += vertex_group.weight
+                                bone_weight += v.weight
                                 bone_weight_sum += 1
 
                         if bone_weight_sum > 1:
@@ -2138,7 +2139,7 @@ def get_skinning_texture_buffer_function(texture_channel: object) -> callable:
     else:
         pass
 
-    return animation_texture_buffer_zeros
+    return skinning_texture_buffer_zeros
 
 def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, skinning_data: list, tex_width: int, tex_height: int, num_vertices: int, vcol: bool) -> list:
     """
@@ -2197,7 +2198,7 @@ def get_skinning_texture_buffer(context: bpy.types.Context, texture: object, ski
 
                     try:
                         buffer[buffer_index + texture_channel_index] = data_to_bake
-                    except:
+                    except IndexError:
                         return (False, "Invalid buffer index: " + str(buffer_index + texture_channel_index) + " vs " + str(len(buffer)), buffer)
 
     return (True, "", buffer)
@@ -2232,7 +2233,7 @@ def get_animation_data(context: bpy.types.Context, armature: bpy.types.Armature,
         for bone in eval_arm.pose.bones:
             try:
                 bone_index = bones.index(bone.name)
-            except:
+            except ValueError:
                 continue
 
             matrix_buffer[bone_index] = eval_arm.matrix_world @ bone.matrix
@@ -2375,7 +2376,7 @@ def skinning_texture_buffer_index(context: bpy.types.Context, skinning_data: lis
         try:
             bone, bone_index, bone_weight = bone_info[texture_channel.index - 1] # index setting is one-based!
             index_buffer[vertex_index] = bone_index
-        except:
+        except (IndexError, ValueError):
             continue
 
     return index_buffer
@@ -2399,7 +2400,7 @@ def skinning_texture_buffer_weight(context: bpy.types.Context, skinning_data: li
         try:
             bone, bone_index, bone_weight = bone_info[texture_channel.index - 1] # index setting is one-based!
             weight_buffer[vertex_index] = bone_weight
-        except:
+        except (IndexError, ValueError):
             continue
 
     return weight_buffer
@@ -2475,7 +2476,7 @@ def animation_texture_buffer_position(context: bpy.types.Context, armature: bpy.
 
             try:
                 pos_buffer[buffer_bone_index] = data_to_bake
-            except:
+            except IndexError:
                 pass
 
     return pos_buffer
@@ -2559,7 +2560,7 @@ def animation_texture_buffer_rotation(context: bpy.types.Context, armature: bpy.
 
             try:
                 rot_buffer[buffer_bone_index] = data_to_bake
-            except:
+            except IndexError:
                 pass
 
     return rot_buffer
@@ -2616,7 +2617,7 @@ def animation_texture_buffer_scale(context: bpy.types.Context, armature: bpy.typ
 
             try:
                 scale_buffer[buffer_bone_index] = data_to_bake
-            except:
+            except IndexError:
                 pass
 
     return scale_buffer
@@ -2690,7 +2691,7 @@ def animation_texture_buffer_axes(context: bpy.types.Context, armature: bpy.type
 
             try:
                 rot_buffer[buffer_bone_index] = data_to_bake
-            except:
+            except IndexError:
                 pass
 
     return rot_buffer
@@ -2725,7 +2726,7 @@ def animation_texture_buffer_custom_prop(context: bpy.types.Context, armature: b
         for bone in eval_arm.pose.bones:
             try:
                 bone_index = bones.index(bone.name)
-            except:
+            except ValueError:
                 continue
 
             if texture_channel.name in bone:
@@ -2762,7 +2763,7 @@ def animation_texture_buffer_custom_prop(context: bpy.types.Context, armature: b
 
             try:
                 custom_prop_buffer[buffer_bone_index] = data_to_bake
-            except:
+            except IndexError:
                 pass
 
     return custom_prop_buffer
@@ -2881,7 +2882,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     tags = { "TextureName": texture_name, "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
     if image_name == "":
-        return (True, "Invalid image name", None)
+        return (False, "Invalid image name", None)
     
     image_name += ".exr"
 
@@ -2896,7 +2897,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     image.colorspace_settings.name = 'Non-Color'
     image.file_format = 'OPEN_EXR'
     image.use_half_precision = False
-    image.pixels = buffer
+    image.pixels.foreach_set(buffer)
     image.use_fake_user = True
     if bpy.data.is_saved and bpy.data.is_saved:
         image.pack()
@@ -2927,18 +2928,19 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, file_path
         FileFormat = context.scene.render.image_settings.file_format
         ColorDepth = context.scene.render.image_settings.color_depth
         EXRCodec = context.scene.render.image_settings.exr_codec
-        
-        # override scene render image settings
-        context.scene.render.image_settings.file_format = 'OPEN_EXR'
-        context.scene.render.image_settings.color_depth = '32'
-        context.scene.render.image_settings.exr_codec = 'NONE'
 
-        image.save_render(filepath=tex_path)
+        try:
+            # override scene render image settings
+            context.scene.render.image_settings.file_format = 'OPEN_EXR'
+            context.scene.render.image_settings.color_depth = '32'
+            context.scene.render.image_settings.exr_codec = 'NONE'
 
-         # restore scene render image settings
-        context.scene.render.image_settings.file_format = FileFormat
-        context.scene.render.image_settings.color_depth = ColorDepth
-        context.scene.render.image_settings.exr_codec = EXRCodec
+            image.save_render(filepath=tex_path)
+        finally:
+            # restore scene render image settings
+            context.scene.render.image_settings.file_format = FileFormat
+            context.scene.render.image_settings.color_depth = ColorDepth
+            context.scene.render.image_settings.exr_codec = EXRCodec
 
         return (True, "", tex_path)
     else:
@@ -2994,12 +2996,11 @@ def get_best_skinning_texture_resolution(context: bpy.types.Context, num_vertice
         size = math.ceil(num_texels_sqrt)
 
         tex_width = size
+        tex_height = size
         if (tex_width > settings.skinning_tex_max_width):
             return (False, "Invalid tex_width", tex_width, tex_height, False)
 
         vert_rows = math.ceil(num_vertices / float(tex_width))
-
-        tex_height = size
         if (tex_height > settings.skinning_tex_max_height):
             return (False, "Invalid tex_height", tex_width, tex_height, False)
     elif settings.skinning_tex_res_mode == "POT":
@@ -3183,7 +3184,7 @@ def export_xml(context: bpy.types.Context) -> tuple[bool, str, str]:
 
                 try:
                     skinning_texture_row = skinning_texture.rows[0] # only one texture targetting vcol
-                except:
+                except (IndexError, KeyError):
                     skinning_texture_row = None
 
                 if skinning_texture_row:

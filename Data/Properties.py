@@ -216,7 +216,7 @@ class DATABAKER_PG_Settings(PropertyGroup):
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
+    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
 
     export_xml: BoolProperty(name="Export", default=True, description="True to export an XML file containing informations relative to the bake (recommended). Only available if the Blender file is saved")
@@ -226,7 +226,7 @@ class DATABAKER_PG_Settings(PropertyGroup):
     ]
     export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
     export_xml_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported XML file (without the .xml extension)")
-    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
+    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
 ##############
@@ -280,10 +280,10 @@ class DATABAKER_PG_Report(PropertyGroup):
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_name: StringProperty(name="Name", default="BakedMesh.DATA", description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
-    mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
+    mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
-    xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
+    xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
     origin_obj: PointerProperty(type=bpy.types.Object, name="Custom Origin", description="")
 

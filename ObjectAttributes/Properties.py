@@ -143,7 +143,7 @@ class OBJECTATTRIBUTES_PG_Settings(PropertyGroup):
 
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
+    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
 
     export_xml: BoolProperty(name="Export", default=True, description="True to export an XML file containing informations relative to the bake (recommended). Only available if the Blender file is saved")
@@ -153,12 +153,12 @@ class OBJECTATTRIBUTES_PG_Settings(PropertyGroup):
     ]
     export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
     export_xml_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported XML file (without the .xml extension)")
-    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
+    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion. Only available if the Blender file is saved")
     export_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_<TextureName>", description="Name for the texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name. <TextureName> is a placeholder tag that can be used to be replaced with the texture's custom name")
-    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
+    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
     export_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=256, description="Maximum allowed texture width. Exceeding this may cancel the bake. 256 is recommended, as 256^2 allows the baking of up to 65K of elements, more than the precision offered by Pivot Painter's packing algorithm")
     export_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=256, description="Maximum allowed texture height. Exceeding this may cancel the bake. 256 is recommended, as 256^2 allows the baking of up to 65K of elements, more than the precision offered by Pivot Painter's packing algorithm")
@@ -173,7 +173,7 @@ class OBJECTATTRIBUTES_PG_ReportTexLayer(PropertyGroup):
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
     exported: BoolProperty(name="Exported", default=False)
-    path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH')
+    path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     img: PointerProperty(type=bpy.types.Image)
 
     R: PointerProperty(type=OBJECTATTRIBUTES_PG_SettingsTexChannel)
@@ -227,7 +227,7 @@ class OBJECTATTRIBUTES_PG_Report(PropertyGroup):
 
     mesh: PointerProperty(type=bpy.types.Object, description="")
     mesh_export: BoolProperty(name="Mesh Exported", default=False, description="")
-    mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH')
+    mesh_path: StringProperty(name="Mesh Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     mesh_uvmap_index: IntProperty(name="UV Map", default=0, description="")
     mesh_num_indices: IntProperty(name="Num Indices", default=0, description="")
 
@@ -237,7 +237,7 @@ class OBJECTATTRIBUTES_PG_Report(PropertyGroup):
     textures_selected_index: IntProperty(name="Selected", default=0)
 
     xml: BoolProperty(name="XML Exported", default=False, description="")
-    xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH')
+    xml_path: StringProperty(name="XML Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
 def register():
 	bpy.types.Scene.ObjectAttributesSettings = PointerProperty(type=OBJECTATTRIBUTES_PG_Settings)

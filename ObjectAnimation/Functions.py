@@ -18,7 +18,6 @@ import mathutils
 import bmesh
 import os
 import uuid
-import numpy as np
 import time
 import xml.etree.ElementTree as ET
 
@@ -375,10 +374,9 @@ def get_bake_nla_strips(objs_to_bake: list) -> list:
 
     unique_nla_strips = []
     unique_nla_indices = []
-    # for each strip/obj pair
+    # for each strip/obj pair, deduplicate strips that share the same name and frame range
     for nla_strip_index, nla_strip in enumerate(nla_strips):
         strip, obj = nla_strip
-        objs_to_bake = [obj]
 
         # check all other strip/obj pairs
         for nla_strip_index_compare, nla_strip_compare in enumerate(nla_strips):
@@ -386,7 +384,6 @@ def get_bake_nla_strips(objs_to_bake: list) -> list:
                 strip_compare, obj_compare = nla_strip_compare
                 # we found another object that uses the same strip at the same exact position
                 if (obj != obj_compare) and (strip.name == strip_compare.name) and (strip.frame_start == strip_compare.frame_start) and (strip.frame_end == strip_compare.frame_end):
-                    objs_to_bake.append(obj_compare)
                     unique_nla_indices.append(nla_strip_index_compare)
 
         if nla_strip_index not in unique_nla_indices:
@@ -615,7 +612,7 @@ def get_nla_strip_suffix_padding_info(frames_to_bake: list, start_index: int, en
             frame, frame_nla_clips = frames_to_bake[end_index]
             if next_frame < frame:
                 return None
-    except:
+    except (IndexError, KeyError):
         pass
 
     padding_value = frames_to_bake[start_index][0]
@@ -647,7 +644,7 @@ def get_nla_strip_prefix_padding_info(frames_to_bake: list, start_index: int, en
             frame, frame_nla_clips = frames_to_bake[start_index]
             if previous_frame > frame:
                 return None
-    except:
+    except (IndexError, KeyError):
         pass
 
     padding_value = frames_to_bake[end_index][0]
@@ -691,8 +688,8 @@ def get_bake_frames(context, objs_to_bake):
             2. padding
             """
             padding_apply = get_bake_apply_padding(context, objs_to_bake)
-            padding_prefix = padding_apply and settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
-            padding_suffix = padding_apply and settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX'
+            padding_prefix = padding_apply and (settings.frame_padding_mode == 'PREFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
+            padding_suffix = padding_apply and (settings.frame_padding_mode == 'SUFFIX' or settings.frame_padding_mode == 'PREFIX_SUFFIX')
 
             add_bake_report("padded", padding_apply)
             add_bake_report("padding", settings.frame_padding if padding_apply else 0)
@@ -1306,7 +1303,7 @@ def get_texture_channel_buffers(context, objs_to_bake, bake_frames_info, texture
 
                     try:
                         buffers[texture_index][buffer_object_index + buffer_channel_index] = data_to_bake
-                    except:
+                    except IndexError:
                         pass
 
     buffer_ranges_offsets = [0.0] * len(textures) * 4
@@ -1485,7 +1482,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
                     material_index_merged = materials.index(material_source)
                     if material_index_source != material_index_merged:
                         poly.material_index = material_index_merged
-                except:
+                except (IndexError, ValueError):
                     poly.material_index = 0
 
     """
@@ -1627,11 +1624,12 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     max_abs_quat_component_index = 0
 
     # re-order quat components... Blender is WXYZ ordered
+    # Use float() to ensure Python float64 precision for bit-packing arithmetic
     quat_components = [
-        quat.x,
-        quat.y,
-        quat.z,
-        quat.w
+        float(quat.x),
+        float(quat.y),
+        float(quat.z),
+        float(quat.w)
     ]
 
     # get quat's largest absolute component
@@ -1650,33 +1648,33 @@ def get_compressed_quat(quat: mathutils.Quaternion) -> float:
     quat_components[2] *= quat_largest_component_sign
     quat_components[3] *= quat_largest_component_sign
 
-    packed_quat = mathutils.Vector((0.0,0.0,0.0))
     # pack the smallest 3 components - fourth can be later reconstructed due to quaternions' property
+    # Use plain floats instead of mathutils.Vector to preserve float64 precision
     if max_abs_quat_component_index == 0: # X component is largest!!
-        packed_quat = mathutils.Vector((quat_components[1], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[1], quat_components[2], quat_components[3]]
         bitstring_index = "00"
     elif max_abs_quat_component_index == 1: # Y component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[2], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[2], quat_components[3]]
         bitstring_index = "01"
     elif max_abs_quat_component_index == 2: # Z component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[3]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[3]]
         bitstring_index = "10"
     else: # W component is largest!!
-        packed_quat = mathutils.Vector((quat_components[0], quat_components[1], quat_components[2]))
+        packed_quat = [quat_components[0], quat_components[1], quat_components[2]]
         bitstring_index = "11"
 
     # none of the 3 smallest components of a quat can be larger than 1/sqrt(2), so it can be remapped to increase accuracy
     quat_normalization_offset = 0.707106781
     quat_normalization_scale = quat_normalization_offset + quat_normalization_offset
 
-    packed_quat.x = min(1.0, max(0.0, (packed_quat.x + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.y = min(1.0, max(0.0, (packed_quat.y + quat_normalization_offset) / quat_normalization_scale))
-    packed_quat.z = min(1.0, max(0.0, (packed_quat.z + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[0] = min(1.0, max(0.0, (packed_quat[0] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[1] = min(1.0, max(0.0, (packed_quat[1] + quat_normalization_offset) / quat_normalization_scale))
+    packed_quat[2] = min(1.0, max(0.0, (packed_quat[2] + quat_normalization_offset) / quat_normalization_scale))
 
     # XYZ component converted into [0:1023] integer range to be packed into 10 bits
-    int_packed_quat_x = math.floor(packed_quat.x * 511)
-    int_packed_quat_y = math.floor(packed_quat.y * 1023)
-    int_packed_quat_z = math.floor(packed_quat.z * 1023)
+    int_packed_quat_x = math.floor(packed_quat[0] * 511)
+    int_packed_quat_y = math.floor(packed_quat[1] * 1023)
+    int_packed_quat_z = math.floor(packed_quat[2] * 1023)
 
     bitstring_x = str(bin(int_packed_quat_x))
     bitstring_x = bitstring_x[2:] # get rid of 0b
@@ -1797,7 +1795,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     tags = { "TextureName": texture_name, "BakeName": bake_name}
     image_name = replace_tags(image_name, tags)
     if image_name == "":
-        return (True, "Invalid image name", None)
+        return (False, "Invalid image name", None)
 
     image_name += ".exr"
 
@@ -1812,7 +1810,7 @@ def generate_texture(texture_name: str, bake_name: str, filename: str, buffer: l
     image.colorspace_settings.name = 'Non-Color'
     image.file_format = 'OPEN_EXR'
     image.use_half_precision = False
-    image.pixels = buffer
+    image.pixels.foreach_set(buffer)
     image.use_fake_user = True
     if bpy.data.is_saved:
         image.pack()
@@ -1843,18 +1841,19 @@ def export_texture(context: bpy.types.Context, image: bpy.types.Image, file_path
         FileFormat = context.scene.render.image_settings.file_format
         ColorDepth = context.scene.render.image_settings.color_depth
         EXRCodec = context.scene.render.image_settings.exr_codec
-        
-        # override scene render image settings
-        context.scene.render.image_settings.file_format = 'OPEN_EXR'
-        context.scene.render.image_settings.color_depth = '32'
-        context.scene.render.image_settings.exr_codec = 'NONE'
 
-        image.save_render(filepath=tex_path)
+        try:
+            # override scene render image settings
+            context.scene.render.image_settings.file_format = 'OPEN_EXR'
+            context.scene.render.image_settings.color_depth = '32'
+            context.scene.render.image_settings.exr_codec = 'NONE'
 
-         # restore scene render image settings
-        context.scene.render.image_settings.file_format = FileFormat
-        context.scene.render.image_settings.color_depth = ColorDepth
-        context.scene.render.image_settings.exr_codec = EXRCodec
+            image.save_render(filepath=tex_path)
+        finally:
+            # restore scene render image settings
+            context.scene.render.image_settings.file_format = FileFormat
+            context.scene.render.image_settings.color_depth = ColorDepth
+            context.scene.render.image_settings.exr_codec = EXRCodec
 
         return (True, "", tex_path)
     else:

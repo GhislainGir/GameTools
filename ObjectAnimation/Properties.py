@@ -169,7 +169,7 @@ class OATBAKER_PG_Settings(PropertyGroup):
     mesh_materials: BoolProperty(name="Materials", default=True, description="Enable to copy materials")
     export_mesh: BoolProperty(name="Export", default=True, description="Enable to export the generated mesh to an FBX file upon bake completion. Only available if the Blender file is saved")
     export_mesh_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported FBX file (without the .fbx extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
+    export_mesh_file_path: StringProperty(name="Path", default="//", description="File path for the exported FBX, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_mesh_file_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .fbx file")
     require_triangulation: BoolProperty(name="Require Triangulation", default=False, description="Enable to enforce triangulation, potentially improving remapping stability")
     previz_result: BoolProperty(name="Previz", default=False, description="Enable to add a geometry node modifier to the baked mesh for previewing baked offsets and normals after bake completion")
@@ -183,7 +183,7 @@ class OATBAKER_PG_Settings(PropertyGroup):
     ]
     export_xml_mode: EnumProperty(name="Mode", items=export_xml_modes, default=0, description="Select how the XML file name and path are generated")
     export_xml_file_name: StringProperty(name="Name", default="SM_<BakeName>", description="Name for the exported XML file (without the .xml extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name")
-    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH')
+    export_xml_file_path: StringProperty(name="Path", default="//", description="Path for the exported XML file, excluding the file name", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_xml_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .xml file")
 
     # frames
@@ -222,7 +222,7 @@ class OATBAKER_PG_Settings(PropertyGroup):
     
     export_tex: BoolProperty(name="Export", default=True, description="Enable to export the generated textures to an EXR file upon bake completion. Only available if the Blender file is saved")
     export_tex_file_name: StringProperty(name="Filename", default="T_<BakeName>_<TextureName>", description="Name for the texture file (without the .exr extension). <BakeName> is a placeholder tag that can be used to be replaced with the object's name. <TextureName> is a placeholder tag that can be used to be replaced with the texture's custom name")
-    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH')
+    export_tex_file_path: StringProperty(name="Path", default="//", description="Texture file path, excluding the file name. The path is relative to the Blender file if saved", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     export_tex_override: BoolProperty(name="Override", default=True, description="Enable to override any existing .exr file")
     export_tex_max_width: IntProperty(name="Max Width", min=2, max=8192, default=4096, description="Maximum allowed texture width. Exceeding this may cancel the bake due to an excess of vertices or frames")
     export_tex_max_height: IntProperty(name="Max Height", min=2, max=8192, default=4096, description="Maximum allowed texture height. Exceeding this may cancel the bake due to an excess of vertices or frame")
@@ -255,7 +255,7 @@ class OATBAKER_PG_ReportTexLayer(PropertyGroup):
     ID: StringProperty(name="ID", default="", description="")
     name: StringProperty(name="name", default="Texture", description="")
     exported: BoolProperty(name="Exported", default=False)
-    path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH')
+    path: StringProperty(name="Texture Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     img: PointerProperty(type=bpy.types.Image)
 
     R: PointerProperty(type=OATBAKER_PG_SettingsTexChannel)
@@ -325,7 +325,7 @@ class OATBAKER_PG_Report(PropertyGroup):
 
     mesh: PointerProperty(type=bpy.types.Object)
     mesh_export: BoolProperty(name="Export", default=False, description="")
-    mesh_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
+    mesh_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     mesh_uvmap_index: IntProperty(name="UV Index", default=0, description="")
     mesh_min_bounds_offset: FloatVectorProperty(name="Min Bounds Offset")
     mesh_max_bounds_offset: FloatVectorProperty(name="Max Bounds Offset")
@@ -340,7 +340,7 @@ class OATBAKER_PG_Report(PropertyGroup):
     tex_packing_stack_mode: StringProperty(name="Stack Mode", default="", description="")
 
     xml: BoolProperty(name="XML", default=False, description="")
-    xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH')
+    xml_path: StringProperty(name="Filepath", default="//", description="", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
 def register():
     bpy.types.Scene.OATBakerSettings = PointerProperty(type=OATBAKER_PG_Settings)
