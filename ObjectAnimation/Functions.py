@@ -1412,7 +1412,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
 
     # go to first frame
     context.scene.frame_set(bake_frame_ref)
-    #context.view_layer.update()
+    context.view_layer.update()
 
     dgraph = context.evaluated_depsgraph_get()
 

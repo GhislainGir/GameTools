@@ -3069,7 +3069,7 @@ def pre_bake_frame(context: bpy.types.Context, dgraph: bpy.types.Depsgraph, data
         target = get_data_layer_obj_source_obj(data_layer, eval_obj_to_bake)
 
         context.scene.frame_set(data_layer.index)
-        #context.view_layer.update()
+        context.view_layer.update()
 
         eval_obj = target.evaluated_get(dgraph)
         eval_mesh_source = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)

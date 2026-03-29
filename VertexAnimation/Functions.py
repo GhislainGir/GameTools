@@ -1164,7 +1164,7 @@ def generate_mesh(context: bpy.types.Context, bake_name: str, objs_to_bake: list
     if settings.bake_mode == "ANIMATION":
         # go to first frame
         context.scene.frame_set(bake_frame_ref)
-        #context.view_layer.update()
+        context.view_layer.update()
 
     dgraph = context.evaluated_depsgraph_get()
 
@@ -3698,7 +3698,7 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
         # REF POSE #
 
         context.scene.frame_set(bake_ref_frame)
-        #context.view_layer.update()
+        context.view_layer.update()
 
         ref_eval_obj = obj_to_bake.evaluated_get(dgraph)
         ref_eval_mesh = ref_eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=dgraph)
@@ -3792,7 +3792,7 @@ def get_animation_vertices_buffers(context: bpy.types.Context, objs_to_bake: lis
             bpy.context.window_manager.progress_update((progress * 80) + 10)
 
             context.scene.frame_set(frame_to_bake) # advance to frame
-            #context.view_layer.update()
+            context.view_layer.update()
 
             eval_posed_obj = obj_to_bake.evaluated_get(dgraph)
 
